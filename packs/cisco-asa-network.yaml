@@ -1,0 +1,125 @@
+# Cisco ASA syslog format.
+#
+# ASA logs start with `%ASA-<severity>-<message_id>: ` followed by the message.
+# We focus on the high-volume network traffic logs (302013, 302014, 302015, 302016).
+identity:
+  id: cisco-asa-network
+  vendor: Cisco
+  product: ASA
+  log_format: syslog-regex
+  priority: 15
+  detect:
+    # Reliable signature for Cisco ASA logs.
+    - contains_any: ["%ASA-1-", "%ASA-2-", "%ASA-3-", "%ASA-4-", "%ASA-5-", "%ASA-6-", "%ASA-7-"]
+
+extract:
+  - decoder: syslog
+  - decoder: regex
+    patterns:
+      # Built connection: %ASA-6-302013: Built inbound TCP connection 12345678 for outside:10.1.1.1/12345 (10.1.1.1/12345) to inside:192.168.1.1/80 (192.168.1.1/80)
+      # Built connection without NAT: %ASA-6-302013: Built inbound TCP connection 12345678 for outside:10.1.1.1/12345 to inside:192.168.1.1/80
+      - '%ASA-(?P<severity>\d+)-(?P<msg_id>\d+):\s+Built\s+(?P<direction>\w+)\s+(?P<proto>\w+)\s+connection\s+(?P<session>\d+)\s+for\s+(?P<src_intf>\w+):(?P<src_ip>[\d.]+)/(?P<src_port>\d+)(?:\s+\([^)]+\))?\s+to\s+(?P<dst_intf>\w+):(?P<dst_ip>[\d.]+)/(?P<dst_port>\d+)'
+      
+      # Teardown connection: %ASA-6-302014: Teardown TCP connection 12345678 for outside:10.1.1.1/12345 to inside:192.168.1.1/80 duration 0:00:30 bytes 12345 TCP FINs
+      - '%ASA-(?P<severity>\d+)-(?P<msg_id>\d+):\s+Teardown\s+(?P<proto>\w+)\s+connection\s+(?P<session>\d+)\s+for\s+(?P<src_intf>\w+):(?P<src_ip>[\d.]+)/(?P<src_port>\d+)(?:\s+\([^)]+\))?\s+to\s+(?P<dst_intf>\w+):(?P<dst_ip>[\d.]+)/(?P<dst_port>\d+)(?:\s+\([^)]+\))?\s+duration\s+(?P<duration>[\d:]+)\s+bytes\s+(?P<bytes>\d+)'
+
+map:
+  class_uid: 4001                      # Network Activity
+  activity_id:
+    from: msg_id
+    enum: asa_activity
+    default: 99                        # Other
+  severity_id:
+    from: severity
+    enum: asa_severity
+    default: 1
+  message:
+    from: syslog.body
+  src_endpoint.ip:
+    from: src_ip
+    observable: ip
+  src_endpoint.port:
+    from: src_port
+    as: int
+  src_endpoint.interface_name:
+    from: src_intf
+  dst_endpoint.ip:
+    from: dst_ip
+    observable: ip
+  dst_endpoint.port:
+    from: dst_port
+    as: int
+  dst_endpoint.interface_name:
+    from: dst_intf
+  connection_info.protocol_name:
+    from: proto
+  connection_info.session_uid:
+    from: session
+  connection_info.direction_id:
+    from: direction
+    enum: asa_direction
+  traffic.bytes:
+    from: bytes
+    as: int
+  device.hostname:
+    from: syslog.hostname
+    observable: hostname
+
+enums:
+  asa_activity:
+    # 302013 = Built TCP, 302015 = Built UDP, 302020 = Built ICMP
+    "302013": 1 # Open
+    "302015": 1
+    "302020": 1
+    # 302014 = Teardown TCP, 302016 = Teardown UDP, 302021 = Teardown ICMP
+    "302014": 2 # Close
+    "302016": 2
+    "302021": 2
+  asa_severity:
+    # Syslog severity maps 0-7, OCSF 1-6
+    "0": 6 # Emergency -> Fatal
+    "1": 5 # Alert -> Critical
+    "2": 5 # Critical -> Critical
+    "3": 4 # Error -> High
+    "4": 3 # Warning -> Medium
+    "5": 2 # Notice -> Low
+    "6": 1 # Informational -> Info
+    "7": 1 # Debug -> Info
+  asa_direction:
+    "inbound": 1
+    "outbound": 2
+
+fixtures:
+  - note: TCP Connection Built (with NAT blocks in parens)
+    raw: '<166>Oct 06 15:04:12 fwv-lon-01 : %ASA-6-302013: Built outbound TCP connection 123456 for outside:192.168.1.1/80 (192.168.1.1/80) to inside:10.0.0.1/45678 (10.0.0.1/45678)'
+    expect:
+      class_uid: 4001
+      activity_id: 1
+      severity_id: 1
+      src_endpoint.ip: 192.168.1.1
+      src_endpoint.port: 80
+      src_endpoint.interface_name: outside
+      dst_endpoint.ip: 10.0.0.1
+      dst_endpoint.port: 45678
+      dst_endpoint.interface_name: inside
+      connection_info.protocol_name: TCP
+      connection_info.session_uid: "123456"
+      connection_info.direction_id: 2
+      device.hostname: fwv-lon-01
+
+  - note: UDP Connection Teardown
+    raw: '<166>Oct 06 15:05:12 fwv-lon-01 : %ASA-6-302016: Teardown UDP connection 87654321 for inside:10.0.0.2/54321 to outside:8.8.8.8/53 duration 0:00:05 bytes 500'
+    expect:
+      class_uid: 4001
+      activity_id: 2
+      severity_id: 1
+      src_endpoint.ip: 10.0.0.2
+      src_endpoint.port: 54321
+      src_endpoint.interface_name: inside
+      dst_endpoint.ip: 8.8.8.8
+      dst_endpoint.port: 53
+      dst_endpoint.interface_name: outside
+      connection_info.protocol_name: UDP
+      connection_info.session_uid: "87654321"
+      traffic.bytes: 500
+      device.hostname: fwv-lon-01
