@@ -7,6 +7,7 @@ members = [
     "crates/ulpf-decode",
     "crates/ulpf-pack",
     "crates/ulpf-cli",
+    "crates/ulpf-generator",
 ]
 
 [workspace.package]
@@ -24,6 +25,7 @@ ulpf-ocsf = { path = "crates/ulpf-ocsf" }
 ulpf-vault = { path = "crates/ulpf-vault" }
 ulpf-decode = { path = "crates/ulpf-decode" }
 ulpf-pack = { path = "crates/ulpf-pack" }
+ulpf-generator = { path = "crates/ulpf-generator" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
