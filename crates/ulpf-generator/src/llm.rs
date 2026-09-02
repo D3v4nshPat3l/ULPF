@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use ulpf_pack::Pack;
 
 #[derive(Serialize)]
+#[allow(dead_code)]
 struct LlamaRequest {
     prompt: String,
     n_predict: usize,
@@ -15,10 +16,12 @@ struct LlamaRequest {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct LlamaResponse {
     content: String,
 }
 
+#[allow(dead_code)]
 pub struct GeneratorClient {
     endpoint: String,
 }

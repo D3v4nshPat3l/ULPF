@@ -13,6 +13,7 @@ pub struct Cluster {
     pub samples: Vec<String>,
 }
 
+#[allow(dead_code)]
 pub struct Drain {
     depth: usize,
     sim_th: f64,
@@ -24,9 +25,16 @@ pub struct Drain {
 }
 
 #[derive(Default)]
+#[allow(dead_code)]
 struct Node {
     children: HashMap<String, Node>,
     cluster_ids: Vec<String>,
+}
+
+impl Default for Drain {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Drain {
@@ -97,16 +105,16 @@ impl Drain {
 
     fn update_template(&mut self, id: String, tokens: Vec<String>) {
         let cluster = self.clusters.get_mut(&id).unwrap();
-        for i in 0..cluster.template.len() {
-            if cluster.template[i] != "<*>" && cluster.template[i] != tokens[i] {
-                cluster.template[i] = "<*>".to_string();
+        for (temp, token) in cluster.template.iter_mut().zip(tokens.iter()) {
+            if temp != "<*>" && temp != token {
+                *temp = "<*>".to_string();
             }
         }
     }
 
     pub fn ranked_clusters(&self) -> Vec<Cluster> {
         let mut sorted: Vec<_> = self.clusters.values().cloned().collect();
-        sorted.sort_by(|a, b| b.count.cmp(&a.count));
+        sorted.sort_by_key(|a| std::cmp::Reverse(a.count));
         sorted
     }
 }

@@ -19,8 +19,10 @@ pub mod cef;
 pub mod csv;
 pub mod json;
 pub mod keyvalue;
+pub mod leef;
 pub mod regex_dec;
 pub mod syslog;
+pub mod xml;
 
 use ulpf_core::FieldMap;
 
@@ -86,6 +88,8 @@ pub fn builtin(name: &str) -> Option<Box<dyn Decoder>> {
         "csv" => Some(Box::new(csv::CsvDecoder::default())),
         "cef" => Some(Box::new(cef::CefDecoder)),
         "json" => Some(Box::new(json::JsonDecoder)),
+        "xml" => Some(Box::new(xml::XmlDecoder)),
+        "leef" => Some(Box::new(leef::LeefDecoder)),
         // `regex` needs patterns from the pack, so it has no zero-argument
         // form: a pack must construct it via its `patterns` field.
         "regex" => None,
@@ -102,6 +106,8 @@ pub const BUILTIN_NAMES: &[&str] = &[
     "csv",
     "cef",
     "json",
+    "xml",
+    "leef",
     "regex",
 ];
 
