@@ -1,0 +1,10 @@
+target
+data
+.git
+.github
+testdata/bench.log
+testdata/real
+docs/images
+*.ndjson
+*.vlt
+*.key

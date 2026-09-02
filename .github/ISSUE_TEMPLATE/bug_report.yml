@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible defect in ULPF.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Remove or anonymize sensitive log content before attaching it.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Include the exact command and the smallest safe input.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ULPF version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, architecture, Rust version, and whether Docker was used.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs or evidence
+      description: Paste sanitized output. Never include credentials or private telemetry.
+

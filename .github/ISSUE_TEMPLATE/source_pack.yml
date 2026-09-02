@@ -1,0 +1,38 @@
+name: Source-pack request
+description: Request or contribute support for a perimeter log source.
+title: "pack: "
+labels: [source-pack]
+body:
+  - type: input
+    id: product
+    attributes:
+      label: Vendor and product
+      placeholder: ExampleCorp Edge Firewall
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Product and log-format versions
+    validations:
+      required: true
+  - type: textarea
+    id: formats
+    attributes:
+      label: Log formats and transports
+      description: For example RFC 5424 key-value over UDP/TCP.
+    validations:
+      required: true
+  - type: textarea
+    id: samples
+    attributes:
+      label: Sanitized samples or public corpus
+      description: Provide provenance and remove secrets, personal data, and internal addresses.
+    validations:
+      required: true
+  - type: textarea
+    id: mapping
+    attributes:
+      label: Expected OCSF mapping
+      description: List the class, activity, and important endpoint or finding fields.
+
