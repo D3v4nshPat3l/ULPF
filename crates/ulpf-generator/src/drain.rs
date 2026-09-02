@@ -3,7 +3,7 @@
 //! Groups raw log lines into templates based on token length and similarity,
 //! allowing the pack generator to tackle the highest-volume unknown logs first.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct Cluster {
@@ -74,7 +74,7 @@ impl Drain {
         } else {
             let id = format!("C{:04}", self.next_id);
             self.next_id += 1;
-            let mut cluster = Cluster {
+            let cluster = Cluster {
                 id: id.clone(),
                 template: tokens,
                 count: 1,
