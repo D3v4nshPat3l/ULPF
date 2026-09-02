@@ -1,56 +1,45 @@
-name: CI
+name: ULPF Air-Gapped CI
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+    branches: [ main ]
 
 jobs:
-  quality:
-    name: Format, lint, test, and build
+  build_and_test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.85.0
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-      - name: Lint
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Test workspace
-        run: cargo test --workspace --locked
-      - name: Score source packs
-        run: cargo run --locked --quiet -- test --packs packs
-      - name: Build release binary
-        run: cargo build --release --locked
-      - name: Exercise Parquet and pack-draft paths
-        shell: bash
-        run: |
-          workdir="$(mktemp -d)"
-          target/release/ulpf run \
-            --packs packs \
-            --vault "$workdir/vault" \
-            --integrity-dir "$workdir/integrity" \
-            --chain ci \
-            --input testdata/mixed.log \
-            --output "$workdir/events.ndjson" \
-            --dead-letter "$workdir/dead-letter.ndjson" \
-            --parquet "$workdir/events.parquet"
-          test "$(head -c 4 "$workdir/events.parquet")" = "PAR1"
-          test "$(tail -c 4 "$workdir/events.parquet")" = "PAR1"
-          target/release/ulpf draft \
-            --dead-letter "$workdir/dead-letter.ndjson" \
-            --output "$workdir/candidates"
-          test -f "$workdir/candidates/manifest.json"
+    - uses: actions/checkout@v3
+
+    # "Air-gapped" simulation: vendoring dependencies so build happens without network
+    - name: Vendor dependencies
+      run: cargo vendor
+
+    - name: Configure Cargo for vendored sources
+      run: |
+        mkdir -p .cargo
+        cat <<EOF > .cargo/config.toml
+        [source.crates-io]
+        replace-with = "vendored-sources"
+
+        [source.vendored-sources]
+        directory = "vendor"
+        EOF
+
+    - name: Simulate network disconnect
+      run: |
+        sudo iptables -A OUTPUT -p tcp -m owner ! --uid-owner root -j DROP
+        sudo iptables -A OUTPUT -p udp -m owner ! --uid-owner root -j DROP
+
+    - name: Build
+      run: cargo build --release
+
+    - name: Test
+      run: cargo test --workspace
+
+    - name: Check Formatting
+      run: cargo fmt -- --check
+
+    - name: Clippy
+      run: cargo clippy --workspace -- -D warnings

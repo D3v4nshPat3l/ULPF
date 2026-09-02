@@ -1,0 +1,19 @@
+[package]
+name = "ulpf-decode-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+ulpf-decode = { path = ".." }
+ulpf-core = { path = "../../../crates/ulpf-core" }
+
+[[bin]]
+name = "decoder_fuzz"
+path = "fuzz_targets/decoder_fuzz.rs"
+test = false
+doc = false
