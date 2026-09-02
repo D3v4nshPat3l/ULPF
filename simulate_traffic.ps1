@@ -22,7 +22,8 @@ while ($true) {
     }
 
     try {
-        Invoke-RestMethod -Uri $Url -Method Post -Body $log -ContentType 'text/plain' | Out-Null
+        $body = @{ lines = $log } | ConvertTo-Json
+        Invoke-RestMethod -Uri $Url -Method Post -Body $body -ContentType 'application/json' | Out-Null
         Write-Host "." -NoNewline
     } catch {
         Write-Host "x" -NoNewline
