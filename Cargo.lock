@@ -1271,6 +1271,7 @@ dependencies = [
  "tracing-subscriber",
  "ulpf-core",
  "ulpf-decode",
+ "ulpf-generator",
  "ulpf-ocsf",
  "ulpf-pack",
  "ulpf-vault",
@@ -1297,6 +1298,19 @@ dependencies = [
  "serde_json",
  "thiserror",
  "ulpf-core",
+]
+
+[[package]]
+name = "ulpf-generator"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tracing",
+ "ulpf-core",
+ "ulpf-pack",
 ]
 
 [[package]]
