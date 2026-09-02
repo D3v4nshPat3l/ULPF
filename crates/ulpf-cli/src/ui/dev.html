@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ULPF Developer / Attacker Console</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+      --page: #f5f7fa;
+      --surface: #ffffff;
+      --surface-alt: #f7f9fc;
+      --surface-sunken: #eef2f7;
+      --nav: #1a2634;
+      --nav-hover: #243346;
+      --nav-active: #0d1b2a;
+      --nav-text: #c5cfdb;
+      --nav-text-strong: #ffffff;
+      --border: #d3dae6;
+      --border-strong: #b6c0ce;
+      --text: #2f3841;
+      --text-muted: #69707d;
+      --text-faint: #98a2b3;
+      --primary: #8c1d18; /* Attacker red instead of blue */
+      --primary-hover: #691512;
+      --primary-soft: #fbeceb;
+      --critical: #8c1d18;
+      --high: #bd271e;
+      --medium: #c98a00;
+      --low: #0a7bbd;
+      --info: #69707d;
+      --success: #017d73;
+      --success-soft: #e6f2f1;
+      --danger-soft: #fbeceb;
+      --warning-soft: #fdf6e3;
+      --radius: 4px;
+      --shadow: 0 1px 2px rgba(23,35,51,.06);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--page); color: var(--text); font: 400 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+    button, input, textarea, select { font: inherit; color: inherit; }
+    a { color: var(--primary); }
+    h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
+    code, pre, .mono { font-family: var(--mono); }
+
+    .app { min-height: 100vh; display: grid; grid-template-columns: 232px minmax(0, 1fr); }
+    .sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; background: var(--nav); color: var(--nav-text); }
+    .sidebar-brand { display: flex; align-items: center; gap: 10px; padding: 18px 18px 16px; border: 0; border-bottom: 1px solid rgba(255,255,255,.08); background: none; width: 100%; text-align: left; }
+    .sidebar-brand .logo { width: 28px; height: 28px; flex: none; display: grid; place-items: center; background: var(--primary); border-radius: var(--radius); color: #fff; font: 700 14px var(--mono); }
+    .sidebar-brand b { display: block; color: var(--nav-text-strong); font-size: 14px; font-weight: 600; letter-spacing: .02em; }
+    .sidebar-brand small { display: block; color: #7e8c9e; font-size: 11px; margin-top: 1px; }
+    .sidebar-section { padding: 16px 18px 6px; color: #7e8c9e; font: 600 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+    .sidebar-nav { display: flex; flex-direction: column; }
+    .sidebar-nav button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 18px; border: 0; background: none; color: var(--nav-text); font-size: 13px; text-align: left; cursor: pointer; border-left: 3px solid transparent; }
+    .sidebar-nav button:hover { background: var(--nav-hover); color: var(--nav-text-strong); }
+    .sidebar-nav button.active { background: var(--nav-active); color: var(--nav-text-strong); border-left-color: var(--primary); font-weight: 600; }
+    .sidebar-foot { margin-top: auto; padding: 14px 18px; border-top: 1px solid rgba(255,255,255,.08); font-size: 12px; }
+    .sidebar-foot .conn { display: flex; align-items: center; gap: 8px; color: var(--nav-text); }
+    .sidebar-foot .conn i { width: 8px; height: 8px; border-radius: 50%; background: #6b7787; flex: none; }
+    .sidebar-foot .conn.up i { background: #54b399; }
+    .sidebar-foot small { display: block; margin-top: 6px; color: #6b7787; font: 11px var(--mono); word-break: break-all; }
+
+    .main { display: flex; flex-direction: column; min-width: 0; }
+    .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 14px 24px; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; }
+    .topbar h1 { font-size: 19px; }
+    .topbar .crumb { color: var(--text-muted); font: 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+
+    .content { padding: 20px 24px 40px; display: flex; flex-direction: column; gap: 16px; }
+
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 7px 13px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); color: var(--text); font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+    .btn:hover:not(:disabled) { background: var(--surface-sunken); border-color: var(--primary); }
+    .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .btn.primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
+    .btn.danger { border-color: var(--high); color: var(--high); }
+    .btn.danger:hover:not(:disabled) { background: var(--danger-soft); }
+    .btn.approve { background: var(--success); border-color: var(--success); color: #fff; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .card-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 13px 16px; border-bottom: 1px solid var(--border); }
+    .card-head h2 { font-size: 14px; font-weight: 600; }
+    .card-head .sub { color: var(--text-muted); font-size: 12px; }
+    .card-body { padding: 16px; }
+    
+    .grid-2 { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 16px; align-items: start; }
+    .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .stat .label { color: var(--text-muted); font-size: 12px; font-weight: 500; }
+    .stat .value { font: 600 26px/1.1 var(--sans); color: var(--text); font-variant-numeric: tabular-nums; }
+    
+    .proof-box { background: var(--surface-alt); border: 1px solid var(--border); padding: 16px; border-radius: var(--radius); margin-bottom: 16px; font-family: var(--mono); font-size: 11px; word-break: break-all; }
+    .proof-box strong { color: var(--primary); display: block; margin-bottom: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+
+  </style>
+</head>
+<body>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo">A</div>
+      <div>
+        <b>Attacker / Dev</b>
+        <small>ULPF Simulation Node</small>
+      </div>
+    </div>
+    
+    <div class="sidebar-section">Controls</div>
+    <nav class="sidebar-nav">
+      <button class="active">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+        Traffic Simulator
+      </button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="conn up"><i></i> <span id="status-text">Node active</span></div>
+      <small>Local Injector</small>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <div class="crumb">SIMULATION NODE / CONTROLS</div>
+        <h1>Traffic Simulation Control Plane</h1>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="card">
+        <div class="card-head">
+          <h2>Live Log Injection</h2>
+          <div class="sub">Inject synthetic telemetry directly into the ingest layer of the Main Dashboard.</div>
+        </div>
+        <div class="card-body grid-2">
+          <div>
+            <h3 style="font-size:14px; margin-bottom:16px;">Simulation State</h3>
+            <div style="display:flex; gap:12px; margin-bottom:24px;">
+              <button class="btn approve" id="btn-start-sim" onclick="startSim()">Start Simulator</button>
+              <button class="btn danger" id="btn-stop-sim" onclick="stopSim()" disabled>Stop Simulator</button>
+            </div>
+            
+            <div class="stat">
+              <span class="label">Simulator Status</span>
+              <span class="value" id="sim-status-text" style="font-size:20px;">STOPPED</span>
+            </div>
+          </div>
+          
+          <div>
+            <h3 style="font-size:14px; margin-bottom:16px;">Log Distribution</h3>
+            <p style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">The simulator generates an 80/20 mix of known formats (FortiGate, CEF) and unknown/legacy application logs to demonstrate the AI Generator's utility on the main dashboard.</p>
+            
+            <div class="proof-box">
+              <strong>Known Payload Sample</strong>
+              date=2024-03-15 time=10:30:01 devname="FG-100F" devid="FG100F12345678"...
+            </div>
+            <div class="proof-box">
+              <strong>Unknown Payload Sample</strong>
+              [INFO] [AppServer] User login successful - UserID: 1045...
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  let simInterval = null;
+  const KnownLogs = [
+    'date=2024-03-15 time=10:30:01 devname="FG-100F" devid="FG100F12345678" logid="0000000013" type="traffic" subtype="forward" level="notice" vd="root" srcip=192.168.1.10 srcport=54321 srcintf="port1" dstip=8.8.8.8 dstport=53 dstintf="port2" poluuid="a1b2c3d4-e5f6-7890" sessionid=123456 proto=17 action="accept" policyid=1',
+    '1,2024/03/15 10:30:01,001234567890,TRAFFIC,start,2304,2024/03/15 10:30:01,192.168.1.10,8.8.8.8,0.0.0.0,0.0.0.0,Rule1,,,udp,vsys1,trust,untrust,ethernet1/1,ethernet1/2,syslog,54321,53,0,0,0,0x400000,udp,allow,123456,64,64,128,1,2024/03/15 10:30:01,0,any,0,1234567890,0x0,10.0.0.0-10.255.255.255,US,0,1,0,0,0,0',
+    'Mar 15 10:30:01 server1 kernel: [12345.67890] IN=eth0 OUT= MAC=00:11:22:33:44:55:66:77:88:99:aa:bb:08:00 SRC=192.168.1.10 DST=10.0.0.5 LEN=60 TOS=0x00 PREC=0x00 TTL=64 ID=12345 DF PROTO=TCP SPT=54321 DPT=80 WINDOW=29200 RES=0x00 SYN URGP=0'
+  ];
+  const UnknownLogs = [
+    '[INFO] [AppServer] User login successful - UserID: 1045, IP: 192.168.1.55, SessionDuration: 3600',
+    '[WARN] [AppServer] Database connection timeout - Retry 3/5, DB_Host: db.internal.local',
+    '192.168.1.100 - - [15/Mar/2024:10:30:01 +0000] "GET /api/v1/users HTTP/1.1" 200 1024 "-" "MyAppClient/1.0"',
+    '10.0.0.5 - - [15/Mar/2024:10:30:02 +0000] "POST /api/v1/login HTTP/1.1" 401 512 "-" "MyAppClient/1.0"'
+  ];
+
+  function startSim() {
+    if (simInterval) return;
+    document.getElementById('btn-start-sim').disabled = true;
+    document.getElementById('btn-stop-sim').disabled = false;
+    document.getElementById('sim-status-text').innerText = "RUNNING (10-20 EPS)";
+    document.getElementById('sim-status-text').style.color = "var(--success)";
+    
+    simInterval = setInterval(() => {
+      const isKnown = Math.random() < 0.8;
+      const log = isKnown ? KnownLogs[Math.floor(Math.random() * KnownLogs.length)] : UnknownLogs[Math.floor(Math.random() * UnknownLogs.length)];
+      
+      fetch('/api/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lines: log })
+      }).catch(()=>{});
+    }, 150);
+  }
+
+  function stopSim() {
+    if (simInterval) {
+      clearInterval(simInterval);
+      simInterval = null;
+    }
+    document.getElementById('btn-start-sim').disabled = false;
+    document.getElementById('btn-stop-sim').disabled = true;
+    document.getElementById('sim-status-text').innerText = "STOPPED";
+    document.getElementById('sim-status-text').style.color = "var(--text)";
+  }
+</script>
+</body>
+</html>

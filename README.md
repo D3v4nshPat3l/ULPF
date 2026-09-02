@@ -149,7 +149,7 @@ does not need internet access.
 
 ## Run it
 
-### Operator console
+### Dual Dashboard UI
 
 ```bash
 ./target/release/ulpf serve \
@@ -159,8 +159,12 @@ does not need internet access.
   --chain console
 ```
 
-Open <http://127.0.0.1:8787>, select a real `.log` file, and press **Process
-file**. Requests are deliberately bounded to 2,000 records and 4 MiB. To expose
+ULPF runs two separate dashboards from the same binary, matching enterprise architectures (e.g., Lorica) where Analyst and Developer/Attacker tools are separated:
+
+1. **Main Analyst Console (`http://127.0.0.1:8787/`)**: The clean, pristine operator view. It shows OCSF metrics, the cryptographic chain state, and the real-time event pipeline.
+2. **Developer Simulator (`http://127.0.0.1:8787/dev`)**: The control plane. Open this on a second monitor (or a teammate's computer). Click **Start Simulator** here, and synthetic traffic (a mix of known packs and unknown zero-days) will instantly start injecting into the Main Analyst Console.
+
+Requests are deliberately bounded to 2,000 records and 4 MiB. To expose
 the console outside the host, explicitly pass `--host 0.0.0.0`; it has no
 built-in authentication, so place it behind an authenticated reverse proxy.
 

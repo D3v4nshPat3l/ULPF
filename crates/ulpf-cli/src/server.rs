@@ -28,6 +28,7 @@ use ulpf_vault::VaultReader;
 use crate::pipeline::Pipeline;
 
 const INDEX_HTML: &str = include_str!("ui/index.html");
+const DEV_HTML: &str = include_str!("ui/dev.html");
 
 /// Recent events kept for the console table.
 ///
@@ -62,6 +63,7 @@ type Shared = Arc<Mutex<AppState>>;
 pub fn router(state: Shared) -> Router {
     Router::new()
         .route("/", get(index))
+        .route("/dev", get(dev_dashboard))
         .route("/api/stats", get(stats))
         .route("/api/packs", get(packs))
         .route("/api/events", get(events))
@@ -79,6 +81,10 @@ pub fn router(state: Shared) -> Router {
 
 async fn index() -> Html<&'static str> {
     Html(INDEX_HTML)
+}
+
+async fn dev_dashboard() -> Html<&'static str> {
+    Html(DEV_HTML)
 }
 
 /// Anything that goes wrong becomes a JSON error the UI can render.

@@ -164,20 +164,7 @@
         Source Packs <span class="tally neutral" id="pack-count">0</span>
       </button>
     </nav>
-    
-    <div class="sidebar-section">Controls</div>
-    <nav class="sidebar-nav" id="controls-nav">
-      <button data-view="developer">
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
-        Developer Simulator
-      </button>
-      <button data-view="integrity">
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
-        Integrity Vault
-      </button>
-    </nav>
 
-    <div class="sidebar-foot">
       <div class="conn up"><i></i> <span id="status-text">Engine online</span></div>
       <small id="status-time">OCSF 1.9.0</small>
     </div>
@@ -273,44 +260,6 @@
         </div>
       </div>
 
-      <!-- DEVELOPER VIEW -->
-      <div class="view-section" id="view-developer">
-        <div class="card">
-          <div class="card-head">
-            <h2>Traffic Simulation Control Plane</h2>
-            <div class="sub">Inject synthetic telemetry directly into the ingest layer.</div>
-          </div>
-          <div class="card-body grid-2">
-            <div>
-              <h3 style="font-size:14px; margin-bottom:16px;">Simulation State</h3>
-              <div style="display:flex; gap:12px; margin-bottom:24px;">
-                <button class="btn approve" id="btn-start-sim" onclick="startSim()">Start Simulator</button>
-                <button class="btn danger" id="btn-stop-sim" onclick="stopSim()" disabled>Stop Simulator</button>
-              </div>
-              
-              <div class="stat">
-                <span class="label">Simulator Status</span>
-                <span class="value" id="sim-status-text" style="font-size:20px;">STOPPED</span>
-              </div>
-            </div>
-            
-            <div>
-              <h3 style="font-size:14px; margin-bottom:16px;">Log Distribution</h3>
-              <p style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">The simulator generates an 80/20 mix of known formats (FortiGate, CEF) and unknown/legacy application logs to demonstrate the AI Generator's utility.</p>
-              
-              <div class="proof-box">
-                <strong>Known Payload Sample</strong>
-                date=2024-03-15 time=10:30:01 devname="FG-100F" devid="FG100F12345678"...
-              </div>
-              <div class="proof-box">
-                <strong>Unknown Payload Sample</strong>
-                [INFO] [AppServer] User login successful - UserID: 1045...
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <!-- INTEGRITY VIEW -->
       <div class="view-section" id="view-integrity">
          <div class="card">
@@ -379,7 +328,7 @@
 
 <script>
   // Navigation Logic
-  const views = ['overview', 'copilot', 'findings', 'developer', 'integrity'];
+  const views = ['overview', 'copilot', 'findings'];
   
   function switchView(viewId) {
     views.forEach(v => {
@@ -401,50 +350,6 @@
       switchView(e.currentTarget.getAttribute('data-view'));
     });
   });
-
-  // Simulator Logic
-  let simInterval = null;
-  const KnownLogs = [
-    'date=2024-03-15 time=10:30:01 devname="FG-100F" devid="FG100F12345678" logid="0000000013" type="traffic" subtype="forward" level="notice" vd="root" srcip=192.168.1.10 srcport=54321 srcintf="port1" dstip=8.8.8.8 dstport=53 dstintf="port2" poluuid="a1b2c3d4-e5f6-7890" sessionid=123456 proto=17 action="accept" policyid=1',
-    '1,2024/03/15 10:30:01,001234567890,TRAFFIC,start,2304,2024/03/15 10:30:01,192.168.1.10,8.8.8.8,0.0.0.0,0.0.0.0,Rule1,,,udp,vsys1,trust,untrust,ethernet1/1,ethernet1/2,syslog,54321,53,0,0,0,0x400000,udp,allow,123456,64,64,128,1,2024/03/15 10:30:01,0,any,0,1234567890,0x0,10.0.0.0-10.255.255.255,US,0,1,0,0,0,0',
-    'Mar 15 10:30:01 server1 kernel: [12345.67890] IN=eth0 OUT= MAC=00:11:22:33:44:55:66:77:88:99:aa:bb:08:00 SRC=192.168.1.10 DST=10.0.0.5 LEN=60 TOS=0x00 PREC=0x00 TTL=64 ID=12345 DF PROTO=TCP SPT=54321 DPT=80 WINDOW=29200 RES=0x00 SYN URGP=0'
-  ];
-  const UnknownLogs = [
-    '[INFO] [AppServer] User login successful - UserID: 1045, IP: 192.168.1.55, SessionDuration: 3600',
-    '[WARN] [AppServer] Database connection timeout - Retry 3/5, DB_Host: db.internal.local',
-    '192.168.1.100 - - [15/Mar/2024:10:30:01 +0000] "GET /api/v1/users HTTP/1.1" 200 1024 "-" "MyAppClient/1.0"',
-    '10.0.0.5 - - [15/Mar/2024:10:30:02 +0000] "POST /api/v1/login HTTP/1.1" 401 512 "-" "MyAppClient/1.0"'
-  ];
-
-  function startSim() {
-    if (simInterval) return;
-    document.getElementById('btn-start-sim').disabled = true;
-    document.getElementById('btn-stop-sim').disabled = false;
-    document.getElementById('sim-status-text').innerText = "RUNNING (10-20 EPS)";
-    document.getElementById('sim-status-text').style.color = "var(--success)";
-    
-    simInterval = setInterval(() => {
-      const isKnown = Math.random() < 0.8;
-      const log = isKnown ? KnownLogs[Math.floor(Math.random() * KnownLogs.length)] : UnknownLogs[Math.floor(Math.random() * UnknownLogs.length)];
-      
-      fetch('/api/ingest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lines: log })
-      }).catch(()=>{});
-    }, 150);
-  }
-
-  function stopSim() {
-    if (simInterval) {
-      clearInterval(simInterval);
-      simInterval = null;
-    }
-    document.getElementById('btn-start-sim').disabled = false;
-    document.getElementById('btn-stop-sim').disabled = true;
-    document.getElementById('sim-status-text').innerText = "STOPPED";
-    document.getElementById('sim-status-text').style.color = "var(--text)";
-  }
 
   // Polling & Data
   function formatBytes(bytes) {
