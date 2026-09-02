@@ -10,7 +10,8 @@ Versioning once the first stable release is published.
 - Lossless append-first raw vault with compressed blocks and CRC verification.
 - OCSF 1.9 normalization, record-integrity chain, and Ed25519 checkpoints.
 - Declarative source packs with strict validation and fixture scoring.
-- File/stdin ingestion, UDP syslog receiver, NDJSON sink, and raw retrieval.
+- File/stdin ingestion, UDP syslog receiver, NDJSON sink, raw retrieval, and
+  bounded Parquet/OpenSearch/Splunk fan-out.
+- Offline dead-letter clustering and fixture-tested candidate pack drafting.
 - Embedded operator console with real-file ingest and tamper verification.
 - Docker, setup scripts, CI workflow, and hackathon evidence documentation.
-

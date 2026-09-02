@@ -10,9 +10,9 @@ cargo run --locked --quiet -- test --packs packs
 cargo build --release --locked
 ```
 
-The Rust suite currently contains 183 `#[test]` cases plus one compiled documentation test, for 184 executed tests. Source Pack fixtures add 13 end-to-end normalization cases with field assertions.
+The Rust suite currently contains 188 `#[test]` cases plus one compiled documentation test, for 189 executed tests. Source Pack fixtures add 13 end-to-end normalization cases with field assertions.
 
-## End-to-end integrity test
+## End-to-end integrity and sink test
 
 ```bash
 ./target/release/ulpf run \
@@ -22,7 +22,8 @@ The Rust suite currently contains 183 `#[test]` cases plus one compiled document
   --chain check \
   --input testdata/mixed.log \
   --output data/check/events.ndjson \
-  --dead-letter data/check/dead-letter.ndjson
+  --dead-letter data/check/dead-letter.ndjson \
+  --parquet data/check/events.parquet
 
 ./target/release/ulpf verify data/check/events.ndjson \
   --checkpoint data/check/integrity/check.checkpoint.json \
@@ -30,6 +31,24 @@ The Rust suite currently contains 183 `#[test]` cases plus one compiled document
 ```
 
 Expected: five events received, four parsed, one unidentified and preserved, followed by signed-checkpoint and trusted-key verification.
+
+Validate the Parquet footer and columns with an installed reader:
+
+```bash
+python -c "import pyarrow.parquet as pq; t=pq.read_table('data/check/events.parquet'); assert t.num_rows == 5; assert t.column_names == ['event_json', 'class_uid', 'activity_id', 'time']; print(t.schema)"
+```
+
+Then draft a candidate from the one unknown record:
+
+```bash
+./target/release/ulpf draft \
+  --dead-letter data/check/dead-letter.ndjson \
+  --output data/check/candidates
+```
+
+The command must report one candidate and write `manifest.json` with
+`approval_required: true`. Candidate YAML is tested through the same compiler;
+it is not added to `packs/` automatically.
 
 ## Losslessness checks
 

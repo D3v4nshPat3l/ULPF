@@ -9,7 +9,7 @@ It is deliberately not a SIEM. Correlation, alert triage, visualization, and mac
 ## Processing path
 
 ```text
-receiver -> raw vault -> source identification -> decoder chain -> OCSF mapping -> attestation -> NDJSON
+receiver -> raw vault -> source identification -> decoder chain -> OCSF mapping -> attestation -> fan-out sinks
                 |                |                                      |
                 |                +-> no match/failure -> dead letter ---+
                 +-> constant-time retrieval by raw locator
@@ -26,7 +26,7 @@ The ordering is a correctness property. The vault append precedes parsing, and a
 | `ulpf-pack` | Declarative Source Pack schema, validation, compilation, fixtures, scoring |
 | `ulpf-ocsf` | OCSF event construction, RFC 8785 canonicalization, hash chain, checkpoints |
 | `ulpf-vault` | Append-only block-compressed byte archive and indexed retrieval |
-| `ulpf-cli` | File/stdin/UDP ingestion, NDJSON output, verification, embedded operator console |
+| `ulpf-cli` | File/stdin/UDP ingestion, NDJSON and data-lake/SIEM sinks, pack drafting, verification, embedded operator console |
 
 ## Raw vault
 
@@ -46,11 +46,15 @@ This provides tamper evidence plus a trusted anchor. A hash chain alone cannot a
 
 A Source Pack is YAML with identity detectors, a decoder chain, OCSF mappings, enum translations, provenance, and golden fixtures. Packs are compiled once at startup. Unknown fields, empty detectors, missing base mappings, invalid enum references, unsafe framework-owned paths, invalid ranges, and malformed mapping objects fail during load.
 
-The hot path is deterministic: no network or model call executes per event. A future pack assistant may draft YAML offline, but a human-reviewed pack and its fixtures remain the runtime artifact.
+The hot path is deterministic: no network or model call executes per event. The
+offline `ulpf draft` assistant clusters dead letters and drafts YAML candidates;
+strict compilation, fixtures, and human approval remain mandatory before a pack
+can enter the runtime library.
 
 ## Runtime interfaces
 
-- `ulpf run`: file or stdin to NDJSON, raw vault, checkpoint, and optional dead-letter output.
+- `ulpf run`: file or stdin to NDJSON, raw vault, checkpoint, optional dead-letter output, and bounded Parquet/OpenSearch/Splunk fan-out.
+- `ulpf draft`: dead-letter clustering and fixture-tested candidate Source Packs.
 - `ulpf listen`: UDP syslog receiver on an operator-selected socket.
 - `ulpf serve`: local REST API and embedded console with no CDN or external runtime dependency.
 - `ulpf raw`: exact byte retrieval by locator.
@@ -66,7 +70,9 @@ The server bounds JSON bodies to 4 MiB, accepts at most 2,000 non-empty records 
 ## Current limitations
 
 - Source Packs are loaded at startup; hot reload is not implemented.
-- UDP syslog is implemented; TCP/TLS, Kafka, and HTTP bulk compatibility remain roadmap work.
-- NDJSON is the production sink today; Parquet, OpenSearch, Splunk HEC, and OTLP are planned.
+- UDP syslog is implemented; TCP/TLS and Kafka remain roadmap work.
+- Parquet, OpenSearch Bulk, and Splunk HEC adapters use plain HTTP to a trusted
+  local endpoint. TLS termination and destination-specific authentication are
+  deployment responsibilities.
 - The event model enforces OCSF base fields and pack guardrails but is not yet validated against a generated full-class JSON Schema in CI.
 - The console uses a synchronous critical section for the single-writer pipeline. This preserves chain order but requires sharded collectors for horizontal throughput.

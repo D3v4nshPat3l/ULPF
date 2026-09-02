@@ -35,3 +35,22 @@ jobs:
         run: cargo run --locked --quiet -- test --packs packs
       - name: Build release binary
         run: cargo build --release --locked
+      - name: Exercise Parquet and pack-draft paths
+        shell: bash
+        run: |
+          workdir="$(mktemp -d)"
+          target/release/ulpf run \
+            --packs packs \
+            --vault "$workdir/vault" \
+            --integrity-dir "$workdir/integrity" \
+            --chain ci \
+            --input testdata/mixed.log \
+            --output "$workdir/events.ndjson" \
+            --dead-letter "$workdir/dead-letter.ndjson" \
+            --parquet "$workdir/events.parquet"
+          test "$(head -c 4 "$workdir/events.parquet")" = "PAR1"
+          test "$(tail -c 4 "$workdir/events.parquet")" = "PAR1"
+          target/release/ulpf draft \
+            --dead-letter "$workdir/dead-letter.ndjson" \
+            --output "$workdir/candidates"
+          test -f "$workdir/candidates/manifest.json"

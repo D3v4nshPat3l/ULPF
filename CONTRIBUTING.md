@@ -37,6 +37,18 @@ cargo run --locked --quiet -- test --packs packs
 - Document dataset provenance without committing restricted/raw corpora.
 - Ensure all pack fixtures pass before requesting review.
 
+## Sink and generator changes
+
+- Keep NDJSON as the inspectable baseline; optional sinks must not bypass the
+  raw vault or integrity checkpoint.
+- Add a reader validation (for example, PyArrow or DuckDB) when changing the
+  Parquet layout.
+- Never commit destination tokens, URLs containing credentials, generated
+  candidate output, vault segments, or real unredacted logs.
+- Treat `ulpf draft` output as untrusted review material. A candidate needs
+  authoritative identity, narrow detectors, typed mappings, real fixtures, and
+  `provenance.approved_by` before it is copied into `packs/`.
+
 ## Commit messages
 
 Use an imperative conventional prefix, for example:

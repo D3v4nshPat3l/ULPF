@@ -34,9 +34,9 @@ OCSF, and make every transformation auditable.
 | Trace normalized events to originals | Implemented | `unmapped.ulpf_raw_locator`, content fingerprint, receipt, previous-event link |
 | Plug-and-play onboarding | Implemented at restart | Declarative YAML packs with validation and embedded fixtures; hot reload is pending |
 | Unified visibility | Implemented | Embedded operator console and event inspector |
-| SIEM/data-lake integration | Partial | Streaming NDJSON is ready; native HEC, OpenSearch, Parquet, and Iceberg sinks are planned |
+| SIEM/data-lake integration | Implemented core | NDJSON remains the inspectable default; bounded Parquet, OpenSearch Bulk, and Splunk HEC fan-out are available from `ulpf run` |
 | AI/ML-ready analytics | Partial | Stable structured JSON is available; columnar feature pipeline is planned |
-| Reduce parser development effort | Partial | Reusable decoders and scored packs exist; automatic pack drafting is planned |
+| Reduce parser development effort | Implemented at review gate | `ulpf draft` clusters dead letters and emits fixture-tested candidate YAML with provenance; candidates never activate automatically |
 | Air-gapped deployment | Runtime-ready | No runtime CDN, webfont, telemetry, or network dependency; dependency vendoring for offline compilation is planned |
 | Container packaging | Implemented | Multi-stage Dockerfile and hardened Compose service |
 
@@ -180,6 +180,68 @@ built-in authentication, so place it behind an authenticated reverse proxy.
 Expected result: five records received, four parsed, one unidentified and still
 vaulted/emitted.
 
+### Fan out to data-lake and SIEM sinks
+
+The normalized NDJSON stream can be sent to one or more additional destinations
+in the same run. Every sink receives the exact event that was written to the
+main output, while the raw vault and signed chain remain the source of truth:
+
+```bash
+./target/release/ulpf run \
+  --packs packs \
+  --vault data/run/vault \
+  --integrity-dir data/run/integrity \
+  --chain example \
+  --input testdata/mixed.log \
+  --output data/run/events.ndjson \
+  --dead-letter data/run/dead-letter.ndjson \
+  --parquet data/run/events.parquet \
+  --opensearch http://127.0.0.1:9200 \
+  --opensearch-index ulpf-events
+```
+
+The Parquet archive has a real footer and four queryable columns: the complete
+`event_json` document plus `class_uid`, `activity_id`, and `time`. OpenSearch
+uses `/_bulk`; Splunk uses HEC's newline event format:
+
+```powershell
+$env:ULPF_SPLUNK_HEC_TOKEN = "replace-with-a-short-lived-token"
+./target/release/ulpf.exe run `
+  --input testdata/mixed.log --output data/run/events.ndjson `
+  --parquet data/run/events.parquet `
+  --splunk-hec http://127.0.0.1:8088/services/collector
+```
+
+Remote sinks use bounded HTTP/1.1 batches and fail the run on a non-2xx
+response. Use an authenticated local TLS reverse proxy when a destination
+requires HTTPS; ULPF intentionally has no custom TLS implementation in the
+offline binary. See [Sink operations](docs/SINKS.md) for token names, delivery
+semantics, and the schema contract.
+
+### Draft a reviewed Source Pack from unknown logs
+
+Point the offline generator at a dead-letter stream. It normalizes recurring
+values into a stable template, chooses shared detector tokens, embeds real
+representative fixtures, validates the candidate through the normal pack
+compiler, and writes a manifest:
+
+```bash
+./target/release/ulpf draft \
+  --dead-letter data/run/dead-letter.ndjson \
+  --output data/run/candidates \
+  --max-clusters 20 \
+  --examples-per-cluster 5
+```
+
+The generated YAML is a review artifact, not an automatic parser. A reviewer
+must replace the unknown identity, confirm mappings, add source documentation,
+and record `provenance.approved_by` before copying it into `packs/`. This keeps
+an offline drafting assistant outside the ingestion trust boundary. See
+[Pack generator](docs/PACK_GENERATOR.md) for the review checklist. If your team
+has an approved local model runner, `ulpf draft --sidecar path/to/runner`
+enables the documented stdin/stdout `ulpf-pack-draft-v1` protocol; the
+deterministic path remains the default.
+
 ### Verify the signed chain
 
 ```bash
@@ -290,12 +352,15 @@ only; they are never included in the coverage figure above.
 
 ## Verification status
 
-- 184 executed Rust tests pass (183 unit/integration cases and one doc test).
+- 189 executed Rust tests pass (188 unit/integration cases and one doc test).
 - All 13 source-pack fixtures pass with 100% asserted-field accuracy.
 - Release build and mixed-stream signed-checkpoint flow pass.
 - Browser flow passes with 2,000 real Snort records and no console warnings or errors.
 - Vault reads verify header, bounds, decompressed size, and CRC-32.
 - Input/output/dead-letter path collisions are rejected before writing.
+- The release sink path was verified with PyArrow: five mixed events produced a
+  readable Parquet file with four columns; one unknown event also produced a
+  reviewable candidate pack.
 
 Run the complete local gate from [Testing](docs/TESTING.md).
 
@@ -305,7 +370,7 @@ Run the complete local gate from [Testing](docs/TESTING.md).
 ulpf/
 ├── .github/              CI, contribution templates, Dependabot
 ├── crates/               six focused Rust workspace crates
-├── docs/                 architecture, datasets, tests, roadmap, evidence
+├── docs/                 architecture, datasets, tests, sinks, generator, evidence
 ├── packs/                declarative source packs with fixtures
 ├── schema/ocsf/          pinned upstream OCSF 1.9 schema snapshot
 ├── scripts/              setup and real-corpus preparation
@@ -317,10 +382,15 @@ ulpf/
 
 ## Known limitations
 
-- Only UDP is implemented as a native network receiver; TCP/TLS syslog, Kafka,
-  and HTTP bulk clients remain roadmap work.
-- NDJSON is the only durable normalized sink.
+- Only UDP is implemented as a native network receiver; TCP/TLS syslog and
+  Kafka remain roadmap work.
+- OpenSearch and Splunk adapters currently speak plain HTTP to a trusted local
+  endpoint. Put a TLS/authenticated reverse proxy in front of them for remote
+  deployments.
 - Packs reload on process restart, not while ingest is running.
+- The pack generator is deterministic and offline; an optional local LLM
+  refinement sidecar is not required for safe operation and is not enabled by
+  default.
 - Five sources are included; FortiGate, PAN-OS, and generic CEF currently rely
   on documentation-derived fixtures rather than publishable vendor corpora.
 - The console is an operator prototype and intentionally ships without user

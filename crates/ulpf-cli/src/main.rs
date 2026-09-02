@@ -1,8 +1,10 @@
 //! `ulpf` — the Universal Log Pre-processing Framework command line.
 
+mod generator;
 mod integrity_state;
 mod pipeline;
 mod server;
+mod sinks;
 
 use std::io::{BufRead, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -35,6 +37,12 @@ struct RunOptions {
     integrity_dir: PathBuf,
     inline_raw: bool,
     dead_letter: Option<PathBuf>,
+    parquet: Option<PathBuf>,
+    opensearch: Option<String>,
+    opensearch_index: String,
+    splunk_hec: Option<String>,
+    splunk_token_env: String,
+    sink_batch_size: usize,
 }
 
 struct ListenOptions {
@@ -98,6 +106,46 @@ enum Command {
         /// clustering, and the queue that decides which pack to write next.
         #[arg(long)]
         dead_letter: Option<PathBuf>,
+        /// Write a self-contained Parquet archive with event_json and OCSF
+        /// scalar columns.
+        #[arg(long)]
+        parquet: Option<PathBuf>,
+        /// OpenSearch base URL. Uses `/_bulk`; HTTP is intended for a trusted
+        /// local proxy or lab endpoint.
+        #[arg(long)]
+        opensearch: Option<String>,
+        /// OpenSearch index used by the bulk sink.
+        #[arg(long, default_value = "ulpf-events")]
+        opensearch_index: String,
+        /// Splunk HEC URL, for example `http://127.0.0.1:8088/services/collector`.
+        #[arg(long)]
+        splunk_hec: Option<String>,
+        /// Environment variable containing the Splunk HEC token.
+        #[arg(long, default_value = "ULPF_SPLUNK_HEC_TOKEN")]
+        splunk_token_env: String,
+        /// Maximum events held by each remote sink before a request is sent.
+        #[arg(long, default_value_t = 250)]
+        sink_batch_size: usize,
+    },
+
+    /// Cluster dead-letter records and draft human-reviewable Source Packs.
+    Draft {
+        /// Dead-letter NDJSON produced by `ulpf run --dead-letter`.
+        #[arg(long)]
+        dead_letter: PathBuf,
+        /// Directory where candidate YAML files and manifest.json are written.
+        #[arg(long, default_value = "data/candidates")]
+        output: PathBuf,
+        /// Maximum number of template clusters to draft.
+        #[arg(long, default_value_t = 20)]
+        max_clusters: usize,
+        /// Representative fixtures to include in each candidate.
+        #[arg(long, default_value_t = 5)]
+        examples_per_cluster: usize,
+        /// Optional local executable that receives a JSON draft request on
+        /// stdin and returns one Source Pack YAML document on stdout.
+        #[arg(long)]
+        sidecar: Option<PathBuf>,
     },
 
     /// Run every pack's own fixtures and report coverage.
@@ -191,6 +239,12 @@ fn main() -> anyhow::Result<()> {
             integrity_dir,
             inline_raw,
             dead_letter,
+            parquet,
+            opensearch,
+            opensearch_index,
+            splunk_hec,
+            splunk_token_env,
+            sink_batch_size,
         } => cmd_run(RunOptions {
             packs_dir: packs,
             vault_dir: vault,
@@ -201,7 +255,26 @@ fn main() -> anyhow::Result<()> {
             integrity_dir,
             inline_raw,
             dead_letter,
+            parquet,
+            opensearch,
+            opensearch_index,
+            splunk_hec,
+            splunk_token_env,
+            sink_batch_size,
         }),
+        Command::Draft {
+            dead_letter,
+            output,
+            max_clusters,
+            examples_per_cluster,
+            sidecar,
+        } => generator::draft(
+            &dead_letter,
+            &output,
+            max_clusters,
+            examples_per_cluster,
+            sidecar.as_deref(),
+        ),
         Command::Test { packs } => cmd_test(packs),
         Command::Raw { vault, locator } => cmd_raw(vault, &locator),
         Command::Verify {
@@ -256,8 +329,14 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
         integrity_dir,
         inline_raw,
         dead_letter,
+        parquet,
+        opensearch,
+        opensearch_index,
+        splunk_hec,
+        splunk_token_env,
+        sink_batch_size,
     } = options;
-    ensure_output_paths_are_safe(&input, &output, dead_letter.as_deref())?;
+    ensure_output_paths_are_safe(&input, &output, dead_letter.as_deref(), parquet.as_deref())?;
     let (library, errors) = PackLibrary::load_dir(&packs_dir)
         .with_context(|| format!("loading packs from {}", packs_dir.display()))?;
     for (path, err) in &errors {
@@ -292,6 +371,17 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
         Some(path) => Some(open_output(&path.display().to_string())?),
         None => None,
     };
+    let mut sinks = sinks::SinkSet::new(
+        parquet.as_deref(),
+        opensearch.as_deref(),
+        &opensearch_index,
+        splunk_hec.as_deref(),
+        &splunk_token_env,
+        sink_batch_size,
+    )?;
+    if !sinks.is_empty() {
+        tracing::info!("optional output sinks enabled");
+    }
     let transport = if input == "-" {
         Transport::Stdin
     } else {
@@ -328,6 +418,7 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
                 writer.as_mut(),
                 &mut dead_letter_writer,
                 &checkpoint_path,
+                &mut sinks,
             )?;
         }
     }
@@ -337,14 +428,17 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
         writer.as_mut(),
         &mut dead_letter_writer,
         &checkpoint_path,
+        &mut sinks,
     )?;
     writer.flush()?;
     if let Some(dl) = &mut dead_letter_writer {
         dl.flush()?;
     }
+    sinks.flush()?;
 
     let elapsed = started.elapsed();
     let (stats, checkpoint) = pipeline.finish()?;
+    sinks.finish()?;
     if let Some(checkpoint) = &checkpoint {
         integrity_state::persist_checkpoint(&checkpoint_path, checkpoint)?;
     }
@@ -394,6 +488,7 @@ fn commit_pending(
     writer: &mut dyn Write,
     dead_letter: &mut Option<Box<dyn Write>>,
     checkpoint_path: &Path,
+    sinks: &mut sinks::SinkSet,
 ) -> anyhow::Result<()> {
     if pending.is_empty() {
         return Ok(());
@@ -409,6 +504,7 @@ fn commit_pending(
 
     for item in pending.drain(..) {
         writeln!(writer, "{}", item.processed.event.to_json())?;
+        sinks.write(&item.processed.event)?;
         if !item.processed.disposition.is_parsed() {
             if let Some(dl) = dead_letter.as_deref_mut() {
                 let valid_utf8 = std::str::from_utf8(&item.raw).is_ok();
@@ -677,6 +773,7 @@ fn ensure_output_paths_are_safe(
     input: &str,
     output: &str,
     dead_letter: Option<&Path>,
+    parquet: Option<&Path>,
 ) -> anyhow::Result<()> {
     let input_path = (input != "-")
         .then(|| normalized_path(Path::new(input)))
@@ -685,6 +782,7 @@ fn ensure_output_paths_are_safe(
         .then(|| normalized_path(Path::new(output)))
         .transpose()?;
     let dead_path = dead_letter.map(normalized_path).transpose()?;
+    let parquet_path = parquet.map(normalized_path).transpose()?;
 
     if input_path.is_some() && input_path == output_path {
         bail!("input and output resolve to the same file; refusing to truncate the input");
@@ -694,6 +792,15 @@ fn ensure_output_paths_are_safe(
     }
     if output_path.is_some() && output_path == dead_path {
         bail!("main output and dead-letter output resolve to the same file");
+    }
+    if input_path.is_some() && input_path == parquet_path {
+        bail!("input and Parquet output resolve to the same file");
+    }
+    if output_path.is_some() && output_path == parquet_path {
+        bail!("main output and Parquet output resolve to the same file");
+    }
+    if dead_path.is_some() && dead_path == parquet_path {
+        bail!("dead-letter and Parquet output resolve to the same file");
     }
     Ok(())
 }

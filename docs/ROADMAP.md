@@ -8,7 +8,7 @@
 - File, stdin, HTTP-console, and UDP syslog ingestion.
 - Five Source Packs and seven built-in decoders.
 - Bounded, air-gap-compatible operator console.
-- NDJSON and dead-letter output.
+- NDJSON, dead-letter, Parquet, OpenSearch Bulk, and Splunk HEC output.
 - Container and CI scaffolding.
 
 ## Next milestone: production core
@@ -23,8 +23,9 @@
 ## Differentiators
 
 - Template clustering over the dead-letter stream.
-- Offline, human-reviewed Source Pack drafting assistant.
-- Parquet/Iceberg and OpenSearch/Splunk/Kafka sinks.
+- Offline, human-reviewed Source Pack drafting assistant with provenance and
+  fixture gates.
+- Iceberg and Kafka sinks, plus TLS-native remote transport.
 - Stable derived features for downstream anomaly detection.
 
 ## Finale proof
