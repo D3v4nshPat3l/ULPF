@@ -16,6 +16,7 @@ ulpf-ocsf = { workspace = true }
 ulpf-vault = { workspace = true }
 ulpf-decode = { workspace = true }
 ulpf-pack = { workspace = true }
+ulpf-generator = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

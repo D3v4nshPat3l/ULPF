@@ -560,6 +560,7 @@ fn cmd_serve(
         latest_checkpoint,
         checkpoint_path,
         vault_dir,
+        drain: ulpf_generator::drain::Drain::new(),
     }));
 
     let runtime = tokio::runtime::Builder::new_multi_thread()

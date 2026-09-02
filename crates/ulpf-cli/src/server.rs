@@ -45,6 +45,7 @@ pub struct AppState {
     pub latest_checkpoint: Option<ulpf_ocsf::Checkpoint>,
     pub checkpoint_path: std::path::PathBuf,
     pub vault_dir: std::path::PathBuf,
+    pub drain: ulpf_generator::drain::Drain,
 }
 
 #[derive(Clone)]
@@ -63,6 +64,8 @@ pub fn router(state: Shared) -> Router {
         .route("/api/stats", get(stats))
         .route("/api/packs", get(packs))
         .route("/api/events", get(events))
+        .route("/api/clusters", get(clusters))
+        .route("/api/generate", post(generate))
         .route("/api/ingest", post(ingest))
         .route("/api/raw/{locator}", get(raw))
         .route("/api/verify", post(verify))
@@ -155,6 +158,59 @@ async fn events(State(state): State<Shared>) -> Json<Value> {
     Json(json!({ "events": rows }))
 }
 
+async fn clusters(State(state): State<Shared>) -> Json<Value> {
+    let s = lock(&state);
+    let ranked = s.drain.ranked_clusters();
+    let list: Vec<Value> = ranked.into_iter().map(|c| {
+        json!({
+            "id": c.id,
+            "count": c.count,
+            "template": c.template.join(" "),
+            "samples": c.samples,
+        })
+    }).collect();
+    Json(json!({ "clusters": list }))
+}
+
+#[derive(serde::Deserialize)]
+struct GenerateBody {
+    cluster_id: String,
+}
+
+async fn generate(
+    State(state): State<Shared>,
+    Json(body): Json<GenerateBody>,
+) -> Result<Json<Value>, ApiError> {
+    let samples = {
+        let s = lock(&state);
+        s.drain
+            .ranked_clusters()
+            .into_iter()
+            .find(|c| c.id == body.cluster_id)
+            .map(|c| c.samples.clone())
+            .unwrap_or_default()
+    };
+
+    if samples.is_empty() {
+        return Err(ApiError(StatusCode::NOT_FOUND, "cluster not found".into()));
+    }
+
+    // Call the LLM
+    let client = ulpf_generator::llm::GeneratorClient::new("http://localhost:8080");
+    let pack = client.draft_pack(&body.cluster_id, &samples).await
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    
+    // Score it
+    let score = ulpf_generator::scorer::Scorer::score(&pack);
+
+    Ok(Json(json!({
+        "pack_yaml": serde_yaml::to_string(&pack).unwrap(),
+        "fixtures": score.total,
+        "fixtures_passed": score.passed,
+        "field_accuracy": score.field_accuracy(),
+    })))
+}
+
 /// Condense an event into the columns the console table shows.
 fn summarize(r: &RecentEvent) -> Value {
     let e = r.event.as_map();
@@ -240,6 +296,10 @@ async fn ingest(
             "event": processed.event.to_value(),
             "summary": summarize(&recent),
         }));
+
+        if !processed.disposition.is_parsed() {
+            s.drain.process(line);
+        }
 
         s.recent.push(recent);
         if s.recent.len() > RECENT_CAPACITY {

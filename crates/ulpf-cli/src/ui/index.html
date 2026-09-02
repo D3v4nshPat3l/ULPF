@@ -28,6 +28,7 @@
       <button class="nav-item active" type="button"><svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor"><path d="M3 3h5v5H3zM12 3h5v5h-5zM3 12h5v5H3zM12 12h5v5h-5z"/></svg>Overview</button>
       <button class="nav-item" id="navPacks" type="button"><svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor"><path d="m10 2 7 4-7 4-7-4 7-4Z"/><path d="m3 10 7 4 7-4M3 14l7 4 7-4"/></svg>Source Packs</button>
       <button class="nav-item" id="navIntegrity" type="button"><svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor"><path d="M10 2 4 4v5c0 4.1 2.4 7 6 9 3.6-2 6-4.9 6-9V4l-6-2Z"/><path d="m7.2 9.8 1.7 1.7 3.9-4"/></svg>Integrity</button>
+      <button class="nav-item" id="navGenerator" type="button"><svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor"><path d="M10 2l3 6 6 1-4 4 1 6-6-3-6 3 1-6-4-4 6-1 3-6z"/></svg>AI Generator</button>
       <div class="nav-label" style="margin-top:18px">Interface</div><div class="nav-item" style="cursor:default"><svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor"><path d="M3 5h14v10H3zM6 8l2 2-2 2M10 12h4"/></svg>REST / JSON</div>
       <div class="rail-foot"><div class="status-line"><span class="pulse"></span><span id="serviceStatus">Service online</span></div><div class="rail-meta">LOCAL / AIR-GAPPED<br>NO EXTERNAL REQUESTS</div></div>
     </aside>
@@ -53,6 +54,7 @@
   <div class="drawer-backdrop" id="backdrop"></div>
   <aside class="drawer" id="eventDrawer" aria-label="Event inspector"><div class="drawer-head"><div><div class="eyebrow">Event inspector</div><h3 id="drawerTitle">Normalized event</h3></div><button class="close" data-close type="button">×</button></div><div class="drawer-body"><div class="detail-grid" id="detailGrid"></div><div class="detail-tabs"><button class="tab active" data-detail="normalized" type="button">Normalized</button><button class="tab" data-detail="extracted" type="button">Extracted</button><button class="tab" data-detail="raw" type="button">Raw proof</button></div><pre id="detailCode"></pre><div class="raw-proof" id="rawProof" hidden></div><div class="tamper-box"><h4>Controlled integrity test</h4><p>Changes only this in-memory console row. The append-only raw vault remains untouched.</p><div class="tamper-row"><input id="tamperPath" value="src_endpoint.ip" aria-label="OCSF path"><input id="tamperValue" value="203.0.113.250" aria-label="Replacement value"><button class="button danger" id="tamperBtn" type="button">Tamper copy</button></div></div></div></aside>
   <aside class="drawer" id="packsDrawer" aria-label="Source Packs"><div class="drawer-head"><div><div class="eyebrow">Declarative normalization</div><h3>Installed Source Packs</h3></div><button class="close" data-close type="button">×</button></div><div class="drawer-body" id="packsList"></div></aside>
+  <aside class="drawer" id="genDrawer" aria-label="AI Generator"><div class="drawer-head"><div><div class="eyebrow">Offline Analysis</div><h3>AI Parser Generator</h3></div><button class="close" data-close type="button">×</button></div><div class="drawer-body" id="genBody"><div class="empty-note">Loading unparsed clusters...</div></div></aside>
   <div class="toast" id="toast" role="status"></div>
   <script>
     const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -81,6 +83,34 @@
     function setMode(mode){$$("[data-mode]").forEach(tab=>tab.classList.toggle("active",tab.dataset.mode===mode));$("#logInput").style.display=mode==="paste"?"block":"none";$("#dropzone").classList.toggle("active",mode==="file");if(mode==="paste"){state.input="";updateInputMeta()}}function updateInputMeta(){const text=state.input||$("#logInput").value;$("#inputMeta").textContent=`${formatNumber(recordCount(text))} records ready`}
     async function openFile(file){if(!file)return;const text=await file.slice(0,4*1024*1024).text(),lines=text.split(/\r?\n/).filter(line=>line.trim()).slice(0,2000);state.input=lines.join("\n");$("#dropMeta").textContent=`${file.name} · ${formatBytes(file.size)}`;updateInputMeta();toast(`${formatNumber(lines.length)} real records ready from ${file.name}`)}
     $("#ingestBtn").addEventListener("click",ingest);$("#verifyBtn").addEventListener("click",verify);$("#clearBtn").addEventListener("click",clearView);$("#tamperBtn").addEventListener("click",tamper);$("#packsBtn").addEventListener("click",()=>openDrawer($("#packsDrawer")));$("#navPacks").addEventListener("click",()=>openDrawer($("#packsDrawer")));$("#navIntegrity").addEventListener("click",verify);$("#backdrop").addEventListener("click",closeDrawers);$$('[data-close]').forEach(button=>button.addEventListener("click",closeDrawers));$$("[data-detail]").forEach(tab=>tab.addEventListener("click",()=>selectDetail(tab.dataset.detail)));$$("[data-mode]").forEach(tab=>tab.addEventListener("click",()=>setMode(tab.dataset.mode)));$("#logInput").addEventListener("input",updateInputMeta);$("#fileInput").addEventListener("change",event=>openFile(event.target.files[0]));$("#dropzone").addEventListener("dragover",event=>event.preventDefault());$("#dropzone").addEventListener("drop",event=>{event.preventDefault();openFile(event.dataTransfer.files[0])});document.addEventListener("keydown",event=>{if(event.key==="Escape")closeDrawers()});refresh();
+    
+    // AI Generator
+    $("#navGenerator").addEventListener("click",async()=>{
+      openDrawer($("#genDrawer"));
+      $("#genBody").innerHTML="<div class='empty-note'>Fetching clusters...</div>";
+      const data=await api("/api/clusters");
+      if(!data.clusters||data.clusters.length===0){
+        $("#genBody").innerHTML="<div class='empty-note'>No unparsed logs found. Try ingesting some unknown formats first.</div>";
+        return;
+      }
+      $("#genBody").innerHTML="";
+      data.clusters.forEach(c=>{
+        const el=document.createElement("div");
+        el.className="pack-card";
+        el.innerHTML=`<h4>Cluster ${c.id}</h4><p>${c.count} records matching template: <code>${c.template}</code></p><button class="button primary" onclick="generatePack('${c.id}')">Generate Pack</button><div id="res-${c.id}"></div>`;
+        $("#genBody").appendChild(el);
+      });
+    });
+    window.generatePack = async(id)=>{
+      const res=document.getElementById("res-"+id);
+      res.innerHTML="<div class='empty-note'>Drafting YAML via llama.cpp...</div>";
+      try{
+        const out=await api("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({cluster_id:id})});
+        res.innerHTML=`<div style="margin-top:10px;padding:10px;background:#101514;border:1px solid #27302f;"><pre>${out.pack_yaml}</pre><div style="margin-top:10px;color:#76d6b1">${out.fixtures_passed}/${out.fixtures} Fixtures passed (${(out.field_accuracy*100).toFixed(0)}% Accuracy)</div></div>`;
+      }catch(e){
+        res.innerHTML=`<div class="empty-note" style="color:#e67878">Error: ${e.message}</div>`;
+      }
+    };
   </script>
 </body>
 </html>
