@@ -1,0 +1,203 @@
+{
+  "uid": 5,
+  "caption": "Incident Finding",
+  "category": "findings",
+  "description": "An Incident Finding reports the creation, update, or closure of security incidents as a result of detections and/or analytics. <br><strong>Note: </strong><code>Incident Finding</code> implicitly includes the <code>incident</code> profile and it should be added to the <code>metadata.profiles[]</code> array.",
+  "extends": "base_event",
+  "name": "incident_finding",
+  "attributes": {
+    "activity_id": {
+      "description": "The normalized identifier of the incident activity. Use <code>1</code> (Create) when an incident is first opened, <code>2</code> (Update) when an existing incident is modified (e.g., new findings added, priority changed, assignee updated), and <code>3</code> (Close) when the incident is resolved.",
+      "requirement": "required",
+      "enum": {
+        "1": {
+          "caption": "Create",
+          "description": "Reports the creation of an Incident."
+        },
+        "2": {
+          "caption": "Update",
+          "description": "Reports updates to an Incident."
+        },
+        "3": {
+          "caption": "Close",
+          "description": "Reports closure of an Incident ."
+        }
+      }
+    },
+    "activity_name": {
+      "description": "The incident activity name, as defined by the <code>activity_id</code>. When <code>activity_id</code> is <code>99</code> (Other), this <b>must</b> contain the source-specific activity label.",
+      "requirement": "optional"
+    },
+    "assignee": {
+      "group": "context",
+      "requirement": "optional"
+    },
+    "assignee_group": {
+      "group": "context",
+      "requirement": "optional"
+    },
+    "attacks": {
+      "description": "An array of attack objects, each describing a tactic, technique, and/or sub-technique associated with the Incident.",
+      "group": "context",
+      "requirement": "optional",
+      "references": [
+        {
+          "description": "MITRE ATT&CK®",
+          "url": "https://attack.mitre.org"
+        }
+      ],
+      "profile": null
+    },
+    "comment": {
+      "description": "Additional user supplied details for updating or closing the incident.",
+      "group": "context",
+      "requirement": "optional",
+      "@deprecated": {
+        "message": "Use the <code>notes</code> attribute instead.",
+        "since": "1.9.0",
+        "superseded_by": [
+          "notes"
+        ]
+      }
+    },
+    "confidence": {
+      "group": "context",
+      "requirement": "optional",
+      "profile": null
+    },
+    "confidence_id": {
+      "description": "The normalized identifier of the confidence level for this incident, representing a summary across all aggregated findings. It reflects the accuracy of the analytics that produced those findings. A lower confidence value indicates a wider finding scope that may produce noisy or potentially non-malicious reports. When the value is <code>99</code> (Other), the <code>confidence</code> attribute must contain the incident-specific label.",
+      "group": "context",
+      "requirement": "recommended",
+      "profile": null
+    },
+    "confidence_score": {
+      "description": "The confidence score assigned to the incident by the system or analyst, expressed on a source-specific numeric scale. This score provides finer-grained confidence information than the categorical <code>confidence_id</code> value. When <code>confidence_id</code> is <code>99</code> (Other), the <code>confidence</code> attribute should reflect the same assessment if both are populated.",
+      "group": "context",
+      "requirement": "optional",
+      "profile": null
+    },
+    "desc": {
+      "description": "The short description of the Incident.",
+      "group": "primary",
+      "requirement": "recommended"
+    },
+    "end_time": {
+      "description": "The time of the most recent event or finding that contributed to this incident.",
+      "requirement": "optional"
+    },
+    "finding_info_list": {
+      "group": "primary",
+      "requirement": "required"
+    },
+    "impact": {
+      "group": "primary",
+      "requirement": "recommended"
+    },
+    "impact_id": {
+      "group": "primary",
+      "requirement": "recommended"
+    },
+    "impact_score": {
+      "group": "primary",
+      "requirement": "recommended"
+    },
+    "is_suspected_breach": {
+      "group": "context",
+      "requirement": "optional"
+    },
+    "notes": {
+      "caption": "Notes",
+      "description": "Additional notes related to the finding. Each note in the array can include a comment, the user who made the comment, the time when the note was created, and the time when the note was last modified (typically by the same user). Notes can be used to provide additional context, explanations, or observations by analysts related to the incident over time.",
+      "group": "context",
+      "requirement": "optional"
+    },
+    "priority": {
+      "group": "context",
+      "requirement": "optional"
+    },
+    "priority_id": {
+      "group": "context",
+      "requirement": "recommended"
+    },
+    "src_url": {
+      "description": "A Url link used to access the original incident.",
+      "group": "primary",
+      "requirement": "recommended"
+    },
+    "start_time": {
+      "description": "The time of the earliest event or finding that contributed to this incident.",
+      "requirement": "optional"
+    },
+    "status": {
+      "description": "The incident lifecycle status label, normalized to the caption of the <code>status_id</code> value. When <code>status_id</code> is <code>99</code> (Other), this <b>must</b> contain the source-specific status label.",
+      "group": "primary",
+      "requirement": "recommended"
+    },
+    "status_id": {
+      "description": "The normalized incident lifecycle status identifier. This tracks the incident management workflow from initial triage through resolution. Producers should set this to reflect the current state in their incident management system.",
+      "group": "primary",
+      "requirement": "required",
+      "enum": {
+        "1": {
+          "caption": "New",
+          "description": "The service desk has received the incident but has not assigned it to an agent."
+        },
+        "2": {
+          "caption": "In Progress",
+          "description": "The incident has been assigned to an agent but has not been resolved. The agent is actively working with the user to diagnose and resolve the incident."
+        },
+        "3": {
+          "caption": "On Hold",
+          "description": "The incident requires some information or response from the user or from a third party."
+        },
+        "4": {
+          "caption": "Resolved",
+          "description": "The service desk has confirmed that the incident is resolved."
+        },
+        "5": {
+          "caption": "Closed",
+          "description": "The incident is resolved and no further action is necessary."
+        }
+      }
+    },
+    "ticket": {
+      "group": "context",
+      "requirement": "optional",
+      "@deprecated": {
+        "message": "Use <code>tickets</code> instead.",
+        "since": "1.5.0",
+        "superseded_by": [
+          "tickets"
+        ]
+      }
+    },
+    "tickets": {
+      "group": "context",
+      "requirement": "optional"
+    },
+    "time": {
+      "description": "The incident creation time - when the incident was first opened, not when the underlying activity occurred. For the time range of contributing events, use <code>start_time</code> and <code>end_time</code>."
+    },
+    "vendor_attributes": {
+      "requirement": "optional"
+    },
+    "verdict": {
+      "group": "primary",
+      "requirement": "recommended"
+    },
+    "verdict_id": {
+      "group": "primary",
+      "requirement": "recommended"
+    }
+  },
+  "constraints": {
+    "at_least_one": [
+      "assignee",
+      "assignee_group"
+    ]
+  },
+  "profiles": [
+    "incident"
+  ]
+}

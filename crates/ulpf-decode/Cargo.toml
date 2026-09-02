@@ -1,0 +1,14 @@
+[package]
+name = "ulpf-decode"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Built-in wire-format decoders for ULPF: syslog, key-value, CSV, CEF, JSON"
+
+[dependencies]
+ulpf-core = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+memchr = { workspace = true }
+regex.workspace = true

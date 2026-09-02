@@ -1,0 +1,22 @@
+[package]
+name = "ulpf-ocsf"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "OCSF v1.9.0 event model, RFC 8785 canonicalization, and record integrity for ULPF"
+
+[dependencies]
+ulpf-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+blake3 = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+uuid = { workspace = true }
+ed25519-dalek = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }

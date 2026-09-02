@@ -1,0 +1,131 @@
+# FortiGate traffic log over syslog.
+#
+# FortiOS emits a key=value body with no RFC 3164 timestamp, hostname or tag —
+# the syslog envelope is just <PRI>. The syslog decoder tolerates that and hands
+# the whole body to the key-value decoder.
+#
+# Format reference: FortiOS Log Message Reference, "Log message fields".
+identity:
+  id: fortinet-fortigate-traffic
+  vendor: Fortinet
+  product: FortiGate
+  log_format: syslog-keyvalue
+  priority: 10
+  detect:
+    # FortiOS quotes most values, but not consistently across firmware
+    # versions and not for every field. Accept both spellings rather than
+    # betting on one and silently matching nothing in production.
+    - contains_all: ["devname="]
+      contains_any: ['type="traffic"', "type=traffic"]
+
+extract:
+  - decoder: syslog
+  - decoder: keyvalue
+
+map:
+  class_uid: 4001                      # Network Activity
+  activity_id:
+    from: action
+    enum: fortigate_action
+    default: 6                         # Traffic
+  severity_id:
+    from: level
+    enum: fortigate_level
+    default: 1
+  # eventtime is epoch seconds on modern FortiOS; older builds omit it and the
+  # pipeline falls back to receipt time rather than dropping the event.
+  time:
+    from: eventtime
+    format: epoch_s
+  message:
+    from: [msg, subtype]
+  src_endpoint.ip:
+    from: srcip
+    observable: ip
+  src_endpoint.port:
+    from: srcport
+    as: int
+  src_endpoint.interface_name:
+    from: srcintf
+  dst_endpoint.ip:
+    from: dstip
+    observable: ip
+  dst_endpoint.port:
+    from: dstport
+    as: int
+  dst_endpoint.interface_name:
+    from: dstintf
+  connection_info.protocol_num:
+    from: proto
+    as: int
+  connection_info.session_uid:
+    from: sessionid
+  traffic.bytes_out:
+    from: sentbyte
+    as: int
+  traffic.bytes_in:
+    from: rcvdbyte
+    as: int
+  traffic.packets_out:
+    from: sentpkt
+    as: int
+  traffic.packets_in:
+    from: rcvdpkt
+    as: int
+  device.hostname:
+    from: devname
+    observable: hostname
+  device.uid:
+    from: devid
+  actor.user.name:
+    from: user
+    observable: user
+
+enums:
+  # FortiGate action -> OCSF Network Activity activity_id.
+  # A firewall denial is Reset (3): the connection was terminated by a
+  # middlebox, which is exactly what OCSF's definition describes.
+  fortigate_action:
+    accept: 6
+    start: 1
+    close: 2
+    deny: 3
+    blocked: 3
+    timeout: 4
+    client-rst: 3
+    server-rst: 3
+  fortigate_level:
+    emergency: 6
+    alert: 5
+    critical: 5
+    error: 4
+    warning: 3
+    notice: 1
+    information: 1
+    debug: 1
+
+fixtures:
+  - note: Accepted outbound session, modern FortiOS with eventtime.
+    raw: '<134>date=2026-08-31 time=10:23:45 devname="FGT-DEL-01" devid="FG100F1234567890" logid="0000000013" type="traffic" subtype="forward" level="notice" vd="root" eventtime=1756636800 srcip=10.2.4.7 srcport=52341 srcintf="port1" dstip=8.8.8.8 dstport=443 dstintf="wan1" proto=6 action="accept" policyid=42 sessionid=10045 duration=30 sentbyte=2500 rcvdbyte=2200'
+    expect:
+      class_uid: 4001
+      type_uid: 400106
+      category_uid: 4
+      activity_id: 6
+      src_endpoint.ip: 10.2.4.7
+      src_endpoint.port: 52341
+      dst_endpoint.ip: 8.8.8.8
+      dst_endpoint.port: 443
+      traffic.bytes_out: 2500
+      traffic.bytes_in: 2200
+      device.hostname: FGT-DEL-01
+      metadata.log_format: syslog-keyvalue
+
+  - note: Denied inbound attempt maps to Reset, not Traffic.
+    raw: '<131>date=2026-08-31 time=10:24:01 devname="FGT-DEL-01" devid="FG100F1234567890" type="traffic" subtype="forward" level="warning" eventtime=1756636841 srcip=203.0.113.45 srcport=61000 dstip=10.2.4.7 dstport=3389 proto=6 action="deny" policyid=0 sentbyte=0 rcvdbyte=0'
+    expect:
+      activity_id: 3
+      type_uid: 400103
+      severity_id: 3
+      src_endpoint.ip: 203.0.113.45
+      dst_endpoint.port: 3389

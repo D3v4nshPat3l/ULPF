@@ -1,0 +1,97 @@
+# Palo Alto PAN-OS traffic log over syslog.
+#
+# PAN-OS sends a positional CSV record whose meaning is entirely by column
+# index. Field 1 is FUTURE_USE and is empty, so the record begins with a comma.
+# Positions below are 0-based (col.N = documented position - 1).
+#
+# Format reference: PAN-OS Admin Guide, "Traffic Log Fields".
+identity:
+  id: paloalto-panos-traffic
+  vendor: Palo Alto Networks
+  product: PAN-OS
+  log_format: syslog-csv
+  priority: 10
+  detect:
+    - contains_all: [",TRAFFIC,"]
+
+extract:
+  - decoder: syslog
+  - decoder: csv
+
+map:
+  class_uid: 4001
+  activity_id:
+    from: col.30                       # Action
+    enum: panos_action
+    default: 6
+  severity_id: 1
+  time:
+    from: col.6                        # Generated Time
+    format: slash_date_time
+  src_endpoint.ip:
+    from: col.7                        # Source Address
+    observable: ip
+  src_endpoint.port:
+    from: col.24                       # Source Port
+    as: int
+  src_endpoint.zone:
+    from: col.16                       # Source Zone
+  src_endpoint.interface_name:
+    from: col.18                       # Inbound Interface
+  dst_endpoint.ip:
+    from: col.8                        # Destination Address
+    observable: ip
+  dst_endpoint.port:
+    from: col.25                       # Destination Port
+    as: int
+  dst_endpoint.zone:
+    from: col.17                       # Destination Zone
+  dst_endpoint.interface_name:
+    from: col.19                       # Outbound Interface
+  connection_info.protocol_name:
+    from: col.29                       # IP Protocol
+  connection_info.session_uid:
+    from: col.22                       # Session ID
+  app_name:
+    from: col.14                       # Application
+  traffic.bytes:
+    from: col.31                       # Bytes
+    as: int
+  traffic.bytes_out:
+    from: col.32                       # Bytes Sent
+    as: int
+  traffic.bytes_in:
+    from: col.33                       # Bytes Received
+    as: int
+  traffic.packets:
+    from: col.34                       # Packets
+    as: int
+  actor.user.name:
+    from: col.12                       # Source User
+    observable: user
+  device.uid:
+    from: col.2                        # Serial Number
+
+enums:
+  panos_action:
+    allow: 6
+    deny: 3
+    drop: 3
+    reset-client: 3
+    reset-server: 3
+    reset-both: 3
+
+fixtures:
+  - note: Allowed DNS session at documented column positions.
+    raw: '<14>Aug 31 10:23:45 PA-3220 1,2026/08/31 10:23:45,001801234567,TRAFFIC,end,2049,2026/08/31 10:23:44,10.2.4.7,8.8.8.8,203.0.113.9,8.8.8.8,allow-dns,,,dns,vsys1,trust,untrust,ethernet1/1,ethernet1/2,log-forwarding,,12345,1,53124,53,41234,53,0x400053,udp,allow,512,64,448,4,2026/08/31 10:23:40,0,dns'
+    expect:
+      class_uid: 4001
+      activity_id: 6
+      src_endpoint.ip: 10.2.4.7
+      dst_endpoint.ip: 8.8.8.8
+      src_endpoint.port: 53124
+      dst_endpoint.port: 53
+      app_name: dns
+      traffic.bytes: 512
+      src_endpoint.zone: trust
+      dst_endpoint.zone: untrust

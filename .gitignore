@@ -1,0 +1,15 @@
+/target/
+/data/
+/testdata/bench.log
+/testdata/real/
+*.ndjson
+*.vlt
+*.key
+.env
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Documentation evidence is intentionally versioned.
+!/docs/images/*.png

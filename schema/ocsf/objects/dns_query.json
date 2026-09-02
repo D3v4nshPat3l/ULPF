@@ -1,0 +1,59 @@
+{
+  "caption": "DNS Query",
+  "description": "The DNS Query object represents a specific request made to the Domain Name System (DNS) to retrieve information about a domain or perform a DNS operation.",
+  "extends": "object",
+  "name": "dns_query",
+  "attributes": {
+    "class": {
+      "caption": "Resource Record Class",
+      "description": "The class of resource records being queried. See RFC 1035. For example: <code>IN</code>.",
+      "requirement": "recommended"
+    },
+    "hostname": {
+      "description": "The hostname or domain being queried. For example: <code>www.example.com</code>",
+      "requirement": "required"
+    },
+    "opcode": {
+      "requirement": "optional",
+      "@deprecated": {
+        "message": "Use <code>dns_activity.opcode</code> instead.",
+        "since": "1.9.0",
+        "superseded_by": [
+          "dns_activity.opcode"
+        ]
+      }
+    },
+    "opcode_id": {
+      "requirement": "recommended",
+      "@deprecated": {
+        "message": "Use <code>dns_activity.opcode_id</code> instead.",
+        "since": "1.9.0",
+        "superseded_by": [
+          "dns_activity.opcode_id"
+        ]
+      }
+    },
+    "packet_uid": {
+      "description": "The DNS packet identifier assigned by the program that generated the query. The identifier is copied to the response.",
+      "requirement": "recommended",
+      "@deprecated": {
+        "message": "Use <code>dns_activity.transaction_id</code> instead.",
+        "since": "1.9.0",
+        "superseded_by": [
+          "dns_activity.transaction_id"
+        ]
+      }
+    },
+    "type": {
+      "caption": "Resource Record Type",
+      "description": "The type of resource records being queried. See RFC 1035. For example: A, AAAA, CNAME, MX, and NS.",
+      "requirement": "recommended"
+    }
+  },
+  "references": [
+    {
+      "description": "D3FEND™ Ontology d3f:DNSLookup.",
+      "url": "https://d3fend.mitre.org/dao/artifact/d3f:DNSLookup/"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+ULPF — Universal Log Pre-processing Framework
+Copyright 2026 ULPF contributors
+
+This product includes a pinned copy of the Open Cybersecurity Schema Framework
+(OCSF) schema, Copyright Amazon.com, Inc. or its affiliates, licensed under the
+Apache License 2.0. The upstream project is available at:
+https://github.com/ocsf/ocsf-schema
+
+The OCSF project and its maintainers do not endorse this project.
+

@@ -1,0 +1,132 @@
+# Snort NIDS alerts written to syslog.
+#
+# Written against real honeynet capture data (Honeynet Project "Scan of the
+# Month" 34). Every fixture is an unmodified line from that capture.
+#
+# Shape: RFC 3164 syslog, `snort:` tag, then a fixed sentence:
+#   [gid:sid:rev] Rule name [Classification: X] [Priority: N]: {PROTO} src -> dst
+# Ports are present for TCP/UDP and absent for ICMP, so they are optional
+# capture groups rather than two separate patterns.
+#
+# These are detections, not traffic, so they map to OCSF Detection Finding
+# (2004) rather than Network Activity — a Snort alert asserts that something
+# matched a rule, which is a different claim from "a packet went past".
+identity:
+  id: snort-nids-alert
+  vendor: Snort
+  product: Snort NIDS
+  log_format: syslog-snort
+  priority: 15
+  detect:
+    # Preprocessor alerts (Spade, stream4, http_inspect) carry neither a
+    # Classification nor a Priority block, so detecting on those would miss
+    # 31% of a real capture. The syslog tag plus a signature bracket is the
+    # reliable signal.
+    - contains_all: ["snort: ["]
+    # Fallback for deployments that use a different syslog tag.
+    - contains_all: ["[Classification:", "[Priority:"]
+
+extract:
+  - decoder: syslog
+  - decoder: regex
+    patterns:
+      - '\[(?P<gid>\d+):(?P<sid>\d+):(?P<rev>\d+)\]\s+(?P<rule_name>.+?)\s+\[Classification:\s*(?P<classification>[^\]]+)\]\s+\[Priority:\s*(?P<priority>\d+)\]:\s+\{(?P<proto>\w+)\}\s+(?P<src>[\d.]+)(?::(?P<sport>\d+))?\s+->\s+(?P<dst>[\d.]+)(?::(?P<dport>\d+))?'
+      # Some builds omit the Classification block but keep Priority.
+      - '\[(?P<gid>\d+):(?P<sid>\d+):(?P<rev>\d+)\]\s+(?P<rule_name>.+?)\s+\[Priority:\s*(?P<priority>\d+)\]:\s+\{(?P<proto>\w+)\}\s+(?P<src>[\d.]+)(?::(?P<sport>\d+))?\s+->\s+(?P<dst>[\d.]+)(?::(?P<dport>\d+))?'
+      # Preprocessor alerts: signature, free-text name, then the flow. No
+      # Classification, no Priority. This shape is 31% of the SotM34 capture.
+      - '\[(?P<gid>\d+):(?P<sid>\d+):(?P<rev>\d+)\]\s+(?P<rule_name>.+?)\s+\{(?P<proto>\w+)\}\s+(?P<src>[\d.]+)(?::(?P<sport>\d+))?\s+->\s+(?P<dst>[\d.]+)(?::(?P<dport>\d+))?'
+
+map:
+  class_uid: 2004                      # Detection Finding
+  activity_id: 1                       # Create
+  severity_id:
+    from: priority
+    enum: snort_priority
+    default: 3
+  # finding_info.uid is schema-required. The Snort signature id is the natural
+  # stable identifier for what was detected.
+  finding_info.uid:
+    from: sid
+  finding_info.title:
+    from: rule_name
+  finding_info.analytic.name:
+    from: rule_name
+  finding_info.analytic.uid:
+    from: sid
+  finding_info.analytic.type_id: 1     # Rule
+  message:
+    from: rule_name
+  is_alert: true
+  src_endpoint.ip:
+    from: src
+    observable: ip
+  src_endpoint.port:
+    from: sport
+    as: int
+  dst_endpoint.ip:
+    from: dst
+    observable: ip
+  dst_endpoint.port:
+    from: dport
+    as: int
+  connection_info.protocol_name:
+    from: proto
+  device.hostname:
+    from: syslog.hostname
+    observable: hostname
+
+enums:
+  # Snort priority runs 1 (most severe) to 4; OCSF severity runs the other way.
+  snort_priority:
+    "1": 5     # Critical
+    "2": 4     # High
+    "3": 3     # Medium
+    "4": 2     # Low
+
+fixtures:
+  - note: Real UDP alert with ports, SotM34 capture, unmodified.
+    raw: 'Feb 25 12:23:54 bastion snort: [1:2003:8] MS-SQL Worm propagation attempt [Classification: Misc Attack] [Priority: 2]: {UDP} 61.185.28.41:1067 -> 11.11.79.89:1434'
+    expect:
+      class_uid: 2004
+      activity_id: 1
+      severity_id: 4
+      finding_info.uid: "2003"
+      finding_info.title: MS-SQL Worm propagation attempt
+      src_endpoint.ip: 61.185.28.41
+      src_endpoint.port: 1067
+      dst_endpoint.ip: 11.11.79.89
+      dst_endpoint.port: 1434
+      connection_info.protocol_name: UDP
+
+  - note: Real ICMP alert — no ports present.
+    raw: 'Feb 25 12:21:33 bastion snort: [1:483:5] ICMP PING CyberKit 2.2 Windows [Classification: Misc activity] [Priority: 3]: {ICMP} 70.81.243.88 -> 11.11.79.100'
+    expect:
+      class_uid: 2004
+      severity_id: 3
+      finding_info.uid: "483"
+      finding_info.title: ICMP PING CyberKit 2.2 Windows
+      src_endpoint.ip: 70.81.243.88
+      dst_endpoint.ip: 11.11.79.100
+      connection_info.protocol_name: ICMP
+
+  - note: Real Spade preprocessor alert — no Classification, no Priority.
+    raw: 'Feb 25 12:21:33 bastion snort: [104:4:1] Spade: Source used odd dest port: nonlocal source, udp: 1.0000 {UDP} 129.49.7.3:53 -> 11.11.79.67:4598'
+    expect:
+      class_uid: 2004
+      severity_id: 3
+      finding_info.uid: "4"
+      src_endpoint.ip: 129.49.7.3
+      src_endpoint.port: 53
+      dst_endpoint.ip: 11.11.79.67
+      dst_endpoint.port: 4598
+      connection_info.protocol_name: UDP
+
+  - note: Real stream4 preprocessor alert.
+    raw: 'Feb 25 12:21:33 bastion snort: [111:2:1] (spp_stream4) possible EVASIVE RST detection {TCP} 220.170.88.36:2997 -> 11.11.79.69:3128'
+    expect:
+      class_uid: 2004
+      finding_info.title: (spp_stream4) possible EVASIVE RST detection
+      src_endpoint.ip: 220.170.88.36
+      dst_endpoint.ip: 11.11.79.69
+      dst_endpoint.port: 3128

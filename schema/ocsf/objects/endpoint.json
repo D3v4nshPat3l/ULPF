@@ -1,0 +1,249 @@
+{
+  "observable": 20,
+  "caption": "Endpoint",
+  "description": "The Endpoint object describes a physical or virtual device that connects to and exchanges information with a computer network. Some examples of endpoints are mobile devices, desktop computers, virtual machines, embedded devices, and servers. Internet-of-Things devices—like cameras, lighting, refrigerators, security systems, smart speakers, and thermostats—are also endpoints.",
+  "extends": "_entity",
+  "name": "endpoint",
+  "attributes": {
+    "$include": [
+      "profiles/container.json"
+    ],
+    "agent_list": {
+      "requirement": "optional"
+    },
+    "domain": {
+      "description": "The name of the domain that the endpoint belongs to or that corresponds to the endpoint.",
+      "requirement": "optional"
+    },
+    "hostname": {
+      "description": "The fully qualified name of the endpoint.",
+      "requirement": "recommended"
+    },
+    "hw_info": {
+      "requirement": "optional"
+    },
+    "instance_uid": {
+      "requirement": "recommended"
+    },
+    "interface_name": {
+      "requirement": "recommended"
+    },
+    "interface_uid": {
+      "requirement": "recommended"
+    },
+    "ip": {
+      "description": "The IP address of the endpoint, in either IPv4 or IPv6 format.",
+      "requirement": "recommended"
+    },
+    "location": {
+      "description": "The geographical location of the endpoint.",
+      "requirement": "optional"
+    },
+    "mac": {
+      "description": "The Media Access Control (MAC) address of the endpoint.",
+      "requirement": "optional"
+    },
+    "mac_vendor": {
+      "description": "The vendor or manufacturer of the endpoint's network interface controller (NIC), as identified from the MAC address.",
+      "requirement": "optional"
+    },
+    "name": {
+      "description": "The short name of the endpoint."
+    },
+    "os": {
+      "description": "The endpoint operating system.",
+      "requirement": "optional"
+    },
+    "owner": {
+      "description": "The identity of the service or user account that owns the endpoint or was last logged into it.",
+      "requirement": "recommended"
+    },
+    "pool": {
+		      "description": "The pool of desktops or virtual machines to which the endpoint belongs.",
+		      "requirement": "optional"
+    },
+    "subnet_uid": {
+      "requirement": "optional"
+    },
+    "type": {
+      "caption": "Type",
+      "description": "The endpoint type. For example: <code>unknown</code>, <code>server</code>, <code>desktop</code>, <code>laptop</code>, <code>tablet</code>, <code>mobile</code>, <code>virtual</code>, <code>browser</code>, or <code>other</code>.",
+      "requirement": "optional"
+    },
+    "type_id": {
+      "caption": "Type ID",
+      "description": "The endpoint type ID.",
+      "requirement": "recommended",
+      "enum": {
+        "1": {
+          "caption": "Server",
+          "references": [
+            {
+              "description": "Server",
+              "url": "https://d3fend.mitre.org/dao/artifact/d3f:Server/"
+            }
+          ]
+        },
+        "2": {
+          "caption": "Desktop",
+          "references": [
+            {
+              "description": "Desktop Computer",
+              "url": "https://d3fend.mitre.org/dao/artifact/d3f:DesktopComputer/"
+            }
+          ]
+        },
+        "3": {
+          "caption": "Laptop",
+          "references": [
+            {
+              "description": "Laptop Computer",
+              "url": "https://d3fend.mitre.org/dao/artifact/d3f:LaptopComputer"
+            }
+          ]
+        },
+        "4": {
+          "caption": "Tablet",
+          "references": [
+            {
+              "description": "Tablet Computer",
+              "url": "https://d3fend.mitre.org/dao/artifact/d3f:TabletComputer/"
+            }
+          ]
+        },
+        "5": {
+          "caption": "Mobile",
+          "references": [
+            {
+              "description": "Mobile Phone",
+              "url": "https://d3fend.mitre.org/dao/artifact/d3f:MobilePhone/"
+            }
+          ]
+        },
+        "6": {
+          "caption": "Virtual",
+          "references": [
+            {
+              "description": "Virtual Machine",
+              "url": "https://d3fend.mitre.org/dao/artifact/d3f:VirtualizationSoftware/"
+            }
+          ]
+        },
+        "7": {
+          "caption": "IOT",
+          "references": [
+            {
+              "description": "IOT (Internet of Things) Device",
+              "url": "https://www.techtarget.com/iotagenda/definition/IoT-device"
+            }
+          ]
+        },
+        "8": {
+          "caption": "Browser",
+          "references": [
+            {
+              "description": "Web Browser",
+              "url": "https://d3fend.mitre.org/dao/artifact/d3f:Browser/"
+            }
+          ]
+        },
+        "9": {
+          "caption": "Firewall",
+          "references": [
+            {
+              "description": "Network Firewall",
+              "url": "https://d3fend.mitre.org/dao/artifact/d3f:Firewall/"
+            }
+          ]
+        },
+        "10": {
+          "caption": "Switch",
+          "references": [
+            {
+              "description": "Networking Switch",
+              "url": "https://d3fend.mitre.org/dao/artifact/d3f:Switch/"
+            }
+          ]
+        },
+        "11": {
+          "caption": "Hub",
+          "references": [
+            {
+              "description": "Networking Hub",
+              "url": "https://en.wikipedia.org/wiki/Ethernet_hub"
+            }
+          ]
+        },
+        "12": {
+          "caption": "Router",
+          "references": [
+            {
+              "description": "Networking Router",
+              "url": "https://d3fend.mitre.org/dao/artifact/d3f:Router/"
+            }
+          ]
+        },
+        "13": {
+          "caption": "IDS",
+          "references": [
+            {
+              "description": "Intrustion Detection System",
+              "url": "https://d3fend.mitre.org/dao/artifact/d3f:IntrusionDetectionSystem/"
+            }
+          ]
+        },
+        "14": {
+          "caption": "IPS",
+          "references": [
+            {
+              "description": "Intrusion Prevention System",
+              "url": "https://d3fend.mitre.org/dao/artifact/d3f:IntrusionPreventionSystem/"
+            }
+          ]
+        },
+        "15": {
+          "caption": "Load Balancer",
+          "references": [
+            {
+              "description": "Load Balancer Device",
+              "url": "https://en.wikipedia.org/wiki/Load_balancing_(computing)"
+            }
+          ]
+        }
+      }
+    },
+    "uid": {
+      "description": "The unique identifier of the endpoint."
+    },
+    "vlan_uid": {
+      "requirement": "optional"
+    },
+    "vpc_uid": {
+      "requirement": "optional"
+    },
+    "zone": {
+      "description": "The network zone or LAN segment.",
+      "requirement": "optional"
+    }
+  },
+  "constraints": {
+    "at_least_one": [
+      "ip",
+      "uid",
+      "name",
+      "hostname",
+      "instance_uid",
+      "interface_uid",
+      "interface_name"
+    ]
+  },
+  "profiles": [
+    "container"
+  ],
+  "references": [
+    {
+      "description": "D3FEND™ Ontology d3f:Host.",
+      "url": "https://d3fend.mitre.org/dao/artifact/d3f:ComputerNetworkNode/"
+    }
+  ]
+}

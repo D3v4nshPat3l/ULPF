@@ -1,0 +1,6 @@
+# Stable Rust is selected consistently and the manifest enforces MSRV 1.85.
+# Windows contributors may use either the MSVC or GNU host toolchain; see the
+# platform-specific prerequisites in README.md.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

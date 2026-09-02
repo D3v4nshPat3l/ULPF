@@ -1,0 +1,95 @@
+{
+  "uid": 1,
+  "caption": "Network Activity",
+  "description": "Network Activity events report network connection and traffic activity.",
+  "extends": "network",
+  "name": "network_activity",
+  "attributes": {
+    "activity_id": {
+      "enum": {
+        "1": {
+          "caption": "Open",
+          "description": "A new network connection was opened."
+        },
+        "2": {
+          "caption": "Close",
+          "description": "The network connection was closed."
+        },
+        "3": {
+          "caption": "Reset",
+          "description": "The network connection was abnormally terminated or closed by a middle device like firewalls."
+        },
+        "4": {
+          "caption": "Fail",
+          "description": "The network connection failed. For example a connection timeout or no route to host."
+        },
+        "5": {
+          "caption": "Refuse",
+          "description": "The network connection was refused. For example an attempt to connect to a server port which is not open."
+        },
+        "6": {
+          "caption": "Traffic",
+          "description": "Network traffic report."
+        },
+        "7": {
+          "caption": "Listen",
+          "description": "A network endpoint began listening for new network connections."
+        }
+      }
+    },
+    "dst_endpoint": {
+      "description": "The destination endpoint of the network activity — typically the responder. In bi-flow or asymmetric flow scenarios, this endpoint may represent the true initiator of the original communication. Use <code>initiator_id</code> to determine which endpoint actually initiated the communication."
+    },
+    "initiator": {
+      "description": "The endpoint that initiated the network communication, normalized to the caption of <code>initiator_id</code>. In the case of <code>Other</code>, it is defined by the event source.",
+      "group": "context",
+      "requirement": "optional"
+    },
+    "initiator_id": {
+      "description": "The normalized identifier of the endpoint that initiated the network communication. Use this field to disambiguate source and destination roles in bi-directional or asymmetric flow scenarios.",
+      "group": "primary",
+      "requirement": "recommended",
+      "enum": {
+        "0": {
+          "caption": "Unknown"
+        },
+        "1": {
+          "caption": "Source Endpoint",
+          "description": "The <code>src_endpoint</code> is the true initiator and the source/destination assignment is correct."
+        },
+        "2": {
+          "caption": "Destination Endpoint",
+          "description": "The <code>dst_endpoint</code> is the true initiator and the source/destination assignment is reversed."
+        },
+        "99": {
+          "caption": "Other"
+        }
+      }
+    },
+    "is_src_dst_assignment_known": {
+      "group": "primary",
+      "requirement": "recommended",
+      "@deprecated": {
+        "message": "Use <code>initiator_id</code> instead, which provides richer semantics for bi-flow and asymmetric flow scenarios.",
+        "since": "1.9.0",
+        "superseded_by": [
+          "initiator_id"
+        ]
+      }
+    },
+    "src_endpoint": {
+      "description": "The source endpoint of the network activity — typically the initiator. In bi-flow or asymmetric flow scenarios, this endpoint may represent the response side of communication originally initiated by the destination. Use <code>initiator_id</code> to determine which endpoint actually initiated the communication."
+    },
+    "url": {
+      "description": "The URL details relevant to the network traffic.",
+      "group": "primary",
+      "requirement": "recommended"
+    }
+  },
+  "references": [
+    {
+      "description": "D3FEND™ Ontology d3f:NetworkConnectionEvent",
+      "url": "https://d3fend.mitre.org/event/d3f:NetworkConnectionEvent/"
+    }
+  ]
+}

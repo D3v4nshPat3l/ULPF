@@ -1,0 +1,137 @@
+{
+  "caption": "Finding",
+  "category": "findings",
+  "description": "The Finding event is a generic event that defines a set of attributes available in the Findings category.",
+  "extends": "base_event",
+  "name": "finding",
+  "attributes": {
+    "$include": [
+      "profiles/incident.json"
+    ],
+    "activity_id": {
+      "description": "The normalized identifier of the finding activity. Use <code>1</code> (Create) when a finding is first generated, <code>2</code> (Update) when an existing finding is modified (e.g., severity change, new evidence), and <code>3</code> (Close) when a finding is resolved or dismissed.",
+      "enum": {
+        "1": {
+          "caption": "Create",
+          "description": "A finding was created."
+        },
+        "2": {
+          "caption": "Update",
+          "description": "A finding was updated."
+        },
+        "3": {
+          "caption": "Close",
+          "description": "A finding was closed."
+        }
+      }
+    },
+    "activity_name": {
+      "description": "The finding activity name, as defined by the <code>activity_id</code>. When <code>activity_id</code> is <code>99</code> (Other), this <b>must</b> contain the source-specific activity label."
+    },
+    "comment": {
+      "description": "A user provided comment about the finding.",
+      "group": "context",
+      "requirement": "optional",
+      "@deprecated": {
+        "message": "Use the <code>notes</code> attribute instead.",
+        "since": "1.9.0",
+        "superseded_by": [
+          "notes"
+        ]
+      }
+    },
+    "confidence": {
+      "description": "The confidence, normalized to the caption of the confidence_id value. In the case of 'Other', it is defined by the event source and should be the same as <code>confidence_score</code> if also populated..",
+      "group": "context",
+      "requirement": "optional",
+      "profile": null
+    },
+    "confidence_id": {
+      "description": "The normalized confidence refers to the accuracy of the analytics that produced the finding. An analytic with a low confidence means that the finding scope is wide and may create finding reports that are noisy or may not be malicious in nature.",
+      "group": "context",
+      "requirement": "recommended",
+      "profile": null
+    },
+    "confidence_score": {
+      "group": "context",
+      "requirement": "optional",
+      "profile": null
+    },
+    "device": {
+      "description": "Describes the affected device/host. It can be used in conjunction with <code>resources</code> or when there are multiple devices affected. E.g. The role of the device as target or actor, specific details about a cloud resource compute instance, etc.<p>If a single device is the source of the finding, use the <code>Host</code> profile and populate <code>device</code>.</p>",
+      "group": "context",
+      "requirement": "optional",
+      "profile": null
+    },
+    "end_time": {
+      "description": "The time of the most recent event or finding that contributed to this finding.",
+      "requirement": "optional"
+    },
+    "finding_info": {
+      "group": "primary",
+      "requirement": "required"
+    },
+    "notes": {
+      "caption": "Notes",
+      "description": "Additional notes related to the finding. Each note in the array can include a comment, the user who made the comment, the time when the note was created, and the time when the note was last modified (typically by the same user). Notes can be used to provide additional context, explanations, or observations by analysts related to the finding over time.",
+      "group": "context",
+      "requirement": "optional"
+    },
+    "resources": {
+      "caption": "Affected Resources",
+      "description": "Describes details about resources that were the target of the activity that triggered the finding.",
+      "group": "context",
+      "requirement": "recommended"
+    },
+    "start_time": {
+      "description": "The time of the earliest event or finding that contributed to this finding.",
+      "requirement": "optional"
+    },
+    "status": {
+      "description": "The finding lifecycle status label, normalized to the caption of the <code>status_id</code> value. When <code>status_id</code> is <code>99</code> (Other), this <b>must</b> contain the source-specific status label.",
+      "group": "context",
+      "requirement": "optional"
+    },
+    "status_id": {
+      "description": "The normalized finding lifecycle status identifier. Unlike the status of an activity event, which indicates the success or failure of the activity, finding status tracks the review and triage workflow: whether the finding is new, being investigated, suppressed, or resolved. Producers should set this to reflect the current state of the finding in their system (e.g., <code>1</code> for newly created findings, <code>4</code> when remediated).",
+      "group": "context",
+      "requirement": "recommended",
+      "enum": {
+        "1": {
+          "caption": "New",
+          "description": "The Finding is new and yet to be reviewed."
+        },
+        "2": {
+          "caption": "In Progress",
+          "description": "The Finding is under review."
+        },
+        "3": {
+          "caption": "Suppressed",
+          "description": "The Finding was reviewed, determined to be benign or a false positive and is now suppressed."
+        },
+        "4": {
+          "caption": "Resolved",
+          "description": "The Finding was reviewed, remediated and is now considered resolved."
+        },
+        "5": {
+          "caption": "Archived",
+          "description": "The Finding was archived."
+        },
+        "6": {
+          "caption": "Deleted",
+          "description": "The Finding was deleted. For example, it might have been created in error."
+        }
+      }
+    },
+    "time": {
+      "description": "The finding creation time - when the finding was first generated, not when the underlying activity occurred. For the time range of contributing events, use <code>start_time</code> and <code>end_time</code>."
+    },
+    "vendor_attributes": {
+      "group": "context",
+      "requirement": "optional"
+    }
+  },
+  "profiles": [
+    "incident"
+  ]
+}

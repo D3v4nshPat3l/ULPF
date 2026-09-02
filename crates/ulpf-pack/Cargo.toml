@@ -1,0 +1,18 @@
+[package]
+name = "ulpf-pack"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Source Pack format: declarative extraction and OCSF mapping for ULPF"
+
+[dependencies]
+ulpf-core = { workspace = true }
+ulpf-ocsf = { workspace = true }
+ulpf-decode = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }

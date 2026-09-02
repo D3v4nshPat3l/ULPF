@@ -1,0 +1,132 @@
+# Linux netfilter/iptables firewall logs.
+#
+# Written against real honeynet capture data (Honeynet Project "Scan of the
+# Month" 30 and 34), not vendor documentation. Every fixture below is an
+# unmodified line from those captures.
+#
+# Shape: RFC 3164 syslog, `kernel:` tag, a free-text verdict prefix, then
+# key=value pairs. The verdict is the interesting part and is not a pair, so a
+# regex pulls it out before the key-value decoder reads the rest of the line.
+#
+# Two quirks of real netfilter output worth knowing:
+#   * `LEN` and `ID` can appear twice (IP header, then ICMP header). The
+#     key-value decoder keeps the last, which is why neither is mapped here.
+#   * Bare flags such as `DF`, `SYN` and `URGP=0` are not `k=v` pairs and are
+#     simply skipped.
+identity:
+  id: linux-iptables-firewall
+  vendor: Linux
+  product: netfilter/iptables
+  log_format: syslog-kernel-keyvalue
+  priority: 20
+  detect:
+    - contains_all: ["SRC=", "DST=", "PROTO="]
+
+extract:
+  - decoder: syslog
+  - decoder: regex
+    patterns:
+      # Rate-limit drops carry a variable count in the text ("Drop TCP after 13
+      # attempts"), so the verdict is normalised to "Drop" and the count kept
+      # separately. Listed first because the general patterns would swallow it
+      # into an unmatchable enum key.
+      - '^(?P<verdict>Drop)\s+(?P<drop_proto>\w+)\s+after\s+(?P<drop_attempts>\d+)\s+attempts\s+IN='
+      # Verdict prefix with a colon: "INBOUND TCP:", "OUTG CONN UDP:", "INBLOCK:".
+      - '^(?P<verdict>[A-Za-z][A-Za-z0-9 ]*?):\s+IN='
+      # Same, without the colon. Real netfilter rulesets are inconsistent about
+      # it, and 45 lines in the SotM30 capture take this form.
+      - '^(?P<verdict>[A-Za-z][A-Za-z0-9 ]*?)\s+IN='
+  - decoder: keyvalue
+
+map:
+  class_uid: 4001                      # Network Activity
+  activity_id:
+    from: verdict
+    enum: iptables_verdict
+    default: 6
+  severity_id:
+    from: verdict
+    enum: iptables_severity
+    default: 1
+  message:
+    from: verdict
+  src_endpoint.ip:
+    from: SRC
+    observable: ip
+  src_endpoint.port:
+    from: SPT
+    as: int
+  dst_endpoint.ip:
+    from: DST
+    observable: ip
+  dst_endpoint.port:
+    from: DPT
+    as: int
+  connection_info.protocol_name:
+    from: PROTO
+  src_endpoint.interface_name:
+    from: [PHYSIN, IN]
+  dst_endpoint.interface_name:
+    from: [PHYSOUT, OUT]
+  device.hostname:
+    from: syslog.hostname
+    observable: hostname
+  count:
+    from: drop_attempts
+    as: int
+
+enums:
+  # The honeynet ruleset encodes the verdict in the prefix. "INBLOCK" is a
+  # drop, which OCSF models as Reset — terminated by a middle device.
+  iptables_verdict:
+    INBOUND TCP: 6
+    INBOUND UDP: 6
+    INBOUND ICMP: 6
+    OUTG CONN TCP: 1
+    OUTG CONN UDP: 1
+    OUTG CONN OTHER: 1
+    Legal DNS: 6
+    Legal Broadcast: 6
+    INBLOCK: 3
+    Drop: 3
+  iptables_severity:
+    INBLOCK: 3
+    Drop: 3
+
+fixtures:
+  - note: Real inbound TCP line, SotM30 honeynet capture, unmodified.
+    raw: 'Feb  1 00:00:02 bridge kernel: INBOUND TCP: IN=br0 PHYSIN=eth0 OUT=br0 PHYSOUT=eth1 SRC=192.150.249.87 DST=11.11.11.84 LEN=40 TOS=0x00 PREC=0x00 TTL=110 ID=12973 PROTO=TCP SPT=220 DPT=6129 WINDOW=16384 RES=0x00 SYN URGP=0'
+    expect:
+      class_uid: 4001
+      activity_id: 6
+      src_endpoint.ip: 192.150.249.87
+      dst_endpoint.ip: 11.11.11.84
+      src_endpoint.port: 220
+      dst_endpoint.port: 6129
+      connection_info.protocol_name: TCP
+      device.hostname: bridge
+
+  - note: Real ICMP line — no ports, and ID appears twice.
+    raw: 'Feb  1 00:04:19 bridge kernel: INBOUND ICMP: IN=br0 PHYSIN=eth0 OUT=br0 PHYSOUT=eth1 SRC=190.0.0.39 DST=11.11.11.105 LEN=92 TOS=0x00 PREC=0x00 TTL=107 ID=12037 PROTO=ICMP TYPE=8 CODE=0 ID=512 SEQ=733'
+    expect:
+      src_endpoint.ip: 190.0.0.39
+      dst_endpoint.ip: 11.11.11.105
+      connection_info.protocol_name: ICMP
+
+  - note: Real broadcast line, UDP, LEN appears twice.
+    raw: 'Feb  1 00:09:27 bridge kernel: Legal Broadcast: IN=br0 PHYSIN=eth1 OUT=br0 PHYSOUT=eth0 SRC=11.11.11.67 DST=11.11.11.255 LEN=241 TOS=0x00 PREC=0x00 TTL=64 ID=0 DF PROTO=UDP SPT=138 DPT=138 LEN=221'
+    expect:
+      src_endpoint.ip: 11.11.11.67
+      dst_endpoint.ip: 11.11.11.255
+      dst_endpoint.port: 138
+      connection_info.protocol_name: UDP
+
+  - note: Real rate-limit drop — no colon after the verdict, variable count.
+    raw: 'Feb  1 09:05:50 bridge kernel: Drop TCP after 13 attempts IN=br0 PHYSIN=eth1 OUT=br0 PHYSOUT=eth0 SRC=11.11.11.67 DST=80.116.93.36 LEN=60 TOS=0x00 PREC=0x00 TTL=64 ID=41834 DF PROTO=TCP SPT=32794 DPT=6667 WINDOW=5840 RES=0x00 SYN URGP=0'
+    expect:
+      activity_id: 3
+      severity_id: 3
+      count: 13
+      src_endpoint.ip: 11.11.11.67
+      dst_endpoint.ip: 80.116.93.36
+      dst_endpoint.port: 6667

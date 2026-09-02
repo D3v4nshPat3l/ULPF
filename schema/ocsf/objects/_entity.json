@@ -1,0 +1,26 @@
+{
+  "caption": "Entity",
+  "description": "The Entity object is an unordered collection of attributes, with a name and unique identifier. It serves as a base object that defines a set of attributes and default constraints available in all objects that extend it.",
+  "extends": "object",
+  "name": "_entity",
+  "attributes": {
+    "name": {
+      "description": "The name of the entity.",
+      "requirement": "recommended"
+    },
+    "uid": {
+      "description": "The unique identifier of the entity.",
+      "requirement": "recommended"
+    },
+    "uid_numeric": {
+      "description": "The <code>uid</code> attribute in numeric form where applicable.<br><strong>Note:</strong> Producers may populate <code>uid_numeric</code> only in addition to <code>uid</code> and not as an alternative to it.",
+      "requirement": "optional"
+    }
+  },
+  "constraints": {
+    "at_least_one": [
+      "name",
+      "uid"
+    ]
+  }
+}

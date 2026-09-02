@@ -1,0 +1,68 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ulpf-core",
+    "crates/ulpf-ocsf",
+    "crates/ulpf-vault",
+    "crates/ulpf-decode",
+    "crates/ulpf-pack",
+    "crates/ulpf-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/D3v4nshPat3l/ulpf"
+authors = ["ULPF Team — SIH 2026 · PS 26156"]
+
+[workspace.dependencies]
+# Internal
+ulpf-core = { path = "crates/ulpf-core" }
+ulpf-ocsf = { path = "crates/ulpf-ocsf" }
+ulpf-vault = { path = "crates/ulpf-vault" }
+ulpf-decode = { path = "crates/ulpf-decode" }
+ulpf-pack = { path = "crates/ulpf-pack" }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+
+# Errors
+thiserror = "2"
+anyhow = "1"
+
+# Crypto
+blake3 = "1"
+sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core", "pkcs8", "pem"] }
+rand = "0.8"
+hex = "0.4"
+
+# Compression
+zstd = "0.13"
+
+# Time
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+
+# Parsing
+winnow = "0.7"
+regex = "1"
+memchr = "2"
+
+# Utility
+uuid = { version = "1", features = ["v7", "serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+[profile.bench]
+debug = true

@@ -1,0 +1,5 @@
+<134>date=2026-08-31 time=10:23:45 devname="FGT-DEL-01" devid="FG100F1234567890" type="traffic" subtype="forward" level="notice" eventtime=1756636800 srcip=10.2.4.7 srcport=52341 srcintf="port1" dstip=8.8.8.8 dstport=443 dstintf="wan1" proto=6 action="accept" policyid=42 sessionid=10045 duration=30 sentbyte=2500 rcvdbyte=2200
+<14>Aug 31 10:23:46 PA-3220 1,2026/08/31 10:23:46,001801234567,TRAFFIC,end,2049,2026/08/31 10:23:45,10.2.4.9,1.1.1.1,203.0.113.9,1.1.1.1,allow-dns,,,dns,vsys1,trust,untrust,ethernet1/1,ethernet1/2,log-forwarding,,12346,1,53125,53,41235,53,0x400053,udp,allow,512,64,448,4,2026/08/31 10:23:40,0,dns
+CEF:0|CheckPoint|VPN-1|R81|100|Connection allowed|3|msg=connection allowed by policy src=192.0.2.10 dst=198.51.100.5 spt=44321 dpt=80 act=allow rt=1756636800000
+<131>date=2026-08-31 time=10:24:01 devname="FGT-DEL-01" type="traffic" subtype="forward" level="warning" eventtime=1756636841 srcip=203.0.113.45 srcport=61000 dstip=10.2.4.7 dstport=3389 proto=6 action="deny" sentbyte=0 rcvdbyte=0
+<166>Aug 31 10:24:05 %ASA-6-302013: Built outbound TCP connection 9999 for outside:203.0.113.5/443 to inside:10.2.4.7/52999
