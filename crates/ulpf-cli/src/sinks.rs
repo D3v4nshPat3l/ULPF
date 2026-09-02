@@ -474,7 +474,7 @@ impl ParquetSink {
             .and_then(serde_json::Value::as_i64)
             .ok_or_else(|| anyhow::anyhow!("event has no time"))?;
 
-        use chrono::{DateTime, Utc};
+        use chrono::DateTime;
         let timestamp = DateTime::from_timestamp_millis(time).unwrap_or_default();
         let partition = timestamp.format("dt=%Y-%m-%d").to_string();
 

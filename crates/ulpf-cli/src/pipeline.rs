@@ -89,12 +89,6 @@ impl Pipeline {
         self
     }
 
-    pub fn reload_packs(&self, packs: Arc<PackLibrary>) {
-        if let Ok(mut lock) = self.packs.write() {
-            *lock = packs;
-        }
-    }
-
     pub fn with_hash(mut self, hash: HashAlgorithm) -> Self {
         self.hash = hash;
         self

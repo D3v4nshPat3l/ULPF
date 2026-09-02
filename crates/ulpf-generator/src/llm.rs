@@ -72,7 +72,7 @@ string_list ::= string | string ", " string_list
         }
 
         let resp: LlamaResponse = res.json().await?;
-        let mut yaml = resp.content.trim().to_string();
+        let yaml = resp.content.trim().to_string();
         
         // Ensure the ID matches the cluster for the UI's sake
         if yaml.contains("id: ") {

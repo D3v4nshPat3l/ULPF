@@ -233,7 +233,7 @@ async fn approve(
     let packs_dir = lock(&state).packs_dir.clone();
     
     // Save to packs directory so hot reload picks it up
-    let id = pack.id.clone();
+    let id = pack.identity.id.clone();
     let file_path = packs_dir.join(format!("{}.yaml", id));
     
     let yaml_out = serde_yaml::to_string(&pack).unwrap();
