@@ -1,0 +1,90 @@
+# Squid HTTP proxy access logs.
+#
+# Squid emits space-delimited access logs with a fixed column layout:
+#   timestamp elapsed client action/code size method URL user hierarchy content_type
+# This maps to OCSF HTTP Activity (4002).
+identity:
+  id: squid-proxy-access
+  vendor: Squid
+  product: Squid Proxy
+  log_format: regex
+  priority: 15
+  detect:
+    - contains_all: ["TCP_", "DIRECT/"]
+    - contains_all: ["TCP_", "NONE/"]
+
+extract:
+  - decoder: regex
+    patterns:
+      - '^\s*(?P<timestamp>[\d.]+)\s+(?P<elapsed>\d+)\s+(?P<client>[\d.]+)\s+(?P<result_code>\w+)/(?P<http_status>\d+)\s+(?P<size>\d+)\s+(?P<method>\w+)\s+(?P<url>\S+)\s+(?P<user>\S+)\s+(?P<hierarchy>\w+)/(?P<peer>\S+)\s+(?P<content_type>\S+)'
+
+map:
+  class_uid: 4002                      # HTTP Activity
+  activity_id:
+    from: method
+    enum: http_method
+    default: 99
+  severity_id: 1
+  time:
+    from: timestamp
+    format: epoch_s
+  message:
+    from: result_code
+  src_endpoint.ip:
+    from: client
+    observable: ip
+  http_request.http_method:
+    from: method
+  http_request.url.url_string:
+    from: url
+    observable: url
+  http_response.code:
+    from: http_status
+    as: int
+  traffic.bytes:
+    from: size
+    as: int
+  actor.user.name:
+    from: user
+    observable: user
+  dst_endpoint.hostname:
+    from: peer
+    observable: hostname
+  http_response.latency_duration:
+    from: elapsed
+    as: int
+
+enums:
+  http_method:
+    GET: 1
+    HEAD: 2
+    POST: 3
+    PUT: 4
+    DELETE: 5
+    CONNECT: 6
+    OPTIONS: 7
+    TRACE: 8
+    PATCH: 9
+
+fixtures:
+  - note: Standard Squid access log line — TCP_MISS, direct fetch.
+    raw: '1756636800.123    152 10.0.0.50 TCP_MISS/200 12345 GET http://example.com/page user1 DIRECT/93.184.216.34 text/html'
+    expect:
+      class_uid: 4002
+      activity_id: 1
+      src_endpoint.ip: 10.0.0.50
+      http_request.http_method: GET
+      http_request.url.url_string: http://example.com/page
+      http_response.code: 200
+      traffic.bytes: 12345
+      actor.user.name: user1
+
+  - note: CONNECT method through proxy — HTTPS tunnelling.
+    raw: '1756636801.456    5032 10.0.0.51 TCP_TUNNEL/200 8192 CONNECT secure.example.com:443 user2 DIRECT/93.184.216.34 -'
+    expect:
+      class_uid: 4002
+      activity_id: 6
+      src_endpoint.ip: 10.0.0.51
+      http_request.http_method: CONNECT
+      http_response.code: 200
+      traffic.bytes: 8192

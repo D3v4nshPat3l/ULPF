@@ -1,0 +1,81 @@
+# ModSecurity WAF audit logs over syslog.
+#
+# ModSecurity logs are written to syslog or Apache error_log. The key
+# identifying pattern is the [id "XXXXXX"] field from the SecRule.
+# This maps to OCSF Detection Finding (2004) since WAF events are detections.
+identity:
+  id: modsecurity-waf-alert
+  vendor: Trustwave
+  product: ModSecurity
+  log_format: syslog-regex
+  priority: 15
+  detect:
+    - contains_all: ["ModSecurity:", "[id \""]
+    - contains_all: ["ModSecurity:", "[id \"", "[msg \""]
+
+extract:
+  - decoder: syslog
+  - decoder: regex
+    patterns:
+      # After syslog parsing, the body starts with "Access denied..." (tag was consumed)
+      # Match id, msg, severity, and client IP
+      - '(?P<action>[^.]+)\.\s+.*\[id "(?P<rule_id>\d+)"\]\s+\[msg "(?P<message>[^"]+)"\].*\[severity "(?P<severity>\w+)"\].*\[client (?P<client_ip>[\d.]+)\]'
+      # Without client IP
+      - '(?P<action>[^.]+)\.\s+.*\[id "(?P<rule_id>\d+)"\]\s+\[msg "(?P<message>[^"]+)"\].*\[severity "(?P<severity>\w+)"\]'
+      # Without severity
+      - '(?P<action>[^.]+)\.\s+.*\[id "(?P<rule_id>\d+)"\]\s+\[msg "(?P<message>[^"]+)"\]'
+
+map:
+  class_uid: 2004                      # Detection Finding
+  activity_id: 1                       # Create
+  severity_id:
+    from: severity
+    enum: modsec_severity
+    default: 3
+  message:
+    from: message
+  finding_info.uid:
+    from: rule_id
+  finding_info.title:
+    from: message
+  finding_info.analytic.name:
+    from: message
+  finding_info.analytic.uid:
+    from: rule_id
+  finding_info.analytic.type_id: 1     # Rule
+  is_alert: true
+  src_endpoint.ip:
+    from: client_ip
+    observable: ip
+  device.hostname:
+    from: syslog.hostname
+    observable: hostname
+
+enums:
+  modsec_severity:
+    CRITICAL: 5
+    ERROR: 4
+    WARNING: 3
+    NOTICE: 2
+    INFO: 1
+
+fixtures:
+  - note: XSS attack detected by ModSecurity CRS rule.
+    raw: 'Aug 31 10:23:45 web-01 ModSecurity: Access denied with code 403 (phase 2). Pattern match "<script" at REQUEST_URI. [file "/etc/modsecurity/crs/rules/REQUEST-941-APPLICATION-ATTACK-XSS.conf"] [line "93"] [id "941100"] [msg "XSS Attack Detected via libinjection"] [severity "CRITICAL"] [client 10.0.0.50]'
+    expect:
+      class_uid: 2004
+      activity_id: 1
+      severity_id: 5
+      finding_info.uid: "941100"
+      finding_info.title: XSS Attack Detected via libinjection
+      src_endpoint.ip: 10.0.0.50
+      device.hostname: web-01
+
+  - note: SQL injection attempt blocked.
+    raw: 'Aug 31 10:24:00 web-01 ModSecurity: Access denied with code 403 (phase 2). Matched "Operator `Rx'' with parameter" at REQUEST_BODY. [file "/etc/modsecurity/crs/rules/REQUEST-942-APPLICATION-ATTACK-SQLI.conf"] [line "45"] [id "942100"] [msg "SQL Injection Attack Detected via libinjection"] [severity "CRITICAL"] [client 203.0.113.10]'
+    expect:
+      class_uid: 2004
+      severity_id: 5
+      finding_info.uid: "942100"
+      finding_info.title: SQL Injection Attack Detected via libinjection
+      src_endpoint.ip: 203.0.113.10

@@ -1,0 +1,77 @@
+# Juniper SRX firewall session logs over syslog.
+#
+# SRX logs use the RT_FLOW prefix for session events. The key fields are
+# embedded in a structured message with positional data.
+# Shape: RFC 3164 syslog with RT_FLOW_SESSION_CREATE or RT_FLOW_SESSION_CLOSE.
+identity:
+  id: juniper-srx-traffic
+  vendor: Juniper
+  product: SRX
+  log_format: syslog-regex
+  priority: 15
+  detect:
+    - contains_any: ["RT_FLOW_SESSION_CREATE", "RT_FLOW_SESSION_CLOSE", "RT_FLOW_SESSION_DENY"]
+
+extract:
+  - decoder: syslog
+  - decoder: regex
+    patterns:
+      # RT_FLOW_SESSION_CREATE: source-address="10.0.0.1" source-port="12345" destination-address="8.8.8.8" destination-port="53" ...
+      - 'RT_FLOW_SESSION_(?P<action>\w+)\s+.*?source-address="(?P<src_ip>[\d.]+)"\s+source-port="(?P<src_port>\d+)"\s+destination-address="(?P<dst_ip>[\d.]+)"\s+destination-port="(?P<dst_port>\d+)".*?protocol-id="(?P<proto>\d+)"'
+      # Alternate format with service-name
+      - 'RT_FLOW_SESSION_(?P<action>\w+)\s+.*?source-address="(?P<src_ip>[\d.]+)"\s+source-port="(?P<src_port>\d+)"\s+destination-address="(?P<dst_ip>[\d.]+)"\s+destination-port="(?P<dst_port>\d+)"'
+
+map:
+  class_uid: 4001                      # Network Activity
+  activity_id:
+    from: action
+    enum: srx_action
+    default: 6
+  severity_id: 1
+  src_endpoint.ip:
+    from: src_ip
+    observable: ip
+  src_endpoint.port:
+    from: src_port
+    as: int
+  dst_endpoint.ip:
+    from: dst_ip
+    observable: ip
+  dst_endpoint.port:
+    from: dst_port
+    as: int
+  connection_info.protocol_num:
+    from: proto
+    as: int
+  device.hostname:
+    from: syslog.hostname
+    observable: hostname
+
+enums:
+  srx_action:
+    CREATE: 1      # Open
+    CLOSE: 2       # Close
+    DENY: 3        # Reset (denied by policy)
+
+fixtures:
+  - note: Session create event from SRX.
+    raw: 'Jan 15 10:30:45 srx-gw-01 RT_FLOW - RT_FLOW_SESSION_CREATE [junos@2636.1.1.1.2.129 source-address="10.0.0.5" source-port="45678" destination-address="8.8.8.8" destination-port="53" protocol-id="17"]'
+    expect:
+      class_uid: 4001
+      activity_id: 1
+      src_endpoint.ip: 10.0.0.5
+      src_endpoint.port: 45678
+      dst_endpoint.ip: 8.8.8.8
+      dst_endpoint.port: 53
+      connection_info.protocol_num: 17
+      device.hostname: srx-gw-01
+
+  - note: Session deny event — blocked by policy.
+    raw: 'Jan 15 10:31:00 srx-gw-01 RT_FLOW - RT_FLOW_SESSION_DENY [junos@2636.1.1.1.2.129 source-address="203.0.113.10" source-port="61234" destination-address="10.0.0.5" destination-port="3389" protocol-id="6"]'
+    expect:
+      class_uid: 4001
+      activity_id: 3
+      src_endpoint.ip: 203.0.113.10
+      dst_endpoint.ip: 10.0.0.5
+      dst_endpoint.port: 3389
+      device.hostname: srx-gw-01

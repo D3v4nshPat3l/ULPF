@@ -1,0 +1,114 @@
+# Check Point SmartDefense / VPN-1 logs over CEF.
+#
+# Check Point sends events in CEF format through its Log Exporter.
+# This pack handles network traffic events specifically.
+# The generic CEF pack is a fallback; this one takes priority for Check Point.
+identity:
+  id: checkpoint-firewall
+  vendor: Check Point
+  product: VPN-1
+  log_format: cef
+  priority: 15
+  detect:
+    - contains_all: ["CEF:", "Check Point", "VPN-1"]
+    - contains_all: ["CEF:", "CheckPoint"]
+
+extract:
+  - decoder: cef
+
+map:
+  class_uid: 4001                      # Network Activity
+  activity_id:
+    from: act
+    enum: checkpoint_action
+    default: 6
+  severity_id:
+    from: cef.severity
+    enum: checkpoint_severity
+    default: 1
+  time:
+    from: rt
+    format: epoch_ms
+  message:
+    from: [msg, cef.name]
+  src_endpoint.ip:
+    from: src
+    observable: ip
+  src_endpoint.port:
+    from: spt
+    as: int
+  dst_endpoint.ip:
+    from: dst
+    observable: ip
+  dst_endpoint.port:
+    from: dpt
+    as: int
+  connection_info.protocol_name:
+    from: proto
+  traffic.bytes_out:
+    from: out
+    as: int
+  traffic.bytes_in:
+    from: in
+    as: int
+  actor.user.name:
+    from: suser
+    observable: user
+  device.vendor_name:
+    from: cef.device_vendor
+  device.product.name:
+    from: cef.device_product
+  device.product.version:
+    from: cef.device_version
+
+enums:
+  checkpoint_action:
+    Accept: 6
+    accept: 6
+    Allow: 6
+    allow: 6
+    Drop: 3
+    drop: 3
+    Reject: 3
+    reject: 3
+    Block: 3
+    block: 3
+  checkpoint_severity:
+    "0": 1
+    "1": 1
+    "2": 2
+    "3": 2
+    "4": 3
+    "5": 3
+    "6": 4
+    "7": 4
+    "8": 5
+    "9": 5
+    "10": 6
+
+fixtures:
+  - note: Check Point accepted connection via CEF.
+    raw: 'CEF:0|Check Point|VPN-1|R81.20|100|Connection Accepted|3|src=10.0.0.5 dst=93.184.216.34 spt=45678 dpt=443 proto=TCP act=Accept rt=1756636800000 out=1024 in=4096 suser=admin'
+    expect:
+      class_uid: 4001
+      activity_id: 6
+      severity_id: 2
+      src_endpoint.ip: 10.0.0.5
+      src_endpoint.port: 45678
+      dst_endpoint.ip: 93.184.216.34
+      dst_endpoint.port: 443
+      connection_info.protocol_name: TCP
+      traffic.bytes_out: 1024
+      traffic.bytes_in: 4096
+      actor.user.name: admin
+      device.vendor_name: Check Point
+
+  - note: Check Point dropped connection.
+    raw: 'CEF:0|Check Point|VPN-1|R81.20|200|Connection Dropped|7|src=203.0.113.50 dst=10.0.0.5 spt=61234 dpt=22 proto=TCP act=Drop rt=1756636800000'
+    expect:
+      class_uid: 4001
+      activity_id: 3
+      severity_id: 4
+      src_endpoint.ip: 203.0.113.50
+      dst_endpoint.ip: 10.0.0.5
+      dst_endpoint.port: 22

@@ -1,0 +1,87 @@
+# Suricata EVE JSON alert logs.
+#
+# Suricata emits JSON-per-line (EVE format). Each record has an event_type
+# field. This pack handles "alert" events and maps them to OCSF Detection
+# Finding (2004), similar to Snort but from JSON rather than syslog text.
+identity:
+  id: suricata-eve-alert
+  vendor: OISF
+  product: Suricata
+  log_format: json
+  priority: 10
+  detect:
+    - contains_all: ['"event_type":"alert"', '"alert":{']
+    - contains_all: ['"event_type": "alert"', '"alert": {']
+
+extract:
+  - decoder: json
+
+map:
+  class_uid: 2004                      # Detection Finding
+  activity_id: 1                       # Create
+  severity_id:
+    from: alert.severity
+    enum: suricata_severity
+    default: 3
+  time:
+    from: timestamp
+    format: rfc3339
+  message:
+    from: alert.signature
+  finding_info.uid:
+    from: alert.signature_id
+  finding_info.title:
+    from: alert.signature
+  finding_info.analytic.name:
+    from: alert.signature
+  finding_info.analytic.uid:
+    from: alert.signature_id
+  finding_info.analytic.type_id: 1     # Rule
+  is_alert: true
+  src_endpoint.ip:
+    from: src_ip
+    observable: ip
+  src_endpoint.port:
+    from: src_port
+    as: int
+  dst_endpoint.ip:
+    from: dest_ip
+    observable: ip
+  dst_endpoint.port:
+    from: dest_port
+    as: int
+  connection_info.protocol_name:
+    from: proto
+
+enums:
+  suricata_severity:
+    "1": 5     # Critical
+    "2": 4     # High
+    "3": 3     # Medium
+    "4": 2     # Low
+
+fixtures:
+  - note: Suricata EVE alert — ET SCAN Suspicious inbound.
+    raw: '{"timestamp":"2026-08-31T10:23:45.000000+0000","flow_id":123456789,"event_type":"alert","src_ip":"203.0.113.50","src_port":12345,"dest_ip":"10.0.0.5","dest_port":22,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2001219,"rev":19,"signature":"ET SCAN Potential SSH Scan","category":"Attempted Information Leak","severity":2}}'
+    expect:
+      class_uid: 2004
+      activity_id: 1
+      severity_id: 3
+      finding_info.uid: "2001219"
+      finding_info.title: ET SCAN Potential SSH Scan
+      src_endpoint.ip: 203.0.113.50
+      src_endpoint.port: 12345
+      dst_endpoint.ip: 10.0.0.5
+      dst_endpoint.port: 22
+      connection_info.protocol_name: TCP
+
+  - note: Suricata EVE alert — DNS query to known malware domain.
+    raw: '{"timestamp":"2026-08-31T10:24:00.000000+0000","flow_id":987654321,"event_type":"alert","src_ip":"10.0.0.10","src_port":53421,"dest_ip":"8.8.8.8","dest_port":53,"proto":"UDP","alert":{"action":"allowed","gid":1,"signature_id":2013926,"rev":5,"signature":"ET POLICY DNS Query to .bit TLD","category":"Potentially Bad Traffic","severity":3}}'
+    expect:
+      class_uid: 2004
+      severity_id: 3
+      finding_info.uid: "2013926"
+      src_endpoint.ip: 10.0.0.10
+      dst_endpoint.ip: 8.8.8.8
+      dst_endpoint.port: 53
+      connection_info.protocol_name: UDP
