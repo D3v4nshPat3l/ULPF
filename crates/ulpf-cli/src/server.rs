@@ -45,6 +45,7 @@ pub struct AppState {
     pub latest_checkpoint: Option<ulpf_ocsf::Checkpoint>,
     pub checkpoint_path: std::path::PathBuf,
     pub vault_dir: std::path::PathBuf,
+    pub packs_dir: std::path::PathBuf,
     pub drain: ulpf_generator::drain::Drain,
 }
 
@@ -67,6 +68,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/clusters", get(clusters))
         .route("/api/generate", post(generate))
         .route("/api/ingest", post(ingest))
+        .route("/api/approve", post(approve))
         .route("/api/raw/{locator}", get(raw))
         .route("/api/verify", post(verify))
         .route("/api/tamper", post(tamper))
@@ -209,6 +211,36 @@ async fn generate(
         "fixtures_passed": score.passed,
         "field_accuracy": score.field_accuracy(),
     })))
+}
+
+#[derive(serde::Deserialize)]
+struct ApproveBody {
+    yaml: String,
+}
+
+async fn approve(
+    State(state): State<Shared>,
+    Json(body): Json<ApproveBody>,
+) -> Result<Json<Value>, ApiError> {
+    let mut pack: ulpf_pack::Pack = serde_yaml::from_str(&body.yaml)
+        .map_err(|e| ApiError(StatusCode::BAD_REQUEST, format!("Invalid YAML: {e}")))?;
+
+    // Mark as approved by Console User
+    if let Some(prov) = &mut pack.provenance {
+        prov.approved_by = Some("Console User".to_string());
+    }
+
+    let packs_dir = lock(&state).packs_dir.clone();
+    
+    // Save to packs directory so hot reload picks it up
+    let id = pack.id.clone();
+    let file_path = packs_dir.join(format!("{}.yaml", id));
+    
+    let yaml_out = serde_yaml::to_string(&pack).unwrap();
+    std::fs::write(&file_path, yaml_out)
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write pack: {e}")))?;
+
+    Ok(Json(json!({"ok": true, "id": id})))
 }
 
 /// Condense an event into the columns the console table shows.

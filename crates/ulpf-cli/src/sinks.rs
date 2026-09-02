@@ -22,6 +22,77 @@ pub struct SinkSet {
     splunk: Option<SplunkHecSink>,
 }
 
+pub struct AsyncSinkSet {
+    sender: Option<std::sync::mpsc::SyncSender<OcsfEvent>>,
+    thread: Option<std::thread::JoinHandle<anyhow::Result<()>>>,
+}
+
+impl AsyncSinkSet {
+    pub fn new(
+        parquet: Option<&Path>,
+        opensearch: Option<&str>,
+        opensearch_index: &str,
+        splunk_hec: Option<&str>,
+        splunk_token_env: &str,
+        batch_size: usize,
+    ) -> anyhow::Result<Self> {
+        let mut inner = SinkSet::new(
+            parquet,
+            opensearch,
+            opensearch_index,
+            splunk_hec,
+            splunk_token_env,
+            batch_size,
+        )?;
+
+        if inner.is_empty() {
+            return Ok(Self {
+                sender: None,
+                thread: None,
+            });
+        }
+
+        let (tx, rx) = std::sync::mpsc::sync_channel(5000);
+        let thread = std::thread::spawn(move || -> anyhow::Result<()> {
+            for event in rx {
+                inner.write(&event)?;
+            }
+            inner.finish()?;
+            Ok(())
+        });
+
+        Ok(Self {
+            sender: Some(tx),
+            thread: Some(thread),
+        })
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sender.is_none()
+    }
+
+    pub fn write(&mut self, event: &OcsfEvent) -> anyhow::Result<()> {
+        if let Some(tx) = &self.sender {
+            // Blocks if the channel is full, applying backpressure to the ingest thread
+            let _ = tx.send(event.clone());
+        }
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> anyhow::Result<()> {
+        if let Some(tx) = self.sender.take() {
+            drop(tx);
+        }
+        if let Some(thread) = self.thread.take() {
+            match thread.join() {
+                Ok(res) => res?,
+                Err(_) => bail!("sink thread panicked"),
+            }
+        }
+        Ok(())
+    }
+}
+
 impl SinkSet {
     pub fn new(
         parquet: Option<&Path>,
@@ -346,7 +417,9 @@ impl SplunkHecSink {
 /// `event_json`. Each flush creates one row group, so memory stays bounded by
 /// the sink batch size. The JSON values remain complete OCSF documents.
 pub struct ParquetSink {
-    file: std::fs::File,
+    base_dir: std::path::PathBuf,
+    active_partition: Option<String>,
+    file: Option<std::fs::File>,
     rows: Vec<ParquetRow>,
     row_groups: Vec<RowGroupMeta>,
     batch_size: usize,
@@ -377,14 +450,11 @@ struct ColumnMeta {
 
 impl ParquetSink {
     fn create(path: &Path, batch_size: usize) -> anyhow::Result<Self> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let mut file = std::fs::File::create(path)
-            .with_context(|| format!("creating Parquet sink {}", path.display()))?;
-        file.write_all(b"PAR1")?;
+        std::fs::create_dir_all(path)?;
         Ok(Self {
-            file,
+            base_dir: path.to_path_buf(),
+            active_partition: None,
+            file: None,
             rows: Vec::new(),
             row_groups: Vec::new(),
             batch_size: batch_size.max(1),
@@ -403,6 +473,15 @@ impl ParquetSink {
             .get_path("time")
             .and_then(serde_json::Value::as_i64)
             .ok_or_else(|| anyhow::anyhow!("event has no time"))?;
+
+        use chrono::{DateTime, Utc};
+        let timestamp = DateTime::from_timestamp_millis(time).unwrap_or_default();
+        let partition = timestamp.format("dt=%Y-%m-%d").to_string();
+
+        if self.active_partition.as_ref() != Some(&partition) {
+            self.rotate_partition(&partition)?;
+        }
+
         self.rows.push(ParquetRow {
             event_json: event.to_json().into_bytes(),
             class_uid,
@@ -415,10 +494,49 @@ impl ParquetSink {
         Ok(())
     }
 
+    fn rotate_partition(&mut self, new_partition: &str) -> anyhow::Result<()> {
+        if self.file.is_some() {
+            self.finish_file()?;
+        }
+        
+        let part_dir = self.base_dir.join(new_partition);
+        std::fs::create_dir_all(&part_dir)?;
+        
+        let filename = format!("events-{}.parquet", uuid::Uuid::now_v7());
+        let file_path = part_dir.join(filename);
+        
+        let mut file = std::fs::File::create(&file_path)
+            .with_context(|| format!("creating Parquet sink partition {}", file_path.display()))?;
+        file.write_all(b"PAR1")?;
+        
+        self.file = Some(file);
+        self.active_partition = Some(new_partition.to_string());
+        
+        Ok(())
+    }
+
+    fn finish_file(&mut self) -> anyhow::Result<()> {
+        self.flush()?;
+        if let Some(mut file) = self.file.take() {
+            let total_rows: i64 = self.row_groups.iter().map(|group| group.rows).sum();
+            let metadata = file_metadata(&self.row_groups, total_rows);
+            file.write_all(&metadata)?;
+            file.write_all(&(metadata.len() as u32).to_le_bytes())?;
+            file.write_all(b"PAR1")?;
+            file.flush()?;
+        }
+        self.row_groups.clear();
+        Ok(())
+    }
+
     fn flush(&mut self) -> anyhow::Result<()> {
         if self.rows.is_empty() {
             return Ok(());
         }
+        if self.file.is_none() {
+            return Ok(());
+        }
+        
         let rows = self.rows.len() as i64;
         let mut columns = Vec::with_capacity(4);
         let pages = [
@@ -456,11 +574,13 @@ impl ParquetSink {
                 }),
             ),
         ];
+        
+        let file = self.file.as_mut().unwrap();
         for (path, type_id, body) in pages {
             let header = page_header(body.len() as i32, body.len() as i32, rows as i32);
-            let offset = self.file.stream_position()? as i64;
-            self.file.write_all(&header)?;
-            self.file.write_all(&body)?;
+            let offset = file.stream_position()? as i64;
+            file.write_all(&header)?;
+            file.write_all(&body)?;
             columns.push(ColumnMeta {
                 path,
                 type_id,
@@ -475,14 +595,9 @@ impl ParquetSink {
     }
 
     fn finish(mut self) -> anyhow::Result<()> {
-        self.flush()?;
-        let total_rows: i64 = self.row_groups.iter().map(|group| group.rows).sum();
-        let metadata = file_metadata(&self.row_groups, total_rows);
-        self.file.write_all(&metadata)?;
-        self.file
-            .write_all(&(metadata.len() as u32).to_le_bytes())?;
-        self.file.write_all(b"PAR1")?;
-        self.file.flush()?;
+        if self.file.is_some() {
+            self.finish_file()?;
+        }
         Ok(())
     }
 }
@@ -715,7 +830,7 @@ mod tests {
 
     #[test]
     fn parquet_output_has_magic_and_is_readable_by_parquet_tools() {
-        let path = std::env::temp_dir().join(format!("ulpf-test-{}.parquet", std::process::id()));
+        let path = std::env::temp_dir().join(format!("ulpf-test-{}", std::process::id()));
         let mut sink = ParquetSink::create(&path, 250).unwrap();
         let event = ulpf_ocsf::EventBuilder::new()
             .class(4001)
@@ -727,9 +842,26 @@ mod tests {
             .unwrap();
         sink.write(&event).unwrap();
         sink.finish().unwrap();
-        let bytes = fs::read(&path).unwrap();
+
+        // Find the generated parquet file in the partitioned directory
+        let mut found_file = None;
+        if let Ok(entries) = std::fs::read_dir(&path) {
+            for entry in entries.flatten() {
+                if let Ok(nested) = std::fs::read_dir(entry.path()) {
+                    for file_entry in nested.flatten() {
+                        if file_entry.path().extension().and_then(|s| s.to_str()) == Some("parquet") {
+                            found_file = Some(file_entry.path());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        let parquet_file = found_file.expect("partitioned parquet file should exist");
+        
+        let bytes = fs::read(&parquet_file).unwrap();
         assert_eq!(&bytes[..4], b"PAR1");
         assert_eq!(&bytes[bytes.len() - 4..], b"PAR1");
-        let _ = fs::remove_file(path);
+        let _ = fs::remove_dir_all(path);
     }
 }

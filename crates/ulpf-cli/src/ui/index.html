@@ -106,9 +106,24 @@
       res.innerHTML="<div class='empty-note'>Drafting YAML via llama.cpp...</div>";
       try{
         const out=await api("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({cluster_id:id})});
-        res.innerHTML=`<div style="margin-top:10px;padding:10px;background:#101514;border:1px solid #27302f;"><pre>${out.pack_yaml}</pre><div style="margin-top:10px;color:#76d6b1">${out.fixtures_passed}/${out.fixtures} Fixtures passed (${(out.field_accuracy*100).toFixed(0)}% Accuracy)</div></div>`;
+        res.innerHTML=`<div style="margin-top:10px;padding:10px;background:#101514;border:1px solid #27302f;">
+          <pre id="draft-yaml-${id}">${out.pack_yaml}</pre>
+          <div style="margin-top:10px;color:#76d6b1">${out.fixtures_passed}/${out.fixtures} Fixtures passed (${(out.field_accuracy*100).toFixed(0)}% Accuracy)</div>
+          <button class="button primary" style="margin-top:10px" onclick="approvePack('${id}')">Approve & Install</button>
+        </div>`;
       }catch(e){
         res.innerHTML=`<div class="empty-note" style="color:#e67878">Error: ${e.message}</div>`;
+      }
+    };
+    window.approvePack = async(id)=>{
+      const yaml = document.getElementById("draft-yaml-"+id).textContent;
+      try {
+        await api("/api/approve",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({yaml})});
+        toast("Pack approved and installed!");
+        document.getElementById("res-"+id).innerHTML = "<div class='empty-note' style='color:#76d6b1'>Installed!</div>";
+        await refresh();
+      } catch(e) {
+        toast(e.message, true);
       }
     };
   </script>

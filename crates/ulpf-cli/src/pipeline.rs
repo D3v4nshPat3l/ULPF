@@ -59,7 +59,7 @@ pub struct Processed {
 
 /// Wires the vault, pack library and attestor into a single call per event.
 pub struct Pipeline {
-    packs: Arc<PackLibrary>,
+    packs: Arc<std::sync::RwLock<Arc<PackLibrary>>>,
     vault: VaultWriter,
     attestor: Attestor,
     hash: HashAlgorithm,
@@ -70,7 +70,7 @@ pub struct Pipeline {
 impl Pipeline {
     pub fn new(packs: Arc<PackLibrary>, vault: VaultWriter, attestor: Attestor) -> Self {
         Self {
-            packs,
+            packs: Arc::new(std::sync::RwLock::new(packs)),
             vault,
             attestor,
             hash: HashAlgorithm::default(),
@@ -87,6 +87,12 @@ impl Pipeline {
     pub fn inline_raw(mut self, yes: bool) -> Self {
         self.inline_raw = yes;
         self
+    }
+
+    pub fn reload_packs(&self, packs: Arc<PackLibrary>) {
+        if let Ok(mut lock) = self.packs.write() {
+            *lock = packs;
+        }
     }
 
     pub fn with_hash(mut self, hash: HashAlgorithm) -> Self {
@@ -107,7 +113,11 @@ impl Pipeline {
         let event_uid = uuid::Uuid::now_v7().to_string();
         let text = String::from_utf8_lossy(raw);
 
-        let (mut event, disposition) = match self.packs.identify(&text) {
+        let active_packs = {
+            self.packs.read().unwrap().clone()
+        };
+
+        let (mut event, disposition) = match active_packs.identify(&text) {
             None => (
                 self.minimal_event(raw, envelope, &event_uid)?,
                 Disposition::Unidentified,
@@ -203,8 +213,12 @@ impl Pipeline {
         Ok(self.attestor.checkpoint(ulpf_core::now_nanos())?)
     }
 
-    pub fn packs(&self) -> &PackLibrary {
-        &self.packs
+    pub fn packs(&self) -> Arc<PackLibrary> {
+        self.packs.read().unwrap().clone()
+    }
+
+    pub fn packs_lock(&self) -> Arc<std::sync::RwLock<Arc<PackLibrary>>> {
+        self.packs.clone()
     }
 
     pub fn chain_head(&self) -> Option<&ulpf_ocsf::ChainLink> {

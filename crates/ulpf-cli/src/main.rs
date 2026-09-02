@@ -5,6 +5,7 @@ mod integrity_state;
 mod pipeline;
 mod server;
 mod sinks;
+mod watcher;
 
 use std::io::{BufRead, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -371,7 +372,7 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
         Some(path) => Some(open_output(&path.display().to_string())?),
         None => None,
     };
-    let mut sinks = sinks::SinkSet::new(
+    let mut sinks = sinks::AsyncSinkSet::new(
         parquet.as_deref(),
         opensearch.as_deref(),
         &opensearch_index,
@@ -434,7 +435,6 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
     if let Some(dl) = &mut dead_letter_writer {
         dl.flush()?;
     }
-    sinks.flush()?;
 
     let elapsed = started.elapsed();
     let (stats, checkpoint) = pipeline.finish()?;
@@ -488,7 +488,7 @@ fn commit_pending(
     writer: &mut dyn Write,
     dead_letter: &mut Option<Box<dyn Write>>,
     checkpoint_path: &Path,
-    sinks: &mut sinks::SinkSet,
+    sinks: &mut sinks::AsyncSinkSet,
 ) -> anyhow::Result<()> {
     if pending.is_empty() {
         return Ok(());
@@ -551,6 +551,12 @@ fn cmd_serve(
     let checkpoint_path = integrity.checkpoint_path.clone();
     let public_key_path = integrity.public_key_path.clone();
     let mut pipeline = Pipeline::new(std::sync::Arc::new(library), vault, integrity.attestor);
+    
+    // Start pack hot-reload watcher
+    if let Err(e) = watcher::spawn_pack_watcher(packs_dir.clone(), pipeline.packs_lock()) {
+        tracing::warn!("failed to start pack hot-reload watcher: {}", e);
+    }
+
     let latest_checkpoint = pipeline.checkpoint_now()?;
 
     let state = std::sync::Arc::new(std::sync::Mutex::new(server::AppState {
@@ -560,6 +566,7 @@ fn cmd_serve(
         latest_checkpoint,
         checkpoint_path,
         vault_dir,
+        packs_dir: packs_dir.clone(),
         drain: ulpf_generator::drain::Drain::new(),
     }));
 
@@ -737,6 +744,12 @@ fn cmd_listen(options: ListenOptions) -> anyhow::Result<()> {
     let mut pipeline = Pipeline::new(std::sync::Arc::new(library), vault, integrity.attestor)
         .with_hash(hash)
         .inline_raw(inline_raw);
+
+    // Start pack hot-reload watcher
+    if let Err(e) = watcher::spawn_pack_watcher(packs_dir.clone(), pipeline.packs_lock()) {
+        tracing::warn!("failed to start pack hot-reload watcher: {}", e);
+    }
+
     let mut writer = open_output(&output)?;
     let socket = std::net::UdpSocket::bind(&bind)
         .with_context(|| format!("binding UDP syslog receiver to {bind}"))?;
