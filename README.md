@@ -2,423 +2,531 @@
 
 > SIH 2026 · Problem Statement 26156 · NTRO · Blockchain & Cybersecurity
 
-ULPF converts heterogeneous perimeter-security logs into a common OCSF 1.9
-representation while retaining the exact input bytes and a verifiable chain of
-custody. It is an offline-first Rust prototype built for the Smart India
-Hackathon 2026.
+Any log in, OCSF out, nothing lost.
 
-![ULPF processing 2,000 real Snort records](docs/images/console-real-snort.png)
+ULPF ingests heterogeneous perimeter-security logs — firewalls, IDS/IPS,
+proxies, web servers, mail transfer agents, hosts — and emits a single
+[OCSF 1.9](https://schema.ocsf.io/) representation, while keeping the exact
+input bytes and a cryptographically verifiable chain of custody over every
+record it has seen.
 
-This is not a screen filled with planted demo events. The screenshot above was
-captured after the browser submitted 2,000 unmodified records from the public
-Honeynet Project Snort corpus through the same vault, source-pack, OCSF, and
-integrity pipeline used by the CLI.
+It is written in Rust, runs from a single binary, and needs no network at
+runtime: no CDN, no web font, no telemetry, no model API.
 
-## Problem statement
+![The operator console normalizing seven live corpora](docs/screenshots/console-overview.png)
 
-Security teams receive logs from firewalls, IDS/IPS products, gateways, and
-other perimeter devices in incompatible formats. Each integration usually
-needs a custom parser, and transformations can discard fields or sever the
-connection to the original evidence. ULPF addresses that problem with one
-lossless preprocessing layer: accept arbitrary records, preserve their bytes,
-identify and extract known sources through declarative packs, normalize them to
-OCSF, and make every transformation auditable.
+Every number in that screenshot came from replaying real public capture data —
+Honeynet Project and Loghub — over UDP into the collector. Nothing on this page
+is a mock-up, and no log line anywhere in this project is synthesised.
 
-### SIH requirement coverage
+---
 
-| Requirement | Current prototype status | Evidence |
-|---|---|---|
-| Preserve raw event data without loss | Implemented | Append-first compressed vault, byte locator, hash, CRC validation |
-| Extract source-specific attributes | Implemented | Decoder chains and source-pack extraction rules |
-| Normalize to a common taxonomy | Implemented | OCSF 1.9 event model and vendored schema |
-| Trace normalized events to originals | Implemented | `unmapped.ulpf_raw_locator`, content fingerprint, receipt, previous-event link |
-| Plug-and-play onboarding | Implemented at restart | Declarative YAML packs with validation and embedded fixtures; hot reload is pending |
-| Unified visibility | Implemented | Embedded operator console and event inspector |
-| SIEM/data-lake integration | Implemented core | NDJSON remains the inspectable default; bounded Parquet, OpenSearch Bulk, and Splunk HEC fan-out are available from `ulpf run` |
-| AI/ML-ready analytics | Partial | Stable structured JSON is available; columnar feature pipeline is planned |
-| Reduce parser development effort | Implemented at review gate | `ulpf draft` clusters dead letters and emits fixture-tested candidate YAML with provenance; candidates never activate automatically |
-| Air-gapped deployment | Runtime-ready | No runtime CDN, webfont, telemetry, or network dependency; dependency vendoring for offline compilation is planned |
-| Container packaging | Implemented | Multi-stage Dockerfile and hardened Compose service |
+## Contents
 
-## What makes ULPF credible
+- [The problem](#the-problem)
+- [How it works](#how-it-works)
+- [What you actually see](#what-you-actually-see)
+- [Setup](#setup)
+- [Running it](#running-it)
+- [Measured results](#measured-results)
+- [Requirement coverage](#requirement-coverage)
+- [Repository layout](#repository-layout)
+- [What is done](#what-is-done)
+- [What is next](#what-is-next)
+- [Known limitations](#known-limitations)
+- [Development](#development)
 
-- **Raw-first, not parse-first.** A record is committed to the vault before its
-  normalized row is published. Unknown, malformed, blank, and invalid UTF-8
-  records remain recoverable.
-- **Integrity that survives restarts.** Ed25519 keys and signed checkpoints are
-  persisted per chain. Resume verifies the prior checkpoint instead of silently
-  creating a new trust root.
-- **Strict source packs.** Unknown YAML properties, unsafe framework paths,
-  missing detectors, invalid enum references, and impossible ranges are rejected
-  before ingest begins.
-- **Real data validation.** Coverage is measured on 556,315 public honeynet
-  records. Synthetic logs are used only for repeatable performance tests.
-- **No fabricated console feed.** Events enter through file selection, the HTTP
-  ingest endpoint, CLI input/stdin, or a real UDP syslog socket.
+---
 
-## Processing model
+## The problem
 
-```text
-bytes ──► raw vault ──► identify ──► extract ──► normalize ──► attest ──► NDJSON/API
-   │                         │                         │
-   │                         └─ no valid pack ───────► dead-letter metadata
-   └──────── O(1) retrieval by locator ◄─────────────┘
+A security team receives logs from dozens of vendors in mutually incompatible
+formats. Each new device usually means a hand-written parser. Worse, most
+normalization pipelines are lossy: they extract the fields someone thought of
+in advance and throw the rest away, severing the link between the tidy record
+in the SIEM and the original evidence.
+
+That matters most exactly when it matters most — in an investigation, or in
+court, where "this is what the device said" has to be provable.
+
+ULPF takes a different position:
+
+1. **Nothing is discarded.** Every record is stored byte-for-byte before
+   anything is parsed. An unparsed record is still vaulted, fingerprinted,
+   chained, and emitted as valid OCSF carrying its raw text. "Unparsed" is a
+   routing decision, never data loss.
+2. **Parsers are data, not code.** A new device is a YAML file, not a
+   recompile.
+3. **Every event is tamper-evident.** Each record carries a fingerprint over
+   its own canonical form plus a link to its predecessor, and the chain is
+   anchored by periodic Ed25519-signed checkpoints.
+
+---
+
+## How it works
+
+```
+    raw bytes                                                   OCSF 1.9 NDJSON
+        │                                                              ▲
+        ▼                                                              │
+  ┌───────────┐   ┌──────────┐   ┌─────────┐   ┌───────────┐   ┌──────────────┐
+  │   Vault   │──▶│  Detect  │──▶│ Extract │──▶│  Normalize│──▶│  Attestation │
+  │ append-   │   │  which   │   │ decoder │   │  to OCSF  │   │  fingerprint │
+  │ only,zstd │   │  pack    │   │  chain  │   │   fields  │   │  + hash chain│
+  └───────────┘   └──────────┘   └─────────┘   └───────────┘   └──────────────┘
+        │              │                                               │
+        │              └── no pack claims it ──▶ Drain clustering ──┐  │
+        │                                                           │  │
+        └── locator ────────────────────────────────────────────────┼──┘
+             (retrieve the original bytes at any time)              │
+                                                                    ▼
+                                                    unparsed cluster ──▶ draft
+                                                    a Source Pack (AI or
+                                                    deterministic), review,
+                                                    approve, hot-reload
 ```
 
-The event receipt records which pack and decoder chain was applied. The OCSF
-integrity profile carries the content hash and previous-event link. A signed
-checkpoint anchors the current head; verification can therefore detect row
-deletion, reordering, substitution, or modification.
+**The vault comes first.** Raw bytes are written to an append-only,
+zstd-block-compressed store *before* parsing is attempted, and every emitted
+event carries a locator back to them. Crash recovery works by scanning block
+headers.
 
-See [Architecture](docs/ARCHITECTURE.md) for trust boundaries and data flow.
+**Source Packs** are declarative YAML: how to recognise a format, which decoder
+chain to run, how to map extracted fields onto OCSF attributes, plus embedded
+fixtures that are executed as tests. Ten decoders ship in the box — `syslog`,
+`syslog_rfc3164`, `syslog_rfc5424`, `keyvalue`, `csv`, `cef`, `leef`, `json`,
+`xml`, `regex` — and a pack composes them into a chain.
 
-## Interface evidence
+**Integrity** uses the OCSF `record_integrity` profile. Each event's
+fingerprint is a hash over its RFC 8785 (JCS) canonical form, computed over the
+whole event *including* its chain links but excluding the fingerprint field
+itself. Checkpoints are Ed25519-signed. Because BLAKE3 is absent from the OCSF
+`algorithm_id` enum, it is declared as `Other(99)` with free-text `algorithm`.
 
-### Inspect a normalized event
+**Unknown formats** are clustered with the Drain algorithm, so a thousand
+similar dead-letter lines become one reviewable template rather than a thousand
+rows.
 
-![Normalized event inspector](docs/images/event-inspector.png)
+---
 
-The inspector exposes normalized OCSF, extracted source fields, transformation
-receipt, and integrity metadata without rendering untrusted event text as HTML.
+## What you actually see
 
-### Retrieve and prove the original
+### Live normalization
 
-![Raw vault proof](docs/images/raw-vault-proof.png)
+![Overview](docs/screenshots/console-overview.png)
 
-Raw proof retrieves the precise stored bytes and recomputes the recorded
-fingerprint. The CLI can perform the same retrieval with `ulpf raw`.
+Events received, OCSF coverage, records needing a pack, vaulted bytes, and the
+chain sequence — over a live table showing which pack claimed each record. The
+IP addresses are real: `11.11.79.x` is the Honeynet subnet, and the external
+addresses are genuine scan and attack traffic from the capture.
 
-### Source-pack visibility
+### The traffic simulator (`/dev`)
 
-![Loaded source packs](docs/images/source-packs.png)
+![Traffic simulator](docs/screenshots/simulator.png)
 
-Five source packs currently cover Fortinet FortiGate traffic, Palo Alto PAN-OS
-traffic, generic CEF, Linux netfilter/iptables, and Snort NIDS.
+A control plane for the demo. Each switch replays one **real** public corpus
+over UDP at a rate you set. Streams live in the server, so they keep running
+whether or not the page is open. A corpus that is not on disk is reported
+`absent` and cannot be switched on — there is deliberately no fallback to
+invented data.
 
-### Controlled tamper detection
+### Unparsed clusters and the two generators
 
-![Tamper detected by chain verification](docs/images/tamper-detected.png)
+![Unparsed clusters](docs/screenshots/console-clusters.png)
 
-The Tamper action changes only the browser's in-memory copy. Verification
-rejects it while the append-only vault remains unchanged.
+Dead-letter records are grouped into templates ranked by volume. Each offers
+two ways to draft a Source Pack:
 
-## Install without setup surprises
+- **AI Copilot** — a local model (Ollama) drafts the pack.
+- **Heuristic** — a deterministic, rules-based generator. No model, no GPU,
+  works air-gapped.
 
-### Prerequisites
+Both are offered explicitly rather than one hiding behind the other's failure,
+because a deployment that forbids an LLM still has to be able to onboard a new
+device. The candidate is scored against fixtures built from the actual samples
+before anyone is asked to approve it, and the review pane names which generator
+produced it. **Nothing activates without human approval.**
 
-- Rust 1.85 or newer through [rustup](https://rustup.rs/).
-- Windows: Visual Studio Build Tools with **Desktop development with C++**, or a
-  working GNU Rust host toolchain.
-- Debian/Ubuntu: `build-essential pkg-config cmake`.
-- macOS: Xcode Command Line Tools.
+### Installed Source Packs
 
-No Node.js or frontend build is needed. The console is embedded in the binary.
+![Source packs](docs/screenshots/console-packs.png)
 
-### Automated setup
+Every loaded pack with its decoder chain and its own fixture score. A pack that
+cannot parse its own fixtures does not reach this list.
 
-Windows PowerShell:
+### Integrity verification
 
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\setup.ps1
-```
+![Chain verified](docs/screenshots/console-integrity.png)
 
-Linux/macOS:
+Re-hashes every event in the window and walks the chain links.
+
+### Tamper detection
+
+![Tamper detected](docs/screenshots/console-tamper.png)
+
+"Simulate Database Tampering" rewrites a single field on one vaulted event —
+here one source IP. Verification immediately reports
+`fingerprint mismatch: event content has been altered`. This is the core claim
+of the project, and it is a live test, not a slide.
+
+### Assistant
+
+![Assistant](docs/screenshots/console-assistant.png)
+
+A free-form conversation with the local model, given live context: loaded
+packs, current coverage, unparsed clusters, and recent events. Paste a device
+log and it offers to draft a pack. See [Known limitations](#known-limitations)
+for an honest note on answer quality.
+
+---
+
+## Setup
+
+### Requirements
+
+| | |
+|---|---|
+| Rust | 1.85+ (pinned by `rust-toolchain.toml`) |
+| Python | 3.9+, only to fetch corpora and reproduce measurements |
+| Disk | ~2 GB for the build, ~150 MB for the corpora |
+| Optional | [Ollama](https://ollama.com) for the AI Copilot and Assistant |
+
+No database, no message broker, no container runtime. The console, its CSS and
+its JavaScript are compiled into the binary with `include_str!`.
+
+### 1. Build
 
 ```bash
-chmod +x scripts/setup.sh
-./scripts/setup.sh
-```
-
-The scripts validate the toolchain, build the locked release, run Rust tests,
-and score all source-pack fixtures.
-
-### Manual setup
-
-```bash
-git clone <private-repository-url>
-cd ulpf
-rustup toolchain install stable
+git clone https://github.com/D3v4nshPat3l/ULPF.git
+cd ULPF
 cargo build --release --locked
-cargo test --workspace --locked
-cargo run --locked --quiet -- test --packs packs
 ```
 
-The first Cargo build downloads locked dependencies. Runtime processing itself
-does not need internet access.
-
-## Run it
-
-### Dual Dashboard UI
+On Windows the GNU toolchain is used, so no Visual Studio Build Tools are
+required:
 
 ```bash
-./target/release/ulpf serve \
-  --packs packs \
-  --vault data/console/vault \
-  --integrity-dir data/console/integrity \
-  --chain console
+rustup toolchain install stable-x86_64-pc-windows-gnu
+rustup default stable-x86_64-pc-windows-gnu
 ```
 
-ULPF runs two separate dashboards from the same binary, matching enterprise architectures (e.g., Lorica) where Analyst and Developer/Attacker tools are separated:
-
-1. **Main Analyst Console (`http://127.0.0.1:8787/`)**: The clean, pristine operator view. It shows OCSF metrics, the cryptographic chain state, and the real-time event pipeline.
-2. **Developer Simulator (`http://127.0.0.1:8787/dev`)**: The control plane. Open this on a second monitor (or a teammate's computer). Click **Start Simulator** here, and synthetic traffic (a mix of known packs and unknown zero-days) will instantly start injecting into the Main Analyst Console.
-
-Requests are deliberately bounded to 2,000 records and 4 MiB. To expose
-the console outside the host, explicitly pass `--host 0.0.0.0`; it has no
-built-in authentication, so place it behind an authenticated reverse proxy.
-
-### Normalize a file
+### 2. Verify the build
 
 ```bash
-./target/release/ulpf run \
-  --packs packs \
-  --vault data/run/vault \
-  --integrity-dir data/run/integrity \
-  --chain example \
-  --input testdata/mixed.log \
-  --output data/run/events.ndjson \
-  --dead-letter data/run/dead-letter.ndjson
+cargo test --workspace --release --locked
 ```
-
-Expected result: five records received, four parsed, one unidentified and still
-vaulted/emitted.
-
-### Fan out to data-lake and SIEM sinks
-
-The normalized NDJSON stream can be sent to one or more additional destinations
-in the same run. Every sink receives the exact event that was written to the
-main output, while the raw vault and signed chain remain the source of truth:
 
 ```bash
-./target/release/ulpf run \
-  --packs packs \
-  --vault data/run/vault \
-  --integrity-dir data/run/integrity \
-  --chain example \
-  --input testdata/mixed.log \
-  --output data/run/events.ndjson \
-  --dead-letter data/run/dead-letter.ndjson \
-  --parquet data/run/events.parquet \
-  --opensearch http://127.0.0.1:9200 \
-  --opensearch-index ulpf-events
+./target/release/ulpf test --packs packs
 ```
 
-The Parquet archive has a real footer and four queryable columns: the complete
-`event_json` document plus `class_uid`, `activity_id`, and `time`. OpenSearch
-uses `/_bulk`; Splunk uses HEC's newline event format:
+The second command runs every pack's embedded fixtures. Expect
+`18 packs · 37/37 fixtures passed · 100.0% field accuracy`.
 
-```powershell
-$env:ULPF_SPLUNK_HEC_TOKEN = "replace-with-a-short-lived-token"
-./target/release/ulpf.exe run `
-  --input testdata/mixed.log --output data/run/events.ndjson `
-  --parquet data/run/events.parquet `
-  --splunk-hec http://127.0.0.1:8088/services/collector
-```
+### 3. Fetch the real corpora
 
-Remote sinks use bounded HTTP/1.1 batches and fail the run on a non-2xx
-response. Use an authenticated local TLS reverse proxy when a destination
-requires HTTPS; ULPF intentionally has no custom TLS implementation in the
-offline binary. See [Sink operations](docs/SINKS.md) for token names, delivery
-semantics, and the schema contract.
-
-### Draft a reviewed Source Pack from unknown logs
-
-Point the offline generator at a dead-letter stream. It normalizes recurring
-values into a stable template, chooses shared detector tokens, embeds real
-representative fixtures, validates the candidate through the normal pack
-compiler, and writes a manifest:
+The datasets are not committed: they total ~150 MB, they are independently
+available, and vendoring them would silently relicense third-party data.
 
 ```bash
-./target/release/ulpf draft \
-  --dead-letter data/run/dead-letter.ndjson \
-  --output data/run/candidates \
-  --max-clusters 20 \
-  --examples-per-cluster 5
+python tools/fetch_datasets.py
 ```
 
-The generated YAML is a review artifact, not an automatic parser. A reviewer
-must replace the unknown identity, confirm mappings, add source documentation,
-and record `provenance.approved_by` before copying it into `packs/`. This keeps
-an offline drafting assistant outside the ingestion trust boundary. See
-[Pack generator](docs/PACK_GENERATOR.md) for the review checklist. If your team
-has an approved local model runner, `ulpf draft --sidecar path/to/runner`
-enables the documented stdin/stdout `ulpf-pack-draft-v1` protocol; the
-deterministic path remains the default.
+This downloads and prepares ten corpora into `../realdata` — Honeynet Project
+Scan of the Month 30/34, the Honeynet Dragon capture, and four Loghub
+production samples. See [docs/DATASETS.md](docs/DATASETS.md) for full
+provenance.
 
-### Verify the signed chain
+### 4. Optional — the local model
 
 ```bash
-./target/release/ulpf verify data/run/events.ndjson \
-  --checkpoint data/run/integrity/example.checkpoint.json \
-  --public-key data/run/integrity/ed25519-signing.pub
+ollama pull qwen2.5:1.5b-instruct
 ```
 
-Supplying the public key is stronger than trusting a key embedded in an
-untrusted checkpoint file.
+ULPF finds it on `http://127.0.0.1:11434` by default. Override with
+`ULPF_LLM_ENDPOINT`, `ULPF_LLM_MODEL`, `ULPF_LLM_BACKEND`. Without it,
+everything still works; only the AI Copilot and Assistant are unavailable, and
+the deterministic generator covers pack drafting.
 
-### Receive UDP syslog
+---
+
+## Running it
+
+### The console
 
 ```bash
-./target/release/ulpf listen \
-  --bind 0.0.0.0:5514 \
-  --packs packs \
-  --vault data/syslog/vault \
-  --integrity-dir data/syslog/integrity \
-  --output data/syslog/events.ndjson
+./target/release/ulpf serve --packs packs --vault data/vault --integrity-dir data/integrity --datasets ../realdata
 ```
 
-Port 5514 avoids privileged-port requirements. Configure a test device to send
-RFC 3164 or RFC 5424 datagrams to the host. Stop with Ctrl+C.
+Open <http://127.0.0.1:8787> for the operator console and
+<http://127.0.0.1:8787/dev> for the traffic simulator. Turn on a few sources in
+the simulator and watch the console fill.
 
-### Recover original bytes
+`serve` also binds a UDP syslog receiver on `0.0.0.0:5514`, so real devices can
+point at it directly.
 
-Copy `unmapped.ulpf_raw_locator` from an emitted event:
+### A file, start to finish
 
 ```bash
-./target/release/ulpf raw --vault data/run/vault "ulpf:raw:<block>:<offset>:<length>"
+./target/release/ulpf run --packs packs --vault data/vault --integrity-dir data/integrity --input ../realdata/snort.log --output events.ndjson
 ```
 
-`ulpf raw` writes exactly the stored bytes and does not invent a line ending.
-
-### Docker
+### Verify a stream independently
 
 ```bash
-docker compose up --build
+./target/release/ulpf verify --input events.ndjson --public-key data/integrity/ed25519-signing.pub
 ```
 
-Compose publishes the console only on `127.0.0.1:8787`, runs as a non-root
-user, drops Linux capabilities, enables `no-new-privileges`, and uses a named
-volume for vault/checkpoint state.
-
-## Source packs
-
-A pack is a reviewed, testable YAML contract containing source identity,
-detectors, decoder steps, OCSF mappings, enums, and fixtures:
-
-```yaml
-identity:
-  id: fortinet-fortigate-traffic
-  vendor: Fortinet
-  product: FortiGate
-  detect:
-    - contains_all: ["devname="]
-      contains_any: ['type="traffic"', "type=traffic"]
-
-extract:
-  - decoder: syslog
-  - decoder: keyvalue
-
-map:
-  class_uid: 4001
-  activity_id: { from: action, enum: fortigate_action, default: 6 }
-  src_endpoint.ip: { from: srcip, observable: ip }
-  src_endpoint.port: { from: srcport, as: int }
-
-enums:
-  fortigate_action: { accept: 6, deny: 3, close: 2 }
-```
-
-Score every pack and its field assertions:
+### Retrieve the original bytes of one event
 
 ```bash
-cargo run --locked --quiet -- test --packs packs
+./target/release/ulpf raw --vault data/vault --locator 0:1024:512
 ```
 
-Current result: **5 packs, 13/13 fixtures, 100% asserted-field accuracy**.
-See [Contributing](CONTRIBUTING.md) before adding or changing a pack.
+### Receive real syslog
 
-## Real dataset results
+```bash
+./target/release/ulpf listen --packs packs --vault data/vault --integrity-dir data/integrity --bind 0.0.0.0:5514
+```
 
-ULPF was evaluated on unmodified Honeynet Project Scan of the Month 30 and 34
-material. The raw corpus is not committed; [Dataset protocol](docs/DATASETS.md)
-documents acquisition, paths, counts, and reproduction.
+### Replay a capture at a fixed rate
 
-| Input | Records | Successfully normalized |
-|---|---:|---:|
-| SotM30 Linux iptables | 307,524 | 307,504 |
-| SotM34 Linux iptables | 179,752 | 179,659 |
-| SotM34 Snort NIDS | 69,039 | 69,038 |
-| **Combined** | **556,315** | **556,201 (99.9795%)** |
+```bash
+./target/release/ulpf replay --source ../realdata/iptables.log --target 127.0.0.1:5514 --eps 5000 --count 50000
+```
 
-The remaining 114 records were retained rather than discarded: 36 were not
-firewall/IDS traffic and 78 did not satisfy extraction rules. On the verified
-local corpus (`119,113,071` bytes), the raw vault was `7,479,694` bytes
-(approximately **15.9:1** compression) and all originals remained addressable.
+---
 
-The final locked release processed the corpus in `51.545 s`, or **10,793
-events/s**, on Windows x86-64 with Rust 1.98.0. This is a single-process local
-measurement, not a universal hardware claim; the exact reproduction command is
-in [Dataset protocol](docs/DATASETS.md).
+## Measured results
 
-Synthetic fixtures from `tools/gen_bench.py` are useful for profiler regression
-only; they are never included in the coverage figure above.
+### Coverage — 292,608 real records
 
-## Verification status
+Measured 3 September 2026 against unmodified public captures, reproducible with
+`python tools/measure_coverage.py`.
 
-- 189 executed Rust tests pass (188 unit/integration cases and one doc test).
-- All 13 source-pack fixtures pass with 100% asserted-field accuracy.
-- Release build and mixed-stream signed-checkpoint flow pass.
-- Browser flow passes with 2,000 real Snort records and no console warnings or errors.
-- Vault reads verify header, bounds, decompressed size, and CRC-32.
-- Input/output/dead-letter path collisions are rejected before writing.
-- The release sink path was verified with PyArrow: five mixed events produced a
-  readable Parquet file with four columns; one unknown event also produced a
-  reviewable candidate pack.
+| Category | Source | Origin | Records | Coverage |
+|---|---|---|---:|---:|
+| Firewall | `iptables.log` | Honeynet SotM34 | 179,752 | 100.0000% |
+| IDS | `snort.log` | Honeynet SotM34 | 69,039 | 99.9986% |
+| IDS | `dragon-nids.log` | Honeynet Dragon | 29,925 | 100.0000% |
+| Web | `apache-access.log` | Honeynet SotM34 | 3,554 | 99.9719% |
+| Web | `Apache_2k.log` | Loghub | 2,000 | 100.0000% |
+| Auth | `OpenSSH_2k.log` | Loghub | 2,000 | 100.0000% |
+| Host | `linux-messages.log` | Honeynet SotM34 | 1,166 | 94.2539% |
+| Host | `Linux_2k.log` | Loghub | 2,000 | 96.4500% |
+| Mail | `sendmail.log` | Honeynet SotM34 | 1,172 | 98.7201% |
+| Proxy | `Proxifier_2k.log` | Loghub | 2,000 | 81.1000% |
+| **Total** | | | **292,608** | **99.8178%** |
 
-Run the complete local gate from [Testing](docs/TESTING.md).
+The iptables figure is genuine cross-validation: that pack was written against
+a *different* 307,524-record capture (SotM30) and never tuned on SotM34.
+
+The misses are named rather than rounded away in
+[docs/DATASETS.md](docs/DATASETS.md) — mostly non-connection Proxifier lines
+and a long tail of daemon messages with no pack, plus two genuinely corrupt
+source records.
+
+### Throughput
+
+| Offered rate | Sent | Received | Loss |
+|---:|---:|---:|---:|
+| 4,000 EPS | 40,000 | 40,000 | 0% |
+| 10,000 EPS | 100,000 | 100,000 | 0% |
+| 12,000 EPS | 120,000 | 118,000 | 1.7% |
+| 15,000 EPS | 150,000 | 125,000 | 16.7% |
+
+**10,000 EPS sustained, lossless, per collector**, with every accepted record
+durable before it is emitted. That is 864 million events/day.
+
+One billion per day needs 11,574 EPS, so a single node on this hardware does
+not reach it — it needs two collectors. Chains are per-collector and verify
+independently, so that is a deployment decision rather than a code change. The
+full method, and the three limits found by measuring, are in
+[docs/THROUGHPUT.md](docs/THROUGHPUT.md).
+
+---
+
+## Requirement coverage
+
+| # | Requirement | Status | Evidence |
+|---|---|---|---|
+| a | Preserve raw event data without loss | **Done** | Append-only zstd vault written before parsing; locator on every event; CRC validated |
+| b | Extract source-specific attributes | **Done** | 10 decoders composed into per-pack chains |
+| c | Normalize to a common taxonomy | **Done** | OCSF 1.9.0, schema vendored at `schema/ocsf` |
+| d | Trace normalized events to originals | **Done** | `unmapped.ulpf_raw_locator`, content fingerprint, `prev_event` link |
+| e | Plug-and-play onboarding | **Done** | Declarative YAML packs, validated, fixture-tested, hot-reloaded by a filesystem watcher |
+| f | Unified visibility | **Done** | Embedded console, event inspector, cluster browser |
+| g | SIEM / data-lake integration | **Done** | NDJSON default; Parquet, OpenSearch Bulk and Splunk HEC fan-out |
+| h | AI/ML-ready analytics | **Partial** | Stable structured JSON; columnar feature pipeline not built |
+| i | Reduce parser development effort | **Done** | Drain clustering plus two generators, scored against real fixtures, human-approved |
+| j | Air-gapped deployment | **Done** | Zero runtime network dependency; console fully self-contained |
+
+---
 
 ## Repository layout
 
-```text
-ulpf/
-├── .github/              CI, contribution templates, Dependabot
-├── crates/               six focused Rust workspace crates
-├── docs/                 architecture, datasets, tests, sinks, generator, evidence
-├── packs/                declarative source packs with fixtures
-├── schema/ocsf/          pinned upstream OCSF 1.9 schema snapshot
-├── scripts/              setup and real-corpus preparation
-├── testdata/             small redistributable regression inputs
-├── tools/                synthetic benchmark generator
-├── Dockerfile
-└── compose.yaml
 ```
+crates/
+  ulpf-core        envelopes, dispositions, raw references, shared types
+  ulpf-vault       append-only compressed raw store, O(1) retrieval, crash recovery
+  ulpf-decode      the ten decoders
+  ulpf-pack        Source Pack spec, compilation, detection, extraction, mapping
+  ulpf-ocsf        OCSF event model, RFC 8785 JCS, fingerprints, chain, checkpoints
+  ulpf-generator   Drain clustering, deterministic generator, LLM client, scorer
+  ulpf-cli         binary: run, serve, listen, replay, draft, test, verify, raw
+packs/             18 Source Packs
+schema/ocsf/       vendored OCSF 1.9.0
+tools/             corpus fetch and coverage measurement scripts
+docs/              architecture, datasets, throughput, testing, roadmap
+```
+
+---
+
+## What is done
+
+**Pipeline.** Vault-first ingestion, ten decoders, 18 packs, OCSF 1.9
+normalization, NDJSON output, Parquet / OpenSearch / Splunk sinks, pack hot
+reload.
+
+**Integrity.** RFC 8785 canonicalization, per-event fingerprints, hash chain,
+periodic Ed25519-signed checkpoints, independent `verify` command, live tamper
+detection in the console. The signing key is created `0600` and the collector
+refuses to start if its permissions are loose.
+
+**Onboarding.** Drain clustering of dead letters; a deterministic generator and
+an LLM generator, both scored against fixtures derived from real samples;
+review-and-approve gate; provenance recorded on generated packs.
+
+**Console.** Live pipeline view, cluster browser, pack inventory, integrity
+vault, assistant, deep-linkable views, and a simulator that drives ten real
+corpora.
+
+**Evidence.** 292,608 real records at 99.8178% coverage; throughput measured
+and published with its losses; scripts to reproduce both.
+
+---
+
+## What is next
+
+Ordered by what would most change the system's standing, not by ease.
+
+### 1. Second collector and horizontal scale
+
+One node sustains 10,000 EPS; the 1B/day target needs 11,574. Chains are
+already per-collector and verify independently, so what is missing is the
+deployment story: a documented two-node configuration and a verifier that
+consumes several chains at once.
+
+### 2. Columnar feature pipeline (requirement h)
+
+The one requirement still marked *Partial*. Stable structured JSON exists;
+what is missing is a batched Parquet feature table with a stable column
+contract that a model can train against without re-deriving fields.
+
+### 3. Widen real-corpus coverage
+
+The three named gaps are Proxifier's non-connection lines (18.9%), the daemon
+long tail in Linux syslog, and mail. Each needs packs written against the
+capture rather than against a vendor manual.
+
+Cisco ASA, FortiGate, Palo Alto, Check Point, Juniper, Suricata, ModSecurity
+and Squid packs exist and pass their fixtures, but those fixtures come from
+documentation — there is no public corpus for them. Finding or lawfully
+capturing real traffic for those vendors would materially strengthen the
+coverage claim.
+
+### 4. A better local model for the Assistant
+
+`qwen2.5:1.5b-instruct` is small enough to run anywhere, and it shows: answers
+hedge and occasionally invent OCSF class numbers. A 7B-class model would fix
+most of it at the cost of hardware. The deterministic generator exists so that
+pack drafting never depends on this.
+
+### 5. Windows Event Log and NetFlow/IPFIX
+
+Both are named in the problem statement's spirit and neither is text-line
+shaped, so both need real ingestion work rather than another pack.
+
+### 6. Operational hardening
+
+TLS syslog (RFC 5425), backpressure signalling to senders, key rotation and a
+documented custody procedure for the signing key, and packaging as a service.
+
+---
 
 ## Known limitations
 
-- Only UDP is implemented as a native network receiver; TCP/TLS syslog and
-  Kafka remain roadmap work.
-- OpenSearch and Splunk adapters currently speak plain HTTP to a trusted local
-  endpoint. Put a TLS/authenticated reverse proxy in front of them for remote
-  deployments.
-- Packs reload on process restart, not while ingest is running.
-- The pack generator is deterministic and offline; an optional local LLM
-  refinement sidecar is not required for safe operation and is not enabled by
-  default.
-- Five sources are included; FortiGate, PAN-OS, and generic CEF currently rely
-  on documentation-derived fixtures rather than publishable vendor corpora.
-- The console is an operator prototype and intentionally ships without user
-  accounts or authorization.
-- A clean online build is reproducible through `Cargo.lock`; dependencies are
-  not yet vendored for fully offline compilation.
+Stated plainly, because a reviewer will find them anyway.
 
-These constraints are tracked in [Roadmap](docs/ROADMAP.md) and should not be
-presented as completed hackathon features.
+- **One collector does not reach 1B/day.** 10,000 EPS lossless is 86% of the
+  target. Claiming otherwise would require the 12,000 EPS figure, which drops
+  1.7% of records.
+- **Coverage is 99.82%, not 100%.** The remainder is enumerated in
+  `docs/DATASETS.md`. Unparsed records are still vaulted, fingerprinted and
+  emitted.
+- **Eight of the 18 packs have no real-corpus evidence.** They pass fixtures
+  written from vendor documentation. Real data has repeatedly broken packs that
+  passed documentation-derived tests, so treat those eight as unproven.
+- **The Assistant's answer quality is limited by a 1.5B model.** It reads live
+  context correctly but reasons loosely. The screenshot above is a real,
+  unedited exchange, including its hedging.
+- **UDP loses records above the sustained rate.** The receive buffer is raised
+  to 8 MB and the granted size is printed at startup, but UDP has no
+  backpressure. TCP/TLS syslog is future work.
+- **Console history is a 500-event window,** deliberately: it is a view onto a
+  stream, not a store. The vault and sinks are where events land.
 
-## Team workflow
+---
 
-1. Create a focused branch: `feature/<topic>` or `fix/<topic>`.
-2. Keep commits small and imperative.
-3. Run formatting, tests, Clippy, pack scoring, and the release build.
-4. Open a pull request using the checklist and attach evidence for UI/parser changes.
-5. Require review before merging to `main`.
+## Development
 
-Security reports follow [SECURITY.md](SECURITY.md), community expectations are
-in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and implementation guidance is in
-[CONTRIBUTING.md](CONTRIBUTING.md).
+```bash
+cargo fmt --all
+```
 
-## License and provenance
+```bash
+cargo clippy --workspace --all-targets --locked -- -D warnings
+```
 
-ULPF code is licensed under Apache-2.0. The vendored OCSF schema has its own
-Apache-2.0 notice and is pinned to version 1.9.0; see
-[`schema/ocsf/UPSTREAM.md`](schema/ocsf/UPSTREAM.md) and [NOTICE](NOTICE).
+```bash
+cargo test --workspace --release --locked
+```
+
+```bash
+./target/release/ulpf test --packs packs
+```
+
+CI runs all four, every step with `--offline` and `--locked`, which proves the
+tree builds and tests with no network access at all. See
+[docs/TESTING.md](docs/TESTING.md) and
+[docs/DEVELOPER_NOTES.md](docs/DEVELOPER_NOTES.md).
+
+### Writing a Source Pack
+
+Start from an existing pack in `packs/`, point it at real log lines, and run
+`ulpf test`. The embedded fixtures are the test suite. If you have unparsed
+traffic, let the console draft a candidate for you and edit from there —
+[docs/PACK_GENERATOR.md](docs/PACK_GENERATOR.md) explains the scoring.
+
+---
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Crate boundaries and data flow |
+| [DATASETS.md](docs/DATASETS.md) | Corpus provenance, coverage, named misses |
+| [THROUGHPUT.md](docs/THROUGHPUT.md) | Measured EPS, method, the limits found |
+| [PACK_GENERATOR.md](docs/PACK_GENERATOR.md) | Clustering, generators, scoring |
+| [SINKS.md](docs/SINKS.md) | Parquet, OpenSearch, Splunk HEC |
+| [TESTING.md](docs/TESTING.md) | Test strategy |
+| [3-LAPTOP-DEMO.md](docs/3-LAPTOP-DEMO.md) | Multi-machine demo setup |
+| [ROADMAP.md](docs/ROADMAP.md) | Longer-range plan |
+
+---
+
+## Licence and data
+
+The code in this repository is the team's own work. The log corpora are **not**
+redistributed here; `tools/fetch_datasets.py` retrieves them from the
+Honeynet Project and Loghub, whose terms apply to that data.
