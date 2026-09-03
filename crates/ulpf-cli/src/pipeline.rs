@@ -200,6 +200,14 @@ impl Pipeline {
     /// return the current signed checkpoint without consuming the pipeline.
     ///
     /// The server calls this between requests; `finish` is the shutdown path.
+    /// Make everything written so far retrievable by locator, without paying
+    /// for a signature. Separated from `checkpoint_now` so a hot receive loop
+    /// can keep the vault readable per event while signing only periodically.
+    pub fn flush(&mut self) -> anyhow::Result<()> {
+        self.vault.flush()?;
+        Ok(())
+    }
+
     pub fn checkpoint_now(&mut self) -> anyhow::Result<Option<ulpf_ocsf::Checkpoint>> {
         self.vault.flush()?;
         Ok(self.attestor.checkpoint(ulpf_core::now_nanos())?)
