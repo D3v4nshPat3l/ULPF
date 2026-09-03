@@ -183,27 +183,57 @@ async fn clusters(State(state): State<Shared>) -> Json<Value> {
     Json(json!({ "clusters": list }))
 }
 
+/// Either drive an existing dead-letter cluster, or hand over raw lines
+/// directly — the console's Copilot pastes a line, the Clusters view sends an
+/// id, and both should work.
 #[derive(serde::Deserialize)]
 struct GenerateBody {
-    cluster_id: String,
+    #[serde(default)]
+    cluster_id: Option<String>,
+    #[serde(default)]
+    raw_log: Option<String>,
 }
 
 async fn generate(
     State(state): State<Shared>,
     Json(body): Json<GenerateBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let samples = {
-        let s = lock(&state);
-        s.drain
-            .ranked_clusters()
-            .into_iter()
-            .find(|c| c.id == body.cluster_id)
-            .map(|c| c.samples.clone())
-            .unwrap_or_default()
+    // Pasted lines win when both are supplied.
+    let (samples, label) = match (&body.raw_log, &body.cluster_id) {
+        (Some(raw), _) if !raw.trim().is_empty() => {
+            let lines: Vec<String> = raw
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(str::to_string)
+                .take(20)
+                .collect();
+            (lines, "pasted".to_string())
+        }
+        (_, Some(id)) => {
+            let s = lock(&state);
+            let found = s
+                .drain
+                .ranked_clusters()
+                .into_iter()
+                .find(|c| &c.id == id)
+                .map(|c| c.samples.clone())
+                .unwrap_or_default();
+            (found, id.clone())
+        }
+        _ => {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                "supply either raw_log or cluster_id".into(),
+            ))
+        }
     };
 
     if samples.is_empty() {
-        return Err(ApiError(StatusCode::NOT_FOUND, "cluster not found".into()));
+        return Err(ApiError(
+            StatusCode::NOT_FOUND,
+            "no log lines to learn from".into(),
+        ));
     }
 
     let client = ulpf_generator::llm::GeneratorClient::from_env();
@@ -221,7 +251,7 @@ async fn generate(
     }
 
     let pack = client
-        .draft_pack(&body.cluster_id, &samples)
+        .draft_pack(&label, &samples)
         .await
         .map_err(|e| ApiError(StatusCode::BAD_GATEWAY, e.to_string()))?;
 

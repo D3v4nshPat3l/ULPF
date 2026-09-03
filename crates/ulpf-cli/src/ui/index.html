@@ -536,50 +536,116 @@ ${data.bytes} bytes · ${proof}`;
     alert("Simulated tampering completed. Run verification to see the chain break.");
   }
 
-  async function generatePack() {
-    const text = document.getElementById('copilot-input').value;
-    if (!text) return;
-    
+  // Holds the YAML of the most recent draft so Approve can send it back.
+  let lastDraftYaml = null;
+
+  // Chat rows are built with createElement/textContent. The user pastes a raw
+  // log line here, and log text is attacker-controlled: interpolating it into
+  // innerHTML would let a crafted record run script in the analyst's browser.
+  function chatRow(role, build) {
+    const wrap = document.createElement('div');
+    wrap.className = `msg ${role}`;
+    const bubble = document.createElement('div');
+    bubble.className = 'msg-bubble';
+    build(bubble);
+    wrap.append(bubble);
     const hist = document.getElementById('chat-history');
-    hist.innerHTML += `<div class="msg user"><div class="msg-bubble">${text}</div></div>`;
-    hist.innerHTML += `<div class="msg assistant"><div class="msg-bubble" style="color:var(--text-faint)">Thinking...</div></div>`;
+    hist.append(wrap);
     hist.scrollTop = hist.scrollHeight;
-    document.getElementById('copilot-input').value = "";
+    return wrap;
+  }
+
+  async function generatePack() {
+    const input = document.getElementById('copilot-input');
+    const text = input.value.trim();
+    if (!text) return;
+
+    chatRow('user', b => { b.textContent = text; });
+    const thinking = chatRow('assistant', b => {
+      b.style.color = 'var(--text-faint)';
+      b.textContent = 'Reading the format…';
+    });
+    input.value = '';
 
     try {
+      // The server takes raw_log or cluster_id; the Copilot pastes lines.
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ raw_log: text })
       });
       const data = await res.json();
-      
-      // Remove thinking msg
-      hist.lastChild.remove();
-      
-      hist.innerHTML += `<div class="msg assistant"><div class="msg-bubble">
-        I have analyzed this format and created a new pack.
-        <br><br>
-        <strong>Regex:</strong><br>
-        <code style="display:block; padding:8px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); margin-top:4px; font-size:11px;">${data.pack.spec.extract[0].decoder}</code>
-        <br><br>
-        <button class="btn approve sm" onclick="approvePack()">Deploy to Production</button>
-      </div></div>`;
-      hist.scrollTop = hist.scrollHeight;
-    } catch(e) {
-      hist.lastChild.remove();
-      hist.innerHTML += `<div class="msg assistant"><div class="msg-bubble" style="color:var(--high)">Error: Could not generate pack. Ensure LLM is running.</div></div>`;
+      thinking.remove();
+
+      if (!res.ok) {
+        // Show what actually went wrong instead of always blaming the model.
+        chatRow('assistant', b => {
+          b.style.color = 'var(--high)';
+          b.textContent = data.error || `Request failed (HTTP ${res.status})`;
+        });
+        return;
+      }
+
+      lastDraftYaml = data.pack_yaml;
+
+      chatRow('assistant', b => {
+        const intro = document.createElement('div');
+        intro.textContent =
+          `Drafted a candidate pack using ${data.model || 'the local model'}. ` +
+          `It scored ${data.fixtures_passed}/${data.fixtures} on its own samples.`;
+
+        const pre = document.createElement('pre');
+        pre.style.cssText =
+          'margin:10px 0;padding:10px;background:var(--surface);border:1px solid var(--border);' +
+          'border-radius:var(--radius);font-size:11px;max-height:280px;overflow:auto;white-space:pre-wrap';
+        pre.textContent = data.pack_yaml;
+
+        const note = document.createElement('div');
+        note.style.cssText = 'font-size:11px;color:var(--text-faint);margin-bottom:8px';
+        note.textContent =
+          'Nothing is active until you approve it. Review the mappings first.';
+
+        const btn = document.createElement('button');
+        btn.className = 'btn approve sm';
+        btn.textContent = 'Approve and load';
+        btn.addEventListener('click', () => approvePack(btn));
+
+        b.append(intro, pre, note, btn);
+      });
+    } catch (e) {
+      thinking.remove();
+      chatRow('assistant', b => {
+        b.style.color = 'var(--high)';
+        b.textContent = `Could not reach the console: ${e.message}`;
+      });
     }
   }
 
-  async function approvePack() {
-    const hist = document.getElementById('chat-history');
-    hist.innerHTML += `<div class="msg user"><div class="msg-bubble">Approve and deploy.</div></div>`;
-    
-    await fetch('/api/approve', { method: 'POST' });
-    
-    hist.innerHTML += `<div class="msg assistant"><div class="msg-bubble" style="color:var(--success); font-weight:500;">Pack approved and instantly active in pipeline.</div></div>`;
-    hist.scrollTop = hist.scrollHeight;
+  async function approvePack(btn) {
+    if (!lastDraftYaml) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+    try {
+      const res = await fetch('/api/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ yaml: lastDraftYaml })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      chatRow('assistant', b => {
+        b.textContent =
+          `Loaded "${data.id}". It is live now — the watcher picks up new packs ` +
+          `without a restart, so matching records will start normalising.`;
+      });
+      if (btn) btn.textContent = 'Loaded';
+      refresh();
+    } catch (e) {
+      chatRow('assistant', b => {
+        b.style.color = 'var(--high)';
+        b.textContent = `Could not load the pack: ${e.message}`;
+      });
+      if (btn) { btn.disabled = false; btn.textContent = 'Approve and load'; }
+    }
   }
 </script>
 </body>
