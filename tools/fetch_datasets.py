@@ -24,7 +24,7 @@ HONEYNET = "http://log-sharing.dreamhosters.com"
 LOGHUB = "https://raw.githubusercontent.com/logpai/loghub/master"
 
 # Loghub publishes a 2,000-line sample of each corpus in the repository itself.
-LOGHUB_SAMPLES = ["Linux", "OpenSSH", "Apache", "Proxifier"]
+LOGHUB_SAMPLES = ["Linux", "OpenSSH", "Apache", "Proxifier", "Windows", "Mac", "Android", "HDFS", "Spark", "Zookeeper"]
 
 
 def fetch(url: str) -> bytes:

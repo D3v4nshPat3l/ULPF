@@ -109,6 +109,48 @@ pub const SOURCES: &[Source] = &[
         origin: "Loghub",
         file: "Proxifier_2k.log",
     },
+    Source {
+        id: "windows",
+        label: "Windows Event Logs",
+        category: "Host",
+        origin: "Loghub",
+        file: "Windows_2k.log",
+    },
+    Source {
+        id: "mac",
+        label: "macOS System",
+        category: "Host",
+        origin: "Loghub",
+        file: "Mac_2k.log",
+    },
+    Source {
+        id: "android",
+        label: "Android logcat",
+        category: "Mobile",
+        origin: "Loghub",
+        file: "Android_2k.log",
+    },
+    Source {
+        id: "hdfs",
+        label: "Hadoop HDFS",
+        category: "Database",
+        origin: "Loghub",
+        file: "HDFS_2k.log",
+    },
+    Source {
+        id: "spark",
+        label: "Apache Spark",
+        category: "App",
+        origin: "Loghub",
+        file: "Spark_2k.log",
+    },
+    Source {
+        id: "zookeeper",
+        label: "Apache Zookeeper",
+        category: "App",
+        origin: "Loghub",
+        file: "Zookeeper_2k.log",
+    },
 ];
 
 struct Stream {
