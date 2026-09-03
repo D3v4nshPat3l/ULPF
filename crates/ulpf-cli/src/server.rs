@@ -69,6 +69,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/events", get(events))
         .route("/api/clusters", get(clusters))
         .route("/api/generate", post(generate))
+        .route("/api/chat", post(chat))
         .route("/api/ingest", post(ingest))
         .route("/api/approve", post(approve))
         .route("/api/raw/{locator}", get(raw))
@@ -268,6 +269,156 @@ async fn generate(
         "fixtures_passed": score.passed,
         "field_accuracy": score.field_accuracy(),
     })))
+}
+
+#[derive(serde::Deserialize)]
+struct ChatBody {
+    messages: Vec<ulpf_generator::llm::ChatMessage>,
+}
+
+const MAX_CHAT_TURNS: usize = 24;
+
+/// Free-form conversation with the local model.
+///
+/// A system message describes what ULPF is and, importantly, what is happening
+/// in *this* collector right now — packs loaded, coverage, unparsed clusters —
+/// so the assistant can answer questions about the operator's own data rather
+/// than only in generalities.
+async fn chat(
+    State(state): State<Shared>,
+    Json(body): Json<ChatBody>,
+) -> Result<Json<Value>, ApiError> {
+    if body.messages.is_empty() {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "no messages".into()));
+    }
+
+    let context = {
+        let s = lock(&state);
+        let st = &s.pipeline.stats;
+        let packs: Vec<String> = s
+            .pipeline
+            .packs()
+            .iter()
+            .map(|p| format!("{} ({} {})", p.id, p.vendor, p.product))
+            .collect();
+        let clusters: Vec<String> = s
+            .drain
+            .ranked_clusters()
+            .into_iter()
+            .take(5)
+            .map(|c| format!("{} x{} :: {}", c.id, c.count, c.template.join(" ")))
+            .collect();
+
+        // The most recent events, in full enough detail to answer "what did you
+        // just parse?". Without these the assistant only has counts, and had to
+        // say it could not see any logs - which was true, and unhelpful.
+        let recent: Vec<String> = s
+            .recent
+            .iter()
+            .rev()
+            .take(6)
+            .map(|r| {
+                let e = &r.event;
+                let get = |p: &str| {
+                    e.get_path(p)
+                        .and_then(|v| {
+                            v.as_str()
+                                .map(str::to_string)
+                                .or_else(|| v.as_i64().map(|n| n.to_string()))
+                        })
+                        .unwrap_or_else(|| "-".into())
+                };
+                format!(
+                    "[{}] pack={} class={} {}:{} -> {}:{} proto={} raw={}",
+                    r.disposition,
+                    r.pack.clone().unwrap_or_else(|| "none".into()),
+                    e.class_uid().unwrap_or(0),
+                    get("src_endpoint.ip"),
+                    get("src_endpoint.port"),
+                    get("dst_endpoint.ip"),
+                    get("dst_endpoint.port"),
+                    get("connection_info.protocol_name"),
+                    e.get_path("raw_data")
+                        .and_then(|v| v.as_str())
+                        .map(|t| t.chars().take(160).collect::<String>())
+                        .unwrap_or_else(|| "(not inlined)".into()),
+                )
+            })
+            .collect();
+        format!(
+            "You are the assistant built into ULPF, a log pre-processing tool for the              Smart India Hackathon problem statement 26156 (NTRO).
+
+             What ULPF does: it accepts logs from any perimeter device, stores the exact              original bytes in an append-only vault before parsing anything, identifies the              source using declarative YAML 'Source Packs', extracts fields with a decoder              chain, normalises to the OCSF 1.9 schema, and chains every event with a              SHA-256 fingerprint so tampering is detectable.
+
+             Decoders available: syslog, keyvalue, csv, cef, leef, json, xml, regex.
+             Common OCSF targets: src_endpoint.ip, src_endpoint.port, dst_endpoint.ip,              dst_endpoint.port, connection_info.protocol_name, device.hostname,              actor.user.name, url, message.
+
+             LIVE STATE OF THIS COLLECTOR:
+             - events received: {received}, normalised: {parsed} ({coverage:.2}% coverage)
+             - unidentified: {unid}
+             - source packs loaded ({npacks}): {packs}
+             - top unparsed clusters: {clusters}
+             - the {nrecent} most recent events (newest first):
+{recent}
+
+             RULES FOR YOUR ANSWERS:
+             1. Never repeat a sentence. Say a thing once and stop.
+             2. Default to two or three sentences. Expand only if asked.
+             3. When asked about recent or latest logs, quote the actual events listed              above - they are real records this collector processed.
+             4. Do not confuse an unparsed cluster template with a parsed event.
+             5. If something is genuinely outside what you can see, say so in one line              and suggest what would answer it.
+             6. When given a log line, explain what it is, which decoders read it, and              which OCSF attributes its values map to.",
+            received = st.received,
+            parsed = st.parsed,
+            coverage = st.coverage() * 100.0,
+            unid = st.unidentified,
+            npacks = packs.len(),
+            packs = packs.join(", "),
+            clusters = if clusters.is_empty() {
+                "none".to_string()
+            } else {
+                clusters.join(" | ")
+            },
+            nrecent = recent.len(),
+            recent = if recent.is_empty() {
+                "  (nothing ingested yet)".to_string()
+            } else {
+                recent
+                    .iter()
+                    .map(|r| format!("  {r}"))
+                    .collect::<Vec<_>>()
+                    .join("
+")
+            },
+        )
+    };
+
+    let client = ulpf_generator::llm::GeneratorClient::from_env();
+    if let Err(error) = client.probe().await {
+        return Err(ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!(
+                "No local model reachable at {}. Start Ollama, or set ULPF_LLM_ENDPOINT. ({error})",
+                client.endpoint()
+            ),
+        ));
+    }
+
+    // Keep only the recent turns so a long session cannot outgrow the context
+    // window; the system message is always re-sent.
+    let mut thread = vec![ulpf_generator::llm::ChatMessage {
+        role: "system".into(),
+        content: context,
+    }];
+    let start = body.messages.len().saturating_sub(MAX_CHAT_TURNS);
+    thread.extend(body.messages[start..].iter().cloned());
+
+    let reply = client
+        .chat(&thread)
+        .await
+        .map_err(|e| ApiError(StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    Ok(Json(json!({ "reply": reply, "model": client.model() })))
 }
 
 #[derive(serde::Deserialize)]
