@@ -1,0 +1,53 @@
+# Proxifier client proxy log.
+#
+# Written against the Loghub Proxifier corpus. Client-side proxy records
+# showing which process opened which destination through which proxy.
+identity:
+  id: proxifier-proxy
+  vendor: Initex
+  product: Proxifier
+  log_format: proxifier
+  priority: 45
+  detect:
+    - contains_all: [" open through proxy "]
+    - contains_all: [".exe - "]
+
+extract:
+  - decoder: regex
+    patterns:
+      # The process field may carry an architecture suffix - "chrome.exe *64" -
+      # which a bare \S+ will not span.
+      - '^\[(?P<ts>[^\]]+)\]\s+(?P<process>\S+?)(?:\s+\*\d+)?\s+-\s+(?P<dst_host>[^\s:]+):(?P<dst_port>\d+)\s+open through proxy\s+(?P<proxy_host>[^\s:]+):(?P<proxy_port>\d+)\s+(?P<proto>\S+)'
+      - '^\[(?P<ts>[^\]]+)\]\s+(?P<process>\S+?)(?:\s+\*\d+)?\s+-\s+(?P<dst_host>[^\s:]+):(?P<dst_port>\d+)\s+(?P<action>close|error|opened|closed)[,.]?\s*(?P<detail>.*)$'
+      - '^\[(?P<ts>[^\]]+)\]\s+(?P<process>\S+?)(?:\s+\*\d+)?\s+-\s+(?P<detail>.*)$'
+
+map:
+  class_uid: 4001                      # Network Activity
+  activity_id: 1                       # Open
+  severity_id: 1
+  dst_endpoint.hostname:
+    from: dst_host
+    observable: hostname
+  dst_endpoint.port:
+    from: dst_port
+    as: int
+  proxy_endpoint.hostname:
+    from: proxy_host
+    observable: hostname
+  proxy_endpoint.port:
+    from: proxy_port
+    as: int
+  connection_info.protocol_name:
+    from: proto
+  actor.process.name:
+    from: process
+
+fixtures:
+  - note: Real Loghub Proxifier line.
+    raw: '[10.30 16:49:06] chrome.exe - proxy.cse.cuhk.edu.hk:5070 open through proxy proxy.cse.cuhk.edu.hk:5070 HTTPS'
+    expect:
+      class_uid: 4001
+      dst_endpoint.hostname: proxy.cse.cuhk.edu.hk
+      dst_endpoint.port: 5070
+      actor.process.name: chrome.exe
+      connection_info.protocol_name: HTTPS
