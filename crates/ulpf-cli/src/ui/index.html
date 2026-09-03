@@ -155,9 +155,13 @@
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
         Overview
       </button>
+      <button data-view="clusters">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+        Unparsed Clusters
+      </button>
       <button data-view="copilot">
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
-        AI Copilot
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+        Assistant
       </button>
       <button data-view="findings">
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
@@ -248,27 +252,57 @@
         </div>
       </div>
 
-      <!-- COPILOT VIEW -->
-      <div class="view-section" id="view-copilot">
+      <!-- CLUSTERS VIEW -->
+      <div class="view-section" id="view-clusters">
         <div class="card">
           <div class="card-head">
-            <h2>AI Generator Copilot</h2>
-            <div class="sub">Generate packs from zero-day log formats automatically.</div>
+            <h2>Unparsed Clusters</h2>
+            <div class="sub">Dead-letter queue ranked by volume. Select a template to draft a parser.</div>
           </div>
-          <div class="chat-box" id="chat-history">
-            <div class="msg assistant">
-              <div class="msg-bubble">Ask me anything about this collector — what a log line means, why something is not parsing, how a decoder chain works, or what OCSF field something maps to. I can see the packs that are loaded and the formats currently going unparsed. Paste a device log and I will offer to draft a Source Pack for it.</div>
+          <div class="card-body flush">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width: 140px;">Cluster ID</th>
+                    <th style="width: 100px;">Volume</th>
+                    <th>Template</th>
+                    <th style="width: 120px; text-align: right;">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="clusters-body">
+                  <tr><td colspan="4" style="text-align:center;color:var(--text-faint)">No unparsed clusters found.</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
-          <div class="card-body" style="border-top: 1px solid var(--border); background: var(--surface);">
-            <div style="display:flex;gap:12px;">
-              <textarea id="copilot-input" rows="2" style="flex:1; padding:12px; border:1px solid var(--border); border-radius:var(--radius); font:12px var(--mono);" placeholder="Ask a question, or paste a log line...  (Enter to send, Shift+Enter for a new line)"></textarea>
-              <button class="btn primary" id="btn-send-chat" onclick="sendChat()">Send</button>
+        </div>
+
+        <div class="card" id="review-pane" style="display: none;">
+          <div class="card-head">
+            <h2>Draft Parser Review</h2>
+            <div class="sub" id="review-sub">Evaluating candidate pack...</div>
+            <div class="spacer"></div>
+            <button class="btn approve sm" id="btn-approve" onclick="approvePack()" style="display:none;">Approve and Deploy</button>
+          </div>
+          <div class="card-body">
+            <div class="stat-row" style="margin-bottom: 16px;">
+               <div class="stat">
+                 <span class="label">Test Fixtures</span>
+                 <span class="value" id="rev-fixtures">0/0</span>
+               </div>
+               <div class="stat">
+                 <span class="label">Field Accuracy</span>
+                 <span class="value" id="rev-accuracy">0%</span>
+               </div>
+            </div>
+            <div class="proof-box" style="margin-bottom: 0;">
+              <strong>Drafted YAML</strong>
+              <pre id="rev-yaml" style="background:none; border:none; padding:0; margin:0; white-space: pre-wrap; font-size: 12px;"></pre>
             </div>
           </div>
         </div>
       </div>
-
       <!-- INTEGRITY VIEW -->
       <div class="view-section" id="view-integrity">
          <div class="card">
@@ -287,7 +321,27 @@
       </div>
 
        <!-- PACKS VIEW -->
-       <div class="view-section" id="view-findings">
+       <div class="view-section" id="view-copilot">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Assistant</h2>
+            <span class="panel-sub">Ask about this collector, or paste a device log.</span>
+          </div>
+          <div class="panel-body">
+            <div id="chat-history" style="min-height:320px; max-height:52vh; overflow:auto; display:flex; flex-direction:column; gap:12px; padding:4px 2px 12px;">
+              <div class="msg assistant">
+                <div class="msg-bubble">Ask me anything about this collector &mdash; what a log line means, why something is not parsing, or which OCSF field a value maps to. I can see the loaded packs, current coverage, the unparsed clusters and the most recent events. Paste a device log and I will offer to draft a Source Pack for it.</div>
+              </div>
+            </div>
+            <div style="display:flex; gap:8px; margin-top:8px;">
+              <textarea id="copilot-input" rows="2" style="flex:1; padding:12px; border:1px solid var(--border); border-radius:var(--radius); font:12px var(--mono);" placeholder="Ask a question, or paste a log line...  (Enter to send, Shift+Enter for a new line)"></textarea>
+              <button class="btn primary" id="btn-send-chat" onclick="sendChat()">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="view-section" id="view-findings">
         <div class="card">
          <div class="card-head">
            <h2>Installed Source Packs</h2>
@@ -337,7 +391,7 @@
 
 <script>
   // Navigation Logic
-  const views = ['overview', 'copilot', 'findings', 'integrity'];
+  const views = ['overview', 'clusters', 'copilot', 'findings', 'integrity'];
   
   function switchView(viewId) {
     views.forEach(v => {
@@ -508,6 +562,40 @@ ${data.bytes} bytes · ${proof}`;
         packsBody.append(tr);
       }
 
+      // Clusters
+      const clustersPayload = await (await fetch('/api/clusters')).json();
+      const clusters = clustersPayload.clusters || [];
+      const clustersBody = document.getElementById('clusters-body');
+      
+      if (!clustersBody) return; // In case UI hasn't rendered it
+      clustersBody.replaceChildren();
+      
+      if (clusters.length === 0) {
+        clustersBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-faint)">No unparsed clusters found.</td></tr>';
+      } else {
+        for (const c of clusters) {
+          const tr = document.createElement('tr');
+          tr.append(
+            cell(c.id, 'td-primary'),
+            cell(c.count.toLocaleString(), 'mono'),
+            cell(c.template, 'mono')
+          );
+          
+          const actionTd = document.createElement('td');
+          actionTd.style.textAlign = 'right';
+          const btn = document.createElement('button');
+          btn.className = 'btn primary sm';
+          btn.id = 'btn-gen-' + c.id;
+          btn.textContent = 'Draft Pack';
+          btn.onclick = (e) => { e.stopPropagation(); generatePack(c.id); };
+          actionTd.append(btn);
+          tr.append(actionTd);
+          
+          clustersBody.append(tr);
+        }
+      }
+
+
     } catch(e) {
       console.error(e);
     }
@@ -536,16 +624,100 @@ ${data.bytes} bytes · ${proof}`;
     alert("Simulated tampering completed. Run verification to see the chain break.");
   }
 
-  // Conversation state. The whole thread is sent each turn so the model keeps
-  // context, the way a chat assistant should.
-  let chatThread = [];
-  let lastDraftYaml = null;
+  let currentDraftYaml = null;
 
-  // Chat rows are built with createElement/textContent, never innerHTML: the
+  async function generatePack(clusterId) {
+    const btn = document.getElementById('btn-gen-' + clusterId);
+    if (btn) btn.innerHTML = 'Drafting...';
+    
+    document.getElementById('review-pane').style.display = 'block';
+    document.getElementById('review-sub').innerText = 'Generating pack for ' + clusterId + '...';
+    document.getElementById('rev-yaml').innerText = 'Calling LLM generation sidecar...';
+    document.getElementById('rev-fixtures').innerText = '0/0';
+    document.getElementById('rev-accuracy').innerText = '0%';
+    document.getElementById('btn-approve').style.display = 'none';
+
+    try {
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cluster_id: clusterId })
+      });
+      if (!res.ok) {
+        let msg = res.statusText;
+        try { msg = (await res.json()).error; } catch(e) {}
+        throw new Error(msg);
+      }
+      const data = await res.json();
+      
+      currentDraftYaml = data.pack_yaml;
+      document.getElementById('review-sub').innerText = 'Candidate generated. Review scores before approving.';
+      document.getElementById('rev-yaml').innerText = data.pack_yaml;
+      document.getElementById('rev-fixtures').innerText = `${data.fixtures_passed}/${data.fixtures}`;
+      document.getElementById('rev-accuracy').innerText = `${(data.field_accuracy * 100).toFixed(1)}%`;
+      
+      document.getElementById('btn-approve').style.display = 'inline-flex';
+      if (btn) btn.innerHTML = 'Draft Pack';
+      
+      // Scroll to review pane
+      document.getElementById('review-pane').scrollIntoView({ behavior: 'smooth' });
+    } catch(e) {
+      document.getElementById('review-sub').innerText = 'Generation failed.';
+      document.getElementById('rev-yaml').innerText = e.message;
+      if (btn) btn.innerHTML = 'Draft Pack';
+    }
+  }
+
+  // Shared by the cluster review pane and the assistant, so a pack approved
+  // from either place travels the same path.
+  async function deployPack(yaml) {
+    const res = await fetch('/api/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ yaml })
+    });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { msg = (await res.json()).error; } catch(e) {}
+      throw new Error(msg);
+    }
+    return res.json();
+  }
+
+  async function approvePack() {
+    if (!currentDraftYaml) return;
+    const btn = document.getElementById('btn-approve');
+    btn.innerHTML = 'Deploying...';
+    
+    try {
+      await deployPack(currentDraftYaml);
+      
+      btn.innerHTML = 'Deployed!';
+      btn.classList.remove('approve');
+      setTimeout(() => {
+        document.getElementById('review-pane').style.display = 'none';
+        btn.innerHTML = 'Approve and Deploy';
+        btn.classList.add('approve');
+        currentDraftYaml = null;
+        refresh();
+      }, 2000);
+    } catch(e) {
+      alert("Failed to approve: " + e.message);
+      btn.innerHTML = 'Approve and Deploy';
+    }
+  }
+
+  /* ---------- Assistant ------------------------------------------------ */
+
+  // The whole thread is sent each turn so the model keeps context.
+  let chatThread = [];
+  let chatDraftYaml = null;
+
+  // Rows are built with createElement/textContent, never innerHTML: the
   // analyst pastes raw log lines here and log text is attacker-controlled.
   function chatRow(role, build) {
     const wrap = document.createElement('div');
-    wrap.className = `msg ${role}`;
+    wrap.className = 'msg ' + role;
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
     build(bubble);
@@ -557,38 +729,8 @@ ${data.bytes} bytes · ${proof}`;
   }
 
   function looksLikeALogLine(text) {
-    // Enough signal to offer pack drafting without pestering on normal questions.
     return /(\w+=\S+.*){2,}|^<\d+>|CEF:|LEEF:|SRC=|srcip=/m.test(text);
   }
-
-  // Offer the structured drafting path when the analyst has pasted something
-  // that looks like a device log, rather than forcing every message through it.
-  function offerDraft(bubble, text) {
-    const row = document.createElement('div');
-    row.style.cssText = 'margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap';
-    const hint = document.createElement('span');
-    hint.style.cssText = 'font-size:11px;color:var(--text-faint)';
-    hint.textContent = 'That looks like a device log.';
-    const btn = document.createElement('button');
-    btn.className = 'btn approve sm';
-    btn.textContent = 'Draft a Source Pack from it';
-    btn.addEventListener('click', () => { btn.disabled = true; draftPack(text, btn); });
-    row.append(hint, btn);
-    bubble.append(row);
-  }
-
-  // Enter sends, Shift+Enter makes a new line - the convention people expect
-  // from a chat box.
-  document.addEventListener('DOMContentLoaded', () => {
-    const box = document.getElementById('copilot-input');
-    if (!box) return;
-    box.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendChat();
-      }
-    });
-  });
 
   async function sendChat() {
     const input = document.getElementById('copilot-input');
@@ -614,11 +756,11 @@ ${data.bytes} bytes · ${proof}`;
       thinking.remove();
 
       if (!res.ok) {
+        chatThread.pop();
         chatRow('assistant', b => {
           b.style.color = 'var(--high)';
-          b.textContent = data.error || `Request failed (HTTP ${res.status})`;
+          b.textContent = data.error || ('Request failed (HTTP ' + res.status + ')');
         });
-        chatThread.pop();
         return;
       }
 
@@ -628,22 +770,33 @@ ${data.bytes} bytes · ${proof}`;
         p.style.whiteSpace = 'pre-wrap';
         p.textContent = data.reply;
         b.append(p);
-        if (looksLikeALogLine(text)) offerDraft(b, text);
+        if (looksLikeALogLine(text)) {
+          const row = document.createElement('div');
+          row.style.cssText = 'margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+          const hint = document.createElement('span');
+          hint.style.cssText = 'font-size:11px;color:var(--text-faint)';
+          hint.textContent = 'That looks like a device log.';
+          const btn = document.createElement('button');
+          btn.className = 'btn primary sm';
+          btn.textContent = 'Draft a Source Pack from it';
+          btn.addEventListener('click', () => { btn.disabled = true; draftFromText(text); });
+          row.append(hint, btn);
+          b.append(row);
+        }
       });
     } catch (e) {
       thinking.remove();
       chatThread.pop();
       chatRow('assistant', b => {
         b.style.color = 'var(--high)';
-        b.textContent = `Could not reach the console: ${e.message}`;
+        b.textContent = 'Could not reach the console: ' + e.message;
       });
     }
   }
 
-  // The structured path: deterministic detectors, decoders and field mapping,
-  // with the model only naming things. Separate from chat on purpose - this
-  // one has to be reliable.
-  async function draftPack(rawLog, btn) {
+  // Drafting from pasted text. The cluster table uses generatePack(clusterId)
+  // and its review pane; this is the same endpoint driven from a conversation.
+  async function draftFromText(rawLog) {
     const thinking = chatRow('assistant', b => {
       b.style.color = 'var(--text-faint)';
       b.textContent = 'Drafting a pack…';
@@ -656,81 +809,71 @@ ${data.bytes} bytes · ${proof}`;
       });
       const data = await res.json();
       thinking.remove();
-
       if (!res.ok) {
         chatRow('assistant', b => {
           b.style.color = 'var(--high)';
-          b.textContent = data.error || `Request failed (HTTP ${res.status})`;
+          b.textContent = data.error || ('Request failed (HTTP ' + res.status + ')');
         });
-        if (btn) btn.disabled = false;
         return;
       }
 
-      lastDraftYaml = data.pack_yaml;
+      chatDraftYaml = data.pack_yaml;
       chatRow('assistant', b => {
         const intro = document.createElement('div');
-        intro.textContent =
-          `Candidate pack drafted with ${data.model || 'the local model'}. ` +
-          `It scored ${data.fixtures_passed}/${data.fixtures} against the lines you gave me.`;
+        intro.textContent = 'Candidate drafted with ' + (data.model || 'the local model') +
+          '. It scored ' + data.fixtures_passed + '/' + data.fixtures + ' on the lines you gave me.';
 
         const pre = document.createElement('pre');
-        pre.style.cssText =
-          'margin:10px 0;padding:10px;background:var(--surface);border:1px solid var(--border);' +
-          'border-radius:var(--radius);font-size:11px;max-height:300px;overflow:auto;white-space:pre-wrap';
+        pre.style.cssText = 'margin:10px 0;padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);font-size:11px;max-height:300px;overflow:auto;white-space:pre-wrap';
         pre.textContent = data.pack_yaml;
 
         const note = document.createElement('div');
         note.style.cssText = 'font-size:11px;color:var(--text-faint);margin-bottom:8px';
         note.textContent = 'Nothing is active until you approve it. Check the mappings first.';
 
-        const approve = document.createElement('button');
-        approve.className = 'btn approve sm';
-        approve.textContent = 'Approve and load';
-        approve.addEventListener('click', () => approvePack(approve));
+        const btn = document.createElement('button');
+        btn.className = 'btn approve sm';
+        btn.textContent = 'Approve and deploy';
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          btn.textContent = 'Deploying…';
+          try {
+            const out = await deployPack(chatDraftYaml);
+            btn.textContent = 'Deployed';
+            chatRow('assistant', c => {
+              c.textContent = 'Loaded "' + out.id + '". Packs hot-reload, so matching ' +
+                'records start normalising without a restart.';
+            });
+            refresh();
+          } catch (err) {
+            btn.disabled = false;
+            btn.textContent = 'Approve and deploy';
+            chatRow('assistant', c => {
+              c.style.color = 'var(--high)';
+              c.textContent = 'Could not deploy: ' + err.message;
+            });
+          }
+        });
 
-        b.append(intro, pre, note, approve);
+        b.append(intro, pre, note, btn);
       });
     } catch (e) {
       thinking.remove();
       chatRow('assistant', b => {
         b.style.color = 'var(--high)';
-        b.textContent = `Could not draft a pack: ${e.message}`;
+        b.textContent = 'Could not draft a pack: ' + e.message;
       });
-      if (btn) btn.disabled = false;
     }
   }
 
-  // Kept for the old button id, so either entry point works.
-  async function generatePack() {
-    return sendChat();
-  }
-
-  async function approvePack(btn) {
-    if (!lastDraftYaml) return;
-    if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
-    try {
-      const res = await fetch('/api/approve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ yaml: lastDraftYaml })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      chatRow('assistant', b => {
-        b.textContent =
-          `Loaded "${data.id}". It is live now — packs hot-reload, so matching ` +
-          `records start normalising without a restart.`;
-      });
-      if (btn) btn.textContent = 'Loaded';
-      refresh();
-    } catch (e) {
-      chatRow('assistant', b => {
-        b.style.color = 'var(--high)';
-        b.textContent = `Could not load the pack: ${e.message}`;
-      });
-      if (btn) { btn.disabled = false; btn.textContent = 'Approve and load'; }
-    }
-  }
+  // Enter sends, Shift+Enter makes a new line.
+  document.addEventListener('DOMContentLoaded', () => {
+    const box = document.getElementById('copilot-input');
+    if (!box) return;
+    box.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+    });
+  });
 </script>
 </body>
 </html>
