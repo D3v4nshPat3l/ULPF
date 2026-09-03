@@ -4,8 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ULPF Source Simulator</title>
-  <style>
+    <style>
     :root {
+      /* Light Theme (Wazuh Default) */
       --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       --page: #f5f7fa;
@@ -30,9 +31,36 @@
       --success-soft: #e6f2f1;
       --danger-soft: #fbeceb;
       --warning-soft: #fdf6e3;
-      --radius: 4px;
-      --shadow: 0 1px 2px rgba(23,35,51,.06);
+      --radius: 6px;
+      --shadow: 0 2px 4px rgba(23,35,51,.06);
     }
+    
+    [data-theme="dark"] {
+      --page: #0b1120;
+      --surface: #1e293b;
+      --surface-alt: #0f172a;
+      --surface-sunken: #0b1120;
+      --nav: #0f172a;
+      --nav-hover: #1e293b;
+      --nav-active: #334155;
+      --nav-text: #94a3b8;
+      --nav-text-strong: #f8fafc;
+      --border: #334155;
+      --border-strong: #475569;
+      --text: #f8fafc;
+      --text-muted: #cbd5e1;
+      --text-faint: #64748b;
+      --primary: #f87171;
+      --primary-hover: #fca5a5;
+      --primary-soft: rgba(239, 68, 68, 0.15);
+      --high: #f87171;
+      --success: #10b981;
+      --success-soft: rgba(16, 185, 129, 0.1);
+      --danger-soft: rgba(239, 68, 68, 0.1);
+      --warning-soft: rgba(251, 191, 36, 0.1);
+      --shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: var(--page); color: var(--text); font: 400 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
     button, input, textarea, select { font: inherit; color: inherit; }
@@ -40,74 +68,76 @@
     h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
     code, pre, .mono { font-family: var(--mono); }
 
-    .app { min-height: 100vh; display: grid; grid-template-columns: 232px minmax(0, 1fr); }
-    .sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; background: var(--nav); color: var(--nav-text); }
-    .sidebar-brand { display: flex; align-items: center; gap: 10px; padding: 18px 18px 16px; border: 0; border-bottom: 1px solid rgba(255,255,255,.08); background: none; width: 100%; text-align: left; }
-    .sidebar-brand .logo { width: 28px; height: 28px; flex: none; display: grid; place-items: center; background: var(--primary); border-radius: var(--radius); color: #fff; font: 700 14px var(--mono); }
-    .sidebar-brand b { display: block; color: var(--nav-text-strong); font-size: 14px; font-weight: 600; letter-spacing: .02em; }
-    .sidebar-brand small { display: block; color: #7e8c9e; font-size: 11px; margin-top: 1px; }
-    .sidebar-section { padding: 16px 18px 6px; color: #7e8c9e; font: 600 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
-    .sidebar-nav { display: flex; flex-direction: column; }
-    .sidebar-nav button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 18px; border: 0; background: none; color: var(--nav-text); font-size: 13px; text-align: left; cursor: pointer; border-left: 3px solid transparent; }
-    .sidebar-nav button:hover { background: var(--nav-hover); color: var(--nav-text-strong); }
-    .sidebar-nav button.active { background: var(--nav-active); color: var(--nav-text-strong); border-left-color: var(--primary); font-weight: 600; }
-    .sidebar-foot { margin-top: auto; padding: 14px 18px; border-top: 1px solid rgba(255,255,255,.08); font-size: 12px; }
-    .sidebar-foot .conn { display: flex; align-items: center; gap: 8px; color: var(--nav-text); }
-    .sidebar-foot .conn i { width: 8px; height: 8px; border-radius: 50%; background: #6b7787; flex: none; }
-    .sidebar-foot .conn.up i { background: #54b399; }
-    .sidebar-foot small { display: block; margin-top: 6px; color: #6b7787; font: 11px var(--mono); word-break: break-all; }
-
-    .main { display: flex; flex-direction: column; min-width: 0; }
-    .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 14px 24px; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; }
-    .topbar h1 { font-size: 19px; }
+    /* Top Navigation Refactor */
+    .app { min-height: 100vh; display: flex; flex-direction: column; }
+    .top-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 60px; background: var(--nav); color: var(--nav-text); position: sticky; top: 0; z-index: 50; box-shadow: var(--shadow); }
+    
+    .top-brand { display: flex; align-items: center; gap: 12px; }
+    .top-brand .logo { width: 32px; height: 32px; display: grid; place-items: center; background: var(--high); border-radius: var(--radius); color: #fff; font: 700 16px var(--mono); }
+    .top-brand b { color: var(--nav-text-strong); font-size: 16px; font-weight: 600; letter-spacing: .02em; }
+    
+    .top-controls { display: flex; align-items: center; gap: 16px; margin-left: auto; }
+    .theme-toggle { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: var(--nav-text); width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: grid; place-items: center; transition: all 0.2s; }
+    .theme-toggle:hover { background: rgba(255,255,255,0.1); color: #fff; }
+    
+    .conn { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; }
+    .conn i { width: 8px; height: 8px; border-radius: 50%; background: #6b7787; }
+    .conn.up i { background: #54b399; box-shadow: 0 0 8px #54b399; }
+    
+    .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 16px 32px; background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topbar h1 { font-size: 22px; }
     .topbar .crumb { color: var(--text-muted); font: 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
 
-    .content { padding: 20px 24px 40px; display: flex; flex-direction: column; gap: 16px; }
+    .content { padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 20px; max-width: 1600px; margin: 0 auto; width: 100%; }
 
-    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 7px 13px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); color: var(--text); font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 16px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
     .btn:hover:not(:disabled) { background: var(--surface-sunken); border-color: var(--primary); }
     .btn.danger { border-color: var(--high); color: var(--high); }
     .btn.danger:hover:not(:disabled) { background: var(--danger-soft); }
     .btn:disabled { opacity: .5; cursor: not-allowed; }
 
     .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow-x: auto; }
-    .card-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 13px 16px; border-bottom: 1px solid var(--border); }
-    .card-head h2 { font-size: 14px; font-weight: 600; }
-    .card-head .sub { color: var(--text-muted); font-size: 12px; }
+    .card-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--surface-alt); }
+    .card-head h2 { font-size: 15px; font-weight: 600; color: var(--text); }
+    .card-head .sub { color: var(--text-muted); font-size: 13px; }
 
-    .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-    .stat .label { color: var(--text-muted); font-size: 12px; font-weight: 500; }
-    .stat .value { font: 600 26px/1.1 var(--sans); color: var(--text); font-variant-numeric: tabular-nums; }
-    .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+    .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; }
+    .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 6px; }
+    .stat .label { color: var(--text-muted); font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat .value { font: 700 28px/1.2 var(--sans); color: var(--text); font-variant-numeric: tabular-nums; }
 
     table { width: 100%; border-collapse: collapse; }
-    th { text-align: left; font: 600 10px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted); padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-    td { padding: 10px 12px; border-bottom: 1px solid var(--surface-sunken); vertical-align: middle; }
+    th { text-align: left; font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding: 10px 20px; border-bottom: 1px solid var(--border); white-space: nowrap; background: var(--surface-alt); height: 40px; }
+    td { padding: 10px 20px; border-bottom: 1px solid var(--surface-sunken); vertical-align: middle; color: var(--text); font-size: 13px; height: 56px; }
     tr:last-child td { border-bottom: 0; }
     td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
-    .src-label { font-weight: 600; }
-    .src-origin { color: var(--text-faint); font-size: 12px; margin-top: 1px; }
+    .src-label { font-weight: 600; color: var(--text); }
+    .src-origin { color: var(--text-faint); font-size: 12px; margin-top: 2px; }
 
-    .chip { display: inline-block; padding: 2px 8px; border-radius: 10px; font: 600 11px var(--sans); background: var(--surface-sunken); color: var(--text-muted); }
+    .chip { display: inline-block; padding: 3px 10px; border-radius: 12px; font: 600 11px var(--sans); background: var(--surface-sunken); color: var(--text-muted); }
     .chip.on { background: var(--success-soft); color: var(--success); }
-    .chip.absent { background: var(--warning-soft); color: #8a6d0b; }
+    .chip.absent { background: var(--warning-soft); color: var(--medium); }
 
-    .switch { position: relative; display: inline-block; width: 40px; height: 22px; flex: none; }
+    .switch { position: relative; display: inline-block; width: 44px; height: 24px; flex: none; }
     .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
-    .switch span { position: absolute; inset: 0; background: var(--border-strong); border-radius: 22px; transition: background .15s; pointer-events: none; }
-    .switch span::before { content: ""; position: absolute; height: 16px; width: 16px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform .15s; }
+    .switch span { position: absolute; inset: 0; background: var(--border-strong); border-radius: 24px; transition: background .15s; pointer-events: none; }
+    .switch span::before { content: ""; position: absolute; height: 18px; width: 18px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform .15s; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
     .switch input:checked + span { background: var(--success); }
-    .switch input:checked + span::before { transform: translateX(18px); }
+    .switch input:checked + span::before { transform: translateX(20px); }
     .switch input:disabled { cursor: not-allowed; }
     .switch input:disabled + span { opacity: .4; }
     .switch input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: 2px; }
 
-    .eps-input { width: 74px; padding: 5px 7px; border: 1px solid var(--border-strong); border-radius: var(--radius); font-family: var(--mono); font-size: 12px; text-align: right; }
-
-    .banner { padding: 11px 14px; border-radius: var(--radius); font-size: 13px; }
-    .banner.warn { background: var(--warning-soft); border: 1px solid #e6d08a; color: #7a5f08; }
-    .banner.err { background: var(--danger-soft); border: 1px solid #e8b4b1; color: var(--high); }
-    .banner code { background: rgba(0,0,0,.06); padding: 1px 5px; border-radius: 3px; }
+    .eps-input { width: 80px; padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius); font-family: var(--mono); font-size: 12px; text-align: right; background: var(--surface); color: var(--text); }
+    
+    .banner { padding: 12px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; }
+    .banner.warn { background: var(--warning-soft); border: 1px solid rgba(251, 191, 36, 0.3); color: #b45309; }
+    .banner.err { background: var(--danger-soft); border: 1px solid rgba(239, 68, 68, 0.3); color: var(--high); }
+    [data-theme="dark"] .banner.warn { color: #fcd34d; }
+    [data-theme="dark"] .banner.err { color: #fca5a5; }
+    .banner code { background: rgba(0,0,0,.06); padding: 2px 6px; border-radius: 4px; }
+    [data-theme="dark"] .banner code { background: rgba(255,255,255,.1); }
 
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
   </style>
@@ -115,28 +145,18 @@
 <body>
 
 <div class="app">
-  <aside class="sidebar">
-    <div class="sidebar-brand">
-      <div class="logo">S</div>
-      <div>
-        <b>Source Simulator</b>
-        <small>ULPF replay node</small>
-      </div>
+  <header class="top-nav">
+    <div class="top-brand">
+      <div class="logo" style="background:var(--high);">A</div>
+      <b>Attacker / Dev Node</b>
     </div>
-
-    <div class="sidebar-section">Controls</div>
-    <nav class="sidebar-nav">
-      <button class="active">
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
-        Traffic Simulator
+    <div class="top-controls">
+      <button class="theme-toggle" id="theme-btn" onclick="toggleTheme()">
+        <svg id="theme-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
       </button>
-    </nav>
-
-    <div class="sidebar-foot">
       <div class="conn" id="conn"><i></i> <span id="status-text">connecting</span></div>
-      <small id="foot-target">&nbsp;</small>
     </div>
-  </aside>
+  </header>
 
   <main class="main">
     <div class="topbar">
@@ -186,6 +206,28 @@
 </div>
 
 <script>
+  // Theme Toggle Logic
+  function toggleTheme() {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
+    localStorage.setItem('theme', isDark ? 'light' : 'dark');
+    updateThemeIcon(!isDark);
+  }
+  function updateThemeIcon(isDark) {
+    const icon = document.getElementById('theme-icon');
+    if(icon) {
+      if(isDark) {
+        icon.innerHTML = '<path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>';
+      } else {
+        icon.innerHTML = '<path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>';
+      }
+    }
+  }
+  const savedTheme = localStorage.getItem('theme');
+  if (savedTheme === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    updateThemeIcon(true);
+  }
 // The simulator lives in the server, not in this page: streams keep running
 // whether or not the tab is open, which is what makes this a control plane
 // rather than a page pretending to be one. Everything below reflects and
@@ -274,7 +316,6 @@ function buildRow(src) {
 
 function render(data) {
   const sources = data.sources || [];
-  if (data.target) $('foot-target').textContent = 'udp -> ' + data.target;
   $('s-running').textContent = data.running || 0;
   $('s-sent').textContent = (data.total_sent || 0).toLocaleString();
   $('s-avail').textContent = sources.filter((s) => s.present).length + ' / ' + sources.length;
