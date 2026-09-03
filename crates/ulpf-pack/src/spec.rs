@@ -210,6 +210,13 @@ pub enum TimeFormat {
     DateTime,
     /// PAN-OS style `YYYY/MM/DD HH:MM:SS`, treated as UTC.
     SlashDateTime,
+    /// RFC 3164 syslog: `Mar 13 04:10:10`. The format carries no year, so the
+    /// current year is assumed - which is what every syslog collector does, and
+    /// is correct for live traffic but wrong for a historical replay.
+    Rfc3164,
+    /// NCSA Common Log Format: `10/Oct/2000:13:55:36 -0700`. Used by Apache,
+    /// nginx and most reverse proxies, and it carries its own UTC offset.
+    Clf,
 }
 
 /// A sample line and what it must produce.
