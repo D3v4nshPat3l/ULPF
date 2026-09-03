@@ -3,17 +3,46 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Enterprise Network Simulator</title>
-  <style>
+  <title>ULPF Source Simulator</title>
+    <style>
     :root {
-      /* Enterprise Simulator Dark Theme */
+      /* Light Theme (Wazuh Default) */
       --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      --page: #0f172a;
+      --page: #f5f7fa;
+      --surface: #ffffff;
+      --surface-alt: #f7f9fc;
+      --surface-sunken: #eef2f7;
+      --nav: #1a2634;
+      --nav-hover: #243346;
+      --nav-active: #0d1b2a;
+      --nav-text: #c5cfdb;
+      --nav-text-strong: #ffffff;
+      --border: #d3dae6;
+      --border-strong: #b6c0ce;
+      --text: #2f3841;
+      --text-muted: #69707d;
+      --text-faint: #98a2b3;
+      --primary: #8c1d18;
+      --primary-hover: #691512;
+      --primary-soft: #fbeceb;
+      --high: #bd271e;
+      --success: #017d73;
+      --success-soft: #e6f2f1;
+      --danger-soft: #fbeceb;
+      --warning-soft: #fdf6e3;
+      --radius: 6px;
+      --shadow: 0 2px 4px rgba(23,35,51,.06);
+    }
+    
+    [data-theme="dark"] {
+      --page: #0b1120;
       --surface: #1e293b;
-      --surface-alt: #0b1120;
-      --surface-sunken: #0f172a;
-      --nav: #0b1120;
+      --surface-alt: #0f172a;
+      --surface-sunken: #0b1120;
+      --nav: #0f172a;
+      --nav-hover: #1e293b;
+      --nav-active: #334155;
       --nav-text: #94a3b8;
       --nav-text-strong: #f8fafc;
       --border: #334155;
@@ -21,18 +50,17 @@
       --text: #f8fafc;
       --text-muted: #cbd5e1;
       --text-faint: #64748b;
-      --primary: #3b82f6; /* Simulator Blue */
-      --primary-hover: #60a5fa;
-      --high: #ef4444;
+      --primary: #f87171;
+      --primary-hover: #fca5a5;
+      --primary-soft: rgba(239, 68, 68, 0.15);
+      --high: #f87171;
       --success: #10b981;
-      --success-soft: rgba(16, 185, 129, 0.15);
-      --danger-soft: rgba(239, 68, 68, 0.15);
-      --warning-soft: rgba(245, 158, 11, 0.15);
-      --warning: #f59e0b;
-      --radius: 8px;
-      --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+      --success-soft: rgba(16, 185, 129, 0.1);
+      --danger-soft: rgba(239, 68, 68, 0.1);
+      --warning-soft: rgba(251, 191, 36, 0.1);
+      --shadow: 0 4px 12px rgba(0,0,0,0.3);
     }
-    
+
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: var(--page); color: var(--text); font: 400 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
     button, input, textarea, select { font: inherit; color: inherit; }
@@ -40,85 +68,77 @@
     h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
     code, pre, .mono { font-family: var(--mono); }
 
+    /* Top Navigation Refactor */
     .app { min-height: 100vh; display: flex; flex-direction: column; }
+    .top-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 60px; background: var(--nav); color: var(--nav-text); position: sticky; top: 0; z-index: 50; box-shadow: var(--shadow); }
     
-    /* Top Navigation */
-    .top-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 60px; background: var(--nav); color: var(--nav-text); position: sticky; top: 0; z-index: 50; border-bottom: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
     .top-brand { display: flex; align-items: center; gap: 12px; }
-    .top-brand .logo { width: 32px; height: 32px; display: grid; place-items: center; background: var(--primary); border-radius: 6px; color: #fff; font: 700 18px var(--mono); box-shadow: 0 0 10px rgba(59, 130, 246, 0.5); }
+    .top-brand .logo { width: 32px; height: 32px; display: grid; place-items: center; background: var(--high); border-radius: var(--radius); color: #fff; font: 700 16px var(--mono); }
     .top-brand b { color: var(--nav-text-strong); font-size: 16px; font-weight: 600; letter-spacing: .02em; }
-    .top-controls { display: flex; align-items: center; gap: 16px; margin-left: auto; }
     
-    .conn { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.1em; background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; border: 1px solid var(--border); }
+    .top-controls { display: flex; align-items: center; gap: 16px; margin-left: auto; }
+    .theme-toggle { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: var(--nav-text); width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: grid; place-items: center; transition: all 0.2s; }
+    .theme-toggle:hover { background: rgba(255,255,255,0.1); color: #fff; }
+    
+    .conn { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; }
     .conn i { width: 8px; height: 8px; border-radius: 50%; background: #6b7787; }
-    .conn.up i { background: var(--success); box-shadow: 0 0 10px var(--success); }
+    .conn.up i { background: #54b399; box-shadow: 0 0 8px #54b399; }
     
     .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-    .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 20px 32px; background: var(--page); }
-    .topbar h1 { font-size: 24px; }
-    .topbar .crumb { color: var(--primary); font: 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 4px; display: block;}
+    .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 16px 32px; background: var(--surface); border-bottom: 1px solid var(--border); }
+    .topbar h1 { font-size: 22px; }
+    .topbar .crumb { color: var(--text-muted); font: 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
 
-    .content { padding: 0 32px 40px; display: flex; flex-direction: column; gap: 24px; max-width: 1600px; margin: 0 auto; width: 100%; }
+    .content { padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 20px; max-width: 1600px; margin: 0 auto; width: 100%; }
 
     .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 16px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
-    .btn:hover:not(:disabled) { background: var(--surface-sunken); border-color: var(--text); }
-    .btn.danger { background: var(--high); border-color: var(--high); color: white; }
-    .btn.danger:hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; box-shadow: 0 0 15px rgba(239, 68, 68, 0.4); }
+    .btn:hover:not(:disabled) { background: var(--surface-sunken); border-color: var(--primary); }
+    .btn.danger { border-color: var(--high); color: var(--high); }
+    .btn.danger:hover:not(:disabled) { background: var(--danger-soft); }
     .btn:disabled { opacity: .5; cursor: not-allowed; }
 
-    .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
-    .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 8px; border-top: 3px solid var(--border-strong); }
-    .stat .label { color: var(--text-muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
-    .stat .value { font: 700 32px/1.2 var(--sans); color: var(--text); font-variant-numeric: tabular-nums; }
-    .stat .sub { font-size: 13px; color: var(--text-faint); font-family: var(--mono); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow-x: auto; }
+    .card-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--surface-alt); }
+    .card-head h2 { font-size: 15px; font-weight: 600; color: var(--text); }
+    .card-head .sub { color: var(--text-muted); font-size: 13px; }
 
-    .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
-    .device-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s, border-color 0.2s; position: relative; }
-    .device-card:hover { border-color: var(--border-strong); transform: translateY(-2px); }
-    .device-card.active { border-color: var(--success); box-shadow: 0 0 0 1px var(--success), var(--shadow); }
-    
-    .card-banner { height: 4px; background: var(--border-strong); width: 100%; transition: background 0.3s; }
-    .device-card.active .card-banner { background: var(--success); box-shadow: 0 0 10px var(--success); }
+    .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; }
+    .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 6px; }
+    .stat .label { color: var(--text-muted); font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat .value { font: 700 28px/1.2 var(--sans); color: var(--text); font-variant-numeric: tabular-nums; }
 
-    .card-header { padding: 20px 20px 10px; display: flex; align-items: flex-start; gap: 16px; }
-    .device-icon { width: 48px; height: 48px; border-radius: 12px; background: var(--surface-alt); border: 1px solid var(--border); display: grid; place-items: center; font-size: 20px; font-weight: 700; color: var(--primary); font-family: var(--mono); flex-shrink: 0; box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); }
-    .device-info { flex: 1; min-width: 0; }
-    .device-info h3 { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .device-info .origin { font-size: 12px; color: var(--text-faint); display: flex; align-items: center; gap: 6px; }
-    .device-info .origin-chip { background: var(--surface-sunken); padding: 2px 6px; border-radius: 4px; font-family: var(--mono); font-size: 10px; border: 1px solid var(--border); }
-    
-    .card-body { padding: 10px 20px 20px; display: flex; flex-direction: column; gap: 16px; flex: 1; }
-    
-    .card-stats { display: flex; align-items: center; justify-content: space-between; background: var(--surface-alt); padding: 12px; border-radius: 6px; border: 1px solid var(--border); margin-top: auto; }
-    .mini-stat { display: flex; flex-direction: column; gap: 2px; }
-    .mini-stat .lbl { font-size: 10px; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.05em; }
-    .mini-stat .val { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--text); }
-    
-    .card-footer { padding: 16px 20px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: rgba(0,0,0,0.1); }
-    
-    .eps-control { display: flex; align-items: center; gap: 8px; }
-    .eps-control label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-    .eps-input { width: 70px; padding: 6px 8px; border: 1px solid var(--border-strong); border-radius: 4px; font-family: var(--mono); font-size: 12px; text-align: right; background: var(--surface); color: var(--text); }
-    .eps-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding: 10px 20px; border-bottom: 1px solid var(--border); white-space: nowrap; background: var(--surface-alt); height: 40px; }
+    td { padding: 10px 20px; border-bottom: 1px solid var(--surface-sunken); vertical-align: middle; color: var(--text); font-size: 13px; height: 56px; }
+    tr:last-child td { border-bottom: 0; }
+    td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+    .src-label { font-weight: 600; color: var(--text); }
+    .src-origin { color: var(--text-faint); font-size: 12px; margin-top: 2px; }
 
-    .switch { position: relative; display: inline-block; width: 50px; height: 26px; flex: none; }
+    .chip { display: inline-block; padding: 3px 10px; border-radius: 12px; font: 600 11px var(--sans); background: var(--surface-sunken); color: var(--text-muted); }
+    .chip.on { background: var(--success-soft); color: var(--success); }
+    .chip.absent { background: var(--warning-soft); color: var(--medium); }
+
+    .switch { position: relative; display: inline-block; width: 44px; height: 24px; flex: none; }
     .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
-    .switch span { position: absolute; inset: 0; background: var(--border-strong); border-radius: 26px; transition: all .2s ease; pointer-events: none; box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); }
-    .switch span::before { content: ""; position: absolute; height: 20px; width: 20px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform .2s cubic-bezier(0.4, 0.0, 0.2, 1); box-shadow: 0 2px 4px rgba(0,0,0,0.4); }
+    .switch span { position: absolute; inset: 0; background: var(--border-strong); border-radius: 24px; transition: background .15s; pointer-events: none; }
+    .switch span::before { content: ""; position: absolute; height: 18px; width: 18px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform .15s; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
     .switch input:checked + span { background: var(--success); }
-    .switch input:checked + span::before { transform: translateX(24px); }
+    .switch input:checked + span::before { transform: translateX(20px); }
     .switch input:disabled { cursor: not-allowed; }
     .switch input:disabled + span { opacity: .4; }
     .switch input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: 2px; }
 
-    .banner { padding: 12px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 12px; }
-    .banner.warn { background: var(--warning-soft); border: 1px solid rgba(245, 158, 11, 0.3); color: var(--warning); }
+    .eps-input { width: 80px; padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius); font-family: var(--mono); font-size: 12px; text-align: right; background: var(--surface); color: var(--text); }
+    
+    .banner { padding: 12px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; }
+    .banner.warn { background: var(--warning-soft); border: 1px solid rgba(251, 191, 36, 0.3); color: #b45309; }
     .banner.err { background: var(--danger-soft); border: 1px solid rgba(239, 68, 68, 0.3); color: var(--high); }
-    .banner code { background: rgba(255,255,255,.1); padding: 2px 6px; border-radius: 4px; }
-    
-    .status-badge { position: absolute; top: 12px; right: 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; padding: 2px 8px; border-radius: 12px; }
-    .status-badge.missing { background: var(--danger-soft); color: var(--high); border: 1px solid rgba(239,68,68,0.3); }
-    
+    [data-theme="dark"] .banner.warn { color: #fcd34d; }
+    [data-theme="dark"] .banner.err { color: #fca5a5; }
+    .banner code { background: rgba(0,0,0,.06); padding: 2px 6px; border-radius: 4px; }
+    [data-theme="dark"] .banner code { background: rgba(255,255,255,.1); }
+
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
   </style>
 </head>
@@ -127,10 +147,13 @@
 <div class="app">
   <header class="top-nav">
     <div class="top-brand">
-      <div class="logo">EN</div>
-      <b>Enterprise Network Simulator</b>
+      <div class="logo" style="background:var(--high);">A</div>
+      <b>Attacker / Dev Node</b>
     </div>
     <div class="top-controls">
+      <button class="theme-toggle" id="theme-btn" onclick="toggleTheme()">
+        <svg id="theme-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+      </button>
       <div class="conn" id="conn"><i></i> <span id="status-text">connecting</span></div>
     </div>
   </header>
@@ -138,32 +161,77 @@
   <main class="main">
     <div class="topbar">
       <div>
-        <span class="crumb">SIMULATION NODE / INFRASTRUCTURE</span>
-        <h1>Log Source Generators</h1>
+        <div class="crumb">SIMULATION NODE / CONTROLS</div>
+        <h1>Traffic Simulation Control Plane</h1>
       </div>
-      <div style="margin-left:auto; display:flex; gap:12px;">
-        <button class="btn danger" id="btn-stop-all">Emergency Stop All</button>
+      <div style="margin-left:auto; display:flex; gap:8px;">
+        <button class="btn danger" id="btn-stop-all">Stop all streams</button>
       </div>
     </div>
 
     <div class="content">
       <div class="stat-row">
-        <div class="stat"><span class="label">Generators Online</span><span class="value" id="s-running">0</span><span class="sub">Active network streams</span></div>
-        <div class="stat"><span class="label">Total Datagrams</span><span class="value" id="s-sent">0</span><span class="sub">Events injected into ULPF</span></div>
-        <div class="stat"><span class="label">Network Rate</span><span class="value"><span id="s-rate">0</span></span><span class="sub">Aggregate EPS</span></div>
-        <div class="stat"><span class="label">Corpora Health</span><span class="value" id="s-avail">0</span><span class="sub">Datasets loaded</span></div>
+        <div class="stat"><span class="label">Streams running</span><span class="value" id="s-running">0</span></div>
+        <div class="stat"><span class="label">Datagrams sent</span><span class="value" id="s-sent">0</span></div>
+        <div class="stat"><span class="label">Aggregate rate</span><span class="value"><span id="s-rate">0</span><small style="font-size:13px; color:var(--text-muted)"> EPS</small></span></div>
+        <div class="stat"><span class="label">Corpora available</span><span class="value" id="s-avail">0</span></div>
       </div>
 
       <div id="alerts"></div>
 
-      <div class="card-grid" id="card-grid">
-        <!-- Cards injected via JS -->
+      <div class="card">
+        <div class="card-head">
+          <h2>Log source streams</h2>
+          <div class="sub">Each switch replays one public capture over UDP, byte for byte. No log line is synthesised.</div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:52px">On</th>
+              <th>Source</th>
+              <th style="width:110px">Category</th>
+              <th style="width:110px">Rate</th>
+              <th class="num" style="width:110px">Sent</th>
+              <th class="num" style="width:100px">Size</th>
+              <th style="width:90px">State</th>
+            </tr>
+          </thead>
+          <tbody id="rows">
+            <tr><td colspan="7" style="color:var(--text-muted)">Loading sources...</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </main>
 </div>
 
 <script>
+  // Theme Toggle Logic
+  function toggleTheme() {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
+    localStorage.setItem('theme', isDark ? 'light' : 'dark');
+    updateThemeIcon(!isDark);
+  }
+  function updateThemeIcon(isDark) {
+    const icon = document.getElementById('theme-icon');
+    if(icon) {
+      if(isDark) {
+        icon.innerHTML = '<path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>';
+      } else {
+        icon.innerHTML = '<path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>';
+      }
+    }
+  }
+  const savedTheme = localStorage.getItem('theme');
+  if (savedTheme === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    updateThemeIcon(true);
+  }
+// The simulator lives in the server, not in this page: streams keep running
+// whether or not the tab is open, which is what makes this a control plane
+// rather than a page pretending to be one. Everything below reflects and
+// mutates that server-side state.
 const $ = (id) => document.getElementById(id);
 let lastSent = 0;
 let lastAt = 0;
@@ -176,25 +244,6 @@ function fmtBytes(n) {
   return n.toFixed(i ? 1 : 0) + ' ' + units[i];
 }
 
-function getIconForCategory(cat, id) {
-  const icons = {
-    'Windows': 'W', 'Mac': 'M', 'Android': 'A', 'Host': 'OS', 'OS': 'OS', 'Mobile': 'M',
-    'Apache': 'HTTP', 'Web': 'WWW', 'Database': 'DB', 'HDFS': 'DB', 'Zookeeper': 'ZK',
-    'App': 'APP', 'Spark': 'SP', 'IDS': 'IDS', 'Auth': 'SEC', 'Proxy': 'PRX', 'Mail': 'SMTP'
-  };
-  
-  if (id === 'windows') return 'Win';
-  if (id === 'mac') return 'Mac';
-  if (id === 'android') return 'And';
-  if (id === 'hdfs') return 'HDF';
-  if (id === 'spark') return 'Spk';
-  if (id === 'zookeeper') return 'Zoo';
-  if (id === 'apache') return 'Web';
-  if (id === 'snort') return 'IDS';
-  
-  return icons[cat] || 'LOG';
-}
-
 function showBanner(kind, node) {
   const box = document.createElement('div');
   box.className = 'banner ' + kind;
@@ -204,99 +253,65 @@ function showBanner(kind, node) {
 
 function clearBanner() { $('alerts').replaceChildren(); }
 
-function buildCard(src) {
-  const card = document.createElement('div');
-  card.className = 'device-card' + (src.running ? ' active' : '');
-  
-  const banner = document.createElement('div');
-  banner.className = 'card-banner';
-  card.appendChild(banner);
-  
-  if (!src.present) {
-    const missing = document.createElement('div');
-    missing.className = 'status-badge missing';
-    missing.textContent = 'Missing Dataset';
-    card.appendChild(missing);
-  }
+function buildRow(src) {
+  const tr = document.createElement('tr');
 
-  // Header
-  const header = document.createElement('div');
-  header.className = 'card-header';
-  
-  const icon = document.createElement('div');
-  icon.className = 'device-icon';
-  icon.textContent = getIconForCategory(src.category, src.id);
-  
-  const info = document.createElement('div');
-  info.className = 'device-info';
-  
-  const title = document.createElement('h3');
-  title.textContent = src.label;
-  title.title = src.label;
-  
+  const tdSwitch = document.createElement('td');
+  const label = document.createElement('label');
+  label.className = 'switch';
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = !!src.running;
+  input.disabled = !src.present;
+  input.title = src.present ? src.file : src.file + ' is not on disk';
+  input.addEventListener('change', () => toggle(src.id, input));
+  label.append(input, document.createElement('span'));
+  tdSwitch.appendChild(label);
+
+  const tdName = document.createElement('td');
+  const name = document.createElement('div');
+  name.className = 'src-label';
+  name.textContent = src.label;
   const origin = document.createElement('div');
-  origin.className = 'origin';
-  origin.innerHTML = `<span class="origin-chip">${src.category}</span> ${src.origin}`;
-  
-  info.append(title, origin);
-  header.append(icon, info);
+  origin.className = 'src-origin';
+  origin.textContent = src.origin + '  ·  ' + src.file;
+  tdName.append(name, origin);
 
-  // Body
-  const body = document.createElement('div');
-  body.className = 'card-body';
-  
-  const filename = document.createElement('div');
-  filename.style.fontSize = '12px';
-  filename.style.color = 'var(--text-muted)';
-  filename.style.fontFamily = 'var(--mono)';
-  filename.textContent = 'File: ' + src.file;
-  
-  const stats = document.createElement('div');
-  stats.className = 'card-stats';
-  
-  const sentStat = document.createElement('div');
-  sentStat.className = 'mini-stat';
-  sentStat.innerHTML = `<span class="lbl">Sent</span><span class="val">${src.sent ? src.sent.toLocaleString() : '0'}</span>`;
-  
-  const sizeStat = document.createElement('div');
-  sizeStat.className = 'mini-stat';
-  sizeStat.style.textAlign = 'right';
-  sizeStat.innerHTML = `<span class="lbl">Volume</span><span class="val">${fmtBytes(src.bytes)}</span>`;
-  
-  stats.append(sentStat, sizeStat);
-  body.append(filename, stats);
-  
-  // Footer
-  const footer = document.createElement('div');
-  footer.className = 'card-footer';
-  
-  const epsControl = document.createElement('div');
-  epsControl.className = 'eps-control';
-  epsControl.innerHTML = `<label>Rate Limit</label>`;
-  
-  const epsInput = document.createElement('input');
-  epsInput.className = 'eps-input';
-  epsInput.type = 'number';
-  epsInput.min = '1';
-  epsInput.max = '200000';
-  epsInput.value = src.running ? src.eps : 20;
-  epsInput.disabled = !src.present || !!src.running;
-  epsInput.dataset.id = src.id;
-  epsControl.appendChild(epsInput);
-  
-  const toggleLbl = document.createElement('label');
-  toggleLbl.className = 'switch';
-  const toggleInp = document.createElement('input');
-  toggleInp.type = 'checkbox';
-  toggleInp.checked = !!src.running;
-  toggleInp.disabled = !src.present;
-  toggleInp.addEventListener('change', () => toggle(src.id, toggleInp));
-  toggleLbl.append(toggleInp, document.createElement('span'));
-  
-  footer.append(epsControl, toggleLbl);
-  
-  card.append(header, body, footer);
-  return card;
+  const tdCat = document.createElement('td');
+  const cat = document.createElement('span');
+  cat.className = 'chip';
+  cat.textContent = src.category;
+  tdCat.appendChild(cat);
+
+  const tdEps = document.createElement('td');
+  const eps = document.createElement('input');
+  eps.className = 'eps-input';
+  eps.type = 'number';
+  eps.min = '1';
+  eps.max = '200000';
+  eps.value = src.running ? src.eps : 20;
+  eps.disabled = !src.present || !!src.running;
+  eps.dataset.id = src.id;
+  eps.title = src.running ? 'Stop the stream to change its rate' : 'Events per second';
+  tdEps.appendChild(eps);
+
+  const tdSent = document.createElement('td');
+  tdSent.className = 'num';
+  tdSent.textContent = src.sent ? src.sent.toLocaleString() : '-';
+
+  const tdSize = document.createElement('td');
+  tdSize.className = 'num';
+  tdSize.textContent = fmtBytes(src.bytes);
+
+  const tdState = document.createElement('td');
+  const state = document.createElement('span');
+  if (!src.present) { state.className = 'chip absent'; state.textContent = 'absent'; }
+  else if (src.running) { state.className = 'chip on'; state.textContent = 'live'; }
+  else { state.className = 'chip'; state.textContent = 'ready'; }
+  tdState.appendChild(state);
+
+  tr.append(tdSwitch, tdName, tdCat, tdEps, tdSent, tdSize, tdState);
+  return tr;
 }
 
 function render(data) {
@@ -316,13 +331,19 @@ function render(data) {
   }
 
   $('conn').classList.add('up');
-  $('status-text').textContent = 'Engine Connected';
+  $('status-text').textContent = data.running ? 'streaming' : 'idle';
 
-  $('card-grid').replaceChildren(...sources.map(buildCard));
+  $('rows').replaceChildren(...sources.map(buildRow));
 
   if (sources.length && sources.every((s) => !s.present)) {
     const msg = document.createElement('div');
-    msg.innerHTML = `No corpora found in <code>${data.data_dir || '(unset)'}</code>. Run <code>python tools/fetch_datasets.py</code> to download them.`;
+    msg.append('No corpora found in ');
+    const dir = document.createElement('code');
+    dir.textContent = data.data_dir || '(unset)';
+    msg.append(dir, '. Fetch them with ');
+    const cmd = document.createElement('code');
+    cmd.textContent = 'python tools/fetch_datasets.py';
+    msg.append(cmd, ' — they are not committed to the repository.');
     showBanner('warn', msg);
   }
 }
@@ -334,7 +355,7 @@ async function refresh() {
     render(await res.json());
   } catch (err) {
     $('conn').classList.remove('up');
-    $('status-text').textContent = 'Disconnected';
+    $('status-text').textContent = 'disconnected';
   }
 }
 
@@ -347,30 +368,37 @@ async function toggle(id, input) {
     const res = await fetch('/api/sim/toggle', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, on, eps })
+      body: JSON.stringify({ id: id, on: on, eps: eps })
     });
-    if (!res.ok) throw new Error();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // Put the switch back: the stream did not start, and a switch that
+      // reads "on" while nothing is sending is worse than an error.
+      input.checked = !on;
+      const msg = document.createElement('div');
+      msg.textContent = data.error || ('request failed: HTTP ' + res.status);
+      showBanner('err', msg);
+    } else {
+      clearBanner();
+    }
   } catch (err) {
     input.checked = !on;
+    const msg = document.createElement('div');
+    msg.textContent = 'could not reach the simulator: ' + err.message;
+    showBanner('err', msg);
+  } finally {
+    input.disabled = false;
+    refresh();
   }
-  input.disabled = false;
-  refresh();
 }
 
-$('btn-stop-all').onclick = async (e) => {
-  const btn = e.target;
-  btn.disabled = true;
-  try {
-    await fetch('/api/sim/stop-all', { method: 'POST' });
-  } catch (err) {
-    console.error(err);
-  }
-  btn.disabled = false;
+$('btn-stop-all').addEventListener('click', async () => {
+  await fetch('/api/sim/stop-all', { method: 'POST' }).catch(() => {});
   refresh();
-};
+});
 
-setInterval(refresh, 2000);
 refresh();
+setInterval(refresh, 1500);
 </script>
 </body>
 </html>
