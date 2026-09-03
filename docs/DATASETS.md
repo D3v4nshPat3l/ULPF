@@ -1,71 +1,95 @@
 # Real dataset protocol
 
-ULPF performance and coverage claims must come from authentic, unmodified telemetry. Synthetic logs are useful only for repeatable load testing and must never be represented as coverage evidence.
+Coverage claims must come from authentic, unmodified telemetry. Synthetic logs
+are useful only for repeatable load testing and are never presented as coverage
+evidence.
 
-## Public corpus used
+Every figure in this document was produced by running the commands below
+against files downloaded from the public sources named. Nothing was cleaned,
+filtered, reordered or regenerated.
 
-The validated corpus is the Honeynet Project Scan of the Month 30 and 34 material:
+## Sources
 
-| Local source | Records | Purpose |
-|---|---:|---|
-| `SotM30-anton.log` | 307,524 | iptables pack development and regression |
-| `SotM34/iptables/iptablesyslog` | 179,752 | independent iptables cross-validation |
-| `SotM34/snort/snortsyslog` | 69,039 | Snort NIDS validation |
-| Combined | 556,315 | release benchmark |
+Two public collections, both freely redistributable for research:
 
-The raw corpus is not committed because it is approximately 119 MB after concatenation and is independently available. Keeping it out of Git prevents history bloat and avoids silently relicensing third-party data.
+**Honeynet Project — Scan of the Month.** Captures from a live honeynet, so the
+traffic is genuine attack traffic rather than lab noise.
+<https://honeynet.onofri.org/scans/index.html> ·
+mirror <http://log-sharing.dreamhosters.com/>
 
-Primary source pages:
+**Loghub.** A curated collection of production system logs maintained for log
+analysis research. <https://github.com/logpai/loghub>
 
-- [Honeynet Project Scan 30](https://honeynet.onofri.org/scans/scan30/)
-- [Honeynet Project Scan index](https://honeynet.onofri.org/scans/index.html)
+## Corpus and measured coverage
 
-## Local preparation
+Measured 3 September 2026 with 18 source packs.
 
-Place the extracted files in a sibling directory named `realdata`, matching the paths above. Then run:
+| Category | Source file | Origin | Records | Coverage |
+|---|---|---|---:|---:|
+| Firewall | `SotM34/iptables/iptablesyslog` | Honeynet SotM34 | 179,752 | 100.0000% |
+| IDS | `SotM34/snort/snortsyslog` | Honeynet SotM34 | 69,039 | 99.9986% |
+| IDS | `dragon-nids.log` | Honeynet Dragon capture | 29,925 | 100.0000% |
+| Web | `SotM34/http/access_log*` | Honeynet SotM34 | 3,554 | 99.9719% |
+| Web | `Apache_2k.log` | Loghub Apache | 2,000 | 100.0000% |
+| Auth | `OpenSSH_2k.log` | Loghub OpenSSH | 2,000 | 100.0000% |
+| Host | `SotM34/syslog/messages*` | Honeynet SotM34 | 1,166 | 94.2539% |
+| Host | `Linux_2k.log` | Loghub Linux | 2,000 | 96.4500% |
+| Mail | `SotM34/syslog/maillog*` | Honeynet SotM34 | 1,172 | 98.7201% |
+| Proxy | `Proxifier_2k.log` | Loghub Proxifier | 2,000 | 81.1000% |
+| **Total** | | | **292,608** | **99.8178%** |
 
-```powershell
-.\scripts\prepare-real-dataset.ps1
-```
+A separate 307,524-record iptables capture (`SotM30-anton.log`) is used for
+pack development. The SotM34 iptables figure above is therefore genuine
+cross-validation: that pack was written against SotM30 and never tuned on
+SotM34.
 
-or:
+## What the remaining misses are
+
+They are named rather than rounded away.
+
+- **Proxifier, 18.9%** — the corpus contains many non-connection lines
+  (lifetime summaries, DNS resolution notices, program start banners) that are
+  not network events. The pack claims connection records only.
+- **Loghub Linux, 3.6%** and **Honeynet syslog, 5.7%** — a long tail of daemon
+  messages from programs with no pack. Each is still vaulted, fingerprinted and
+  emitted as a schema-valid record.
+- **Snort, 1 record of 69,039** — a genuinely corrupt line in the source data:
+  `213.158.110.22.-> 11.11.79.73`, a stray dot where a space belongs.
+- **Apache access, 1 record of 3,554** — a truncated request line.
+
+Nothing is discarded. An unparsed record still enters the vault, receives a
+fingerprint, joins the attestation chain, and is emitted as valid OCSF carrying
+its raw text. "Unparsed" is a routing decision, never data loss.
+
+## Reproducing this
 
 ```bash
-./scripts/prepare-real-dataset.sh
+python tools/fetch_datasets.py          # downloads and prepares ../realdata
+cargo build --release --locked
+python tools/measure_coverage.py        # prints the table above
 ```
 
-The scripts concatenate bytes in the stated order and print the record count and SHA-256. The expected combined result for the local verified copy is:
+The corpora are not committed to this repository. They total roughly 150 MB,
+they are independently available from the sources above, and vendoring them
+would silently relicense third-party data.
 
-- records: `556315`
-- bytes: `119113071`
+## Why real data, not documentation samples
 
-Because historical mirrors may package line endings differently, record count and the individual upstream checksums should be retained alongside any published benchmark. Never normalize line endings before a losslessness test.
+Writing a pack from a vendor manual produces a pack that handles the manual.
+Three concrete examples from this corpus, each of which a documentation-derived
+test would have passed while the pack failed in production:
 
-## Run the real-corpus benchmark
+- The first Snort pack scored **69.3%**. The 31% it missed were preprocessor
+  alerts — Spade, stream4, http_inspect — which emit neither the
+  `[Classification:]` nor `[Priority:]` block the detector keyed on.
+- The first iptables pack failed on stock kernel logging. A default
+  `iptables LOG` rule with no `--log-prefix` emits a printk uptime and no
+  verdict at all, while every pattern required one.
+- The first Apache pack missed exploit probes, because a request such as
+  `"GET /scripts/..%255c../winnt/system32/cmd.exe?/c+dir"` omits the HTTP
+  version entirely — and those are precisely the records worth keeping.
 
-```bash
-./target/release/ulpf run \
-  --packs packs \
-  --vault data/benchmark/vault \
-  --integrity-dir data/benchmark/integrity \
-  --chain benchmark \
-  --input testdata/real/all-perimeter.log \
-  --output data/benchmark/events.ndjson \
-  --dead-letter data/benchmark/dead-letter.ndjson
-```
-
-Record the CPU, RAM, operating system, Rust version, build profile, input hash, output counts, elapsed time, and vault size. Do not compare results from debug and release builds.
-
-## Console evidence protocol
-
-The README screenshots were captured from `ulpf serve` after selecting the unmodified `snortsyslog` file through the console. The browser processes only the first 2,000 non-empty lines per selection to keep the interactive request bounded. Those records travelled through the same vault, pack, OCSF, and integrity pipeline as CLI input.
-
-## Synthetic benchmark
-
-`tools/gen_bench.py` generates documentation-shaped FortiGate, PAN-OS, and CEF data. Use it for profiler comparisons only:
-
-```bash
-python tools/gen_bench.py 200000 > testdata/bench.log
-```
-
-Synthetic coverage is always 100% by construction and is not a product-quality metric.
+Real data also exposed three gaps in the engine itself: no CLF timestamp
+format (Apache, nginx, every reverse proxy), no RFC 3164 timestamp format
+(carries no year), and enum lookups that only matched strings, so any pack
+branching on a numeric code silently fell through to its default.
