@@ -401,11 +401,20 @@ impl CompiledPack {
             let table = self.enums.get(table_name).ok_or_else(|| {
                 PackError::Invalid(format!("mapping references unknown enum `{table_name}`"))
             })?;
+            // Enum keys are YAML strings, but the extracted value may be a
+            // number - a numeric status code, a severity level, or the index of
+            // the regex alternative that matched. Look the value up in its own
+            // form and in its decimal form, so `"2": 3` matches both.
+            let mut candidates: Vec<String> = Vec::new();
             if let Some(key) = value.as_str() {
-                if let Some(mapped) = table
-                    .get(key)
-                    .or_else(|| table.get(&key.to_ascii_lowercase()))
-                {
+                candidates.push(key.to_string());
+                candidates.push(key.to_ascii_lowercase());
+            }
+            if let Some(n) = value.as_int() {
+                candidates.push(n.to_string());
+            }
+            for key in &candidates {
+                if let Some(mapped) = table.get(key) {
                     return Ok(Some(mapped.clone()));
                 }
             }
