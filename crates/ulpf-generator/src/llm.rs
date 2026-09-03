@@ -871,23 +871,59 @@ fn looks_like_a_field_name(candidate: &str, samples: &[String]) -> bool {
 /// tells us is the fixed part of the shape. Volatile tokens are excluded by
 /// [`is_stable_literal`], so timestamps and addresses can never end up in a
 /// detector.
+/// Whether a token before `=` looks like a field name rather than prose.
+fn is_field_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= 40
+        && key.chars().any(|c| c.is_ascii_alphabetic())
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+}
+
+/// Derive the `contains_all` literals that will claim this source.
+///
+/// Two rules, both learned from drafts that scored well and then matched
+/// nothing in production:
+///
+/// * **A `key=value` token contributes its key, never its value.** With five
+///   samples from one device, a constant `dst_addr=8.8.4.4` looks as shared as
+///   `dst_addr=` does — but a detector built on the value claims only traffic
+///   to that one address. The field *name* is what identifies the format; the
+///   value is an accident of the sample set.
+/// * **A program or vendor tag outranks a field name.** `acmefw:` identifies a
+///   device; `src=` is carried by half of all key-value logs ever written. An
+///   earlier version ranked purely by length, which put a destination address
+///   first and dropped the vendor tag off the end of the list.
 pub fn derive_detectors(samples: &[String]) -> Vec<String> {
     let Some(first) = samples.first() else {
         return Vec::new();
     };
 
-    let mut shared: Vec<String> = first
-        .split_whitespace()
-        .map(str::to_string)
-        .filter(|t| is_stable_literal(t))
-        .collect();
+    let mut shared: Vec<String> = Vec::new();
+    for token in first.split_whitespace() {
+        match token.split_once('=') {
+            Some((key, _)) if is_field_key(key) => shared.push(format!("{key}=")),
+            // Not a pair, so the token itself has to carry the identity.
+            _ if is_stable_literal(token) => shared.push(token.to_string()),
+            _ => {}
+        }
+    }
 
     for sample in samples.iter().skip(1) {
         shared.retain(|token| sample.contains(token.as_str()));
     }
 
-    shared.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+    shared.sort();
     shared.dedup();
+    shared.sort_by(|a, b| {
+        // Class 0 is a tag or literal marker, class 1 a bare field name.
+        let class = |t: &String| usize::from(t.ends_with('='));
+        class(a)
+            .cmp(&class(b))
+            .then_with(|| b.len().cmp(&a.len()))
+            .then_with(|| a.cmp(b))
+    });
     shared.truncate(3);
     shared
 }
@@ -1084,6 +1120,37 @@ Four records are unparsed.";
             );
             assert!(!d.contains("192.168"), "address leaked into detector: {d}");
             assert!(!d.contains("10:30"), "timestamp leaked into detector: {d}");
+        }
+    }
+
+    #[test]
+    fn a_constant_value_never_becomes_the_detector() {
+        // Eight lines from one device all happen to talk to 8.8.4.4. Keying on
+        // that claims only traffic to that address; keying on `dst_addr=` and
+        // the program tag claims the device.
+        let samples: Vec<String> = (1..=8)
+            .map(|i| {
+                format!(
+                    "Sep  3 10:00:0{i} fw01 acmefw: action=allow src_addr=10.1.2.{i}                      dst_addr=8.8.4.4 src_port=4000{i} dst_port=443 proto=tcp"
+                )
+            })
+            .collect();
+
+        let detect = derive_detectors(&samples);
+        assert!(
+            !detect.iter().any(|d| d.contains("8.8.4.4")),
+            "a constant value leaked into the detector: {detect:?}"
+        );
+        assert!(
+            detect.iter().any(|d| d == "acmefw:"),
+            "the program tag is the strongest signal and must rank first: {detect:?}"
+        );
+        assert_eq!(detect[0], "acmefw:", "tags outrank bare field names");
+        for d in &detect {
+            assert!(
+                samples.iter().all(|s| s.contains(d.as_str())),
+                "`{d}` is not present in every sample"
+            );
         }
     }
 

@@ -68,8 +68,8 @@ impl Decoder for LeefDecoder {
         fields.push_unchecked("leef.product", Value::borrowed(product));
         fields.push_unchecked("leef.product_version", Value::borrowed(prod_version));
 
-        // Determine LEEF version and parse accordingly
-        let (_event_id, _extensions) = if version.starts_with('2') && pipes.len() >= 5 {
+        // Determine LEEF version and parse accordingly.
+        if version.starts_with('2') && pipes.len() >= 5 {
             // LEEF 2.0: version|vendor|product|prodversion|eventID|delimiter|extensions
             let event_id = &rest[pipes[3] + 1..pipes[4]];
             let after_delim = &rest[pipes[4] + 1..];
@@ -91,7 +91,6 @@ impl Decoder for LeefDecoder {
             };
             fields.push_unchecked("leef.event_id", Value::borrowed(event_id));
             parse_extensions(ext_start, delimiter, &mut fields);
-            (event_id, ext_start)
         } else {
             // LEEF 1.0: version|vendor|product|prodversion|eventID|tab-separated extensions
             let event_id_and_rest = &rest[pipes[3] + 1..];
@@ -100,33 +99,75 @@ impl Decoder for LeefDecoder {
                 let extensions = &event_id_and_rest[tab_or_pipe + 1..];
                 fields.push_unchecked("leef.event_id", Value::borrowed(event_id));
                 parse_extensions(extensions, '\t', &mut fields);
-                (event_id, extensions)
             } else {
-                let event_id = event_id_and_rest;
-                fields.push_unchecked("leef.event_id", Value::borrowed(event_id));
-                (event_id, "")
+                fields.push_unchecked("leef.event_id", Value::borrowed(event_id_and_rest));
             }
-        };
+        }
 
         Ok(Decoded::terminal(fields))
     }
 }
 
 /// Parse `key=value` pairs separated by the given delimiter.
+///
+/// QRadar escapes a literal `=` inside a value as `\=`, the same convention
+/// CEF uses. Splitting on the first bare `=` without honouring that truncated
+/// any value containing one — a URL with a query string, most obviously.
 fn parse_extensions<'a>(input: &'a str, delimiter: char, fields: &mut FieldMap<'a>) {
     for pair in input.split(delimiter) {
         let pair = pair.trim();
         if pair.is_empty() {
             continue;
         }
-        if let Some(eq) = pair.find('=') {
-            let key = pair[..eq].trim();
-            let value = pair[eq + 1..].trim();
-            if !key.is_empty() {
-                fields.insert(Cow::Owned(key.to_string()), Value::borrowed(value));
-            }
+        let Some(eq) = find_unescaped(pair, b'=') else {
+            continue;
+        };
+        let key = pair[..eq].trim();
+        let raw = pair[eq + 1..].trim();
+        if key.is_empty() {
+            continue;
+        }
+        let value = if raw.contains('\\') {
+            Value::owned(unescape(raw))
+        } else {
+            Value::borrowed(raw)
+        };
+        fields.insert(Cow::Owned(key.to_string()), value);
+    }
+}
+
+/// Index of the first `needle` that is not preceded by a backslash.
+fn find_unescaped(input: &str, needle: u8) -> Option<usize> {
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i += 2,
+            b if b == needle => return Some(i),
+            _ => i += 1,
         }
     }
+    None
+}
+
+/// Expand the escapes QRadar writes into extension values.
+fn unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some('t') => out.push('\t'),
+            Some(other) => out.push(other),
+            None => out.push('\\'),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -176,5 +217,19 @@ mod tests {
     #[test]
     fn too_few_pipes_is_malformed() {
         assert!(LeefDecoder.decode("LEEF:1.0|only|two").is_err());
+    }
+
+    #[test]
+    fn an_escaped_equals_stays_inside_the_value() {
+        let f = decode("LEEF:1.0|V|P|1.0|Evt|\turl=http://x/?a\\=b\tsrc=10.0.0.1");
+        assert_eq!(f.get_str("url"), Some("http://x/?a=b"));
+        assert_eq!(f.get_str("src"), Some("10.0.0.1"));
+    }
+
+    #[test]
+    fn leef_2_0_default_delimiter_is_tab() {
+        let f = decode("LEEF:2.0|IBM|QRadar|7.3|Login|0x09|src=10.0.0.5\tusrName=admin");
+        assert_eq!(f.get_str("src"), Some("10.0.0.5"));
+        assert_eq!(f.get_str("usrName"), Some("admin"));
     }
 }

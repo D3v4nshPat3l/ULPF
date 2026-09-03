@@ -185,7 +185,10 @@ async fn clusters(State(state): State<Shared>) -> Json<Value> {
             })
         })
         .collect();
-    Json(json!({ "clusters": list }))
+    // Report what the cluster cap dropped rather than hiding it: a rising
+    // overflow is itself the signal that unparsed traffic is more varied than
+    // the console is showing.
+    Json(json!({ "clusters": list, "overflow": s.drain.overflow() }))
 }
 
 /// Either drive an existing dead-letter cluster, or hand over raw lines
@@ -533,33 +536,81 @@ struct ApproveBody {
     yaml: String,
 }
 
+/// Reduce a pack id to a single safe filename stem.
+///
+/// The id arrives in the request body, and it used to be joined onto the packs
+/// directory verbatim. `Path::join` *replaces* the base when handed an absolute
+/// path, so an id of `C:/anywhere/evil` — or one containing `../` — wrote a
+/// file of the caller's choosing anywhere the process could reach. The console
+/// has no authentication, so any page the operator had open could reach it.
+///
+/// Everything outside a conservative filename alphabet becomes `_`, and the
+/// result is rejected if nothing usable survives.
+fn safe_pack_stem(id: &str) -> Result<String, ApiError> {
+    let stem: String = id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+
+    // `.`, `..` and a leading dot are filenames too, and none of them are a
+    // pack. Trim to something that can only ever name a file in this directory.
+    let stem = stem.trim_matches('.').to_string();
+    if stem.is_empty() || stem.len() > 128 {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            format!("identity.id `{id}` does not reduce to a usable pack filename"),
+        ));
+    }
+    Ok(stem)
+}
+
 async fn approve(
     State(state): State<Shared>,
     Json(body): Json<ApproveBody>,
 ) -> Result<Json<Value>, ApiError> {
     let mut pack: ulpf_pack::Pack = serde_yaml::from_str(&body.yaml)
-        .map_err(|e| ApiError(StatusCode::BAD_REQUEST, format!("Invalid YAML: {e}")))?;
+        .map_err(|e| ApiError(StatusCode::BAD_REQUEST, format!("invalid YAML: {e}")))?;
 
-    // Mark as approved by Console User
-    if let Some(prov) = &mut pack.provenance {
-        prov.approved_by = Some("Console User".to_string());
-    }
-
-    let packs_dir = lock(&state).packs_dir.clone();
-
-    // Save to packs directory so hot reload picks it up
-    let id = pack.identity.id.clone();
-    let file_path = packs_dir.join(format!("{}.yaml", id));
-
-    let yaml_out = serde_yaml::to_string(&pack).unwrap();
-    std::fs::write(&file_path, yaml_out).map_err(|e| {
+    // Compile before writing. A pack that cannot compile would land in the live
+    // directory, fail to load on the next hot reload, and leave the operator
+    // looking at a pack list that silently disagrees with the folder.
+    ulpf_pack::CompiledPack::compile(pack.clone()).map_err(|e| {
         ApiError(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to write pack: {e}"),
+            StatusCode::BAD_REQUEST,
+            format!("pack does not compile: {e}"),
         )
     })?;
 
-    Ok(Json(json!({"ok": true, "id": id})))
+    let id = pack.identity.id.clone();
+    let stem = safe_pack_stem(&id)?;
+
+    if let Some(prov) = &mut pack.provenance {
+        prov.approved_by = Some("console operator".to_string());
+    }
+
+    let packs_dir = lock(&state).packs_dir.clone();
+    let file_path = packs_dir.join(format!("{stem}.yaml"));
+
+    let yaml_out = serde_yaml::to_string(&pack)
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    std::fs::write(&file_path, yaml_out).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("could not write {}: {e}", file_path.display()),
+        )
+    })?;
+
+    // The filesystem watcher picks the file up; report where it landed so the
+    // operator can find it.
+    Ok(Json(
+        json!({"ok": true, "id": id, "file": file_path.display().to_string()}),
+    ))
 }
 
 /// Condense an event into the columns the console table shows.

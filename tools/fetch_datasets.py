@@ -24,7 +24,11 @@ HONEYNET = "http://log-sharing.dreamhosters.com"
 LOGHUB = "https://raw.githubusercontent.com/logpai/loghub/master"
 
 # Loghub publishes a 2,000-line sample of each corpus in the repository itself.
-LOGHUB_SAMPLES = ["Linux", "OpenSSH", "Apache", "Proxifier", "Windows", "Mac", "Android", "HDFS", "Spark", "Zookeeper"]
+# Only corpora a shipped Source Pack can actually claim. Windows, macOS,
+# Android, HDFS, Spark and Zookeeper were fetched and offered in the
+# simulator with no pack behind them, so switching one on dropped coverage
+# live; they are also outside the problem statement's perimeter-device scope.
+LOGHUB_SAMPLES = ["Linux", "OpenSSH", "Apache", "Proxifier"]
 
 
 def fetch(url: str) -> bytes:
