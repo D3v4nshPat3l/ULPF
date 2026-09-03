@@ -266,7 +266,7 @@
                     <th style="width: 140px;">Cluster ID</th>
                     <th style="width: 100px;">Volume</th>
                     <th>Template</th>
-                    <th style="width: 120px; text-align: right;">Action</th>
+                    <th style="width: 190px; text-align: right;">Action</th>
                   </tr>
                 </thead>
                 <tbody id="clusters-body">
@@ -393,18 +393,34 @@
   const views = ['overview', 'clusters', 'copilot', 'findings', 'integrity'];
   
   function switchView(viewId) {
+    // An unknown id used to throw here and leave the console with every view
+    // hidden; fall back to the first one instead.
+    if (!views.includes(viewId)) viewId = views[0];
+
     views.forEach(v => {
       const el = document.getElementById(`view-${v}`);
       if (el) el.classList.remove('active');
     });
     document.querySelectorAll('.sidebar-nav button').forEach(b => b.classList.remove('active'));
-    
-    document.getElementById(`view-${viewId}`).classList.add('active');
+
+    const pane = document.getElementById(`view-${viewId}`);
+    if (pane) pane.classList.add('active');
     const btn = document.querySelector(`button[data-view="${viewId}"]`);
-    if (btn) btn.classList.add('active');
-    
-    document.getElementById('top-title').innerText = btn.innerText.trim();
-    document.getElementById('top-crumb').innerText = `MAIN / ${btn.innerText.trim().toUpperCase()}`;
+    if (btn) {
+      btn.classList.add('active');
+      // The nav button carries a live count badge; innerText swept that in, so
+      // the page title read "Source Packs 18" and the breadcrumb matched.
+      const name = [...btn.childNodes]
+        .filter((n) => n.nodeType === Node.TEXT_NODE)
+        .map((n) => n.textContent)
+        .join(' ')
+        .trim();
+      document.getElementById('top-title').innerText = name;
+      document.getElementById('top-crumb').innerText = `MAIN / ${name.toUpperCase()}`;
+    }
+    if (location.hash.slice(1) !== viewId) {
+      history.replaceState(null, '', '#' + viewId);
+    }
   }
 
   document.querySelectorAll('.sidebar-nav button').forEach(btn => {
@@ -412,6 +428,11 @@
       switchView(e.currentTarget.getAttribute('data-view'));
     });
   });
+
+  // Views are addressable, so a refresh keeps you where you were and a link
+  // can point at one directly.
+  window.addEventListener('hashchange', () => switchView(location.hash.slice(1)));
+  if (location.hash.length > 1) switchView(location.hash.slice(1));
 
   // Polling & Data
   function formatBytes(bytes) {
@@ -580,14 +601,29 @@ ${data.bytes} bytes · ${proof}`;
             cell(c.template, 'mono')
           );
           
+          // Two generators, offered side by side rather than one hidden
+          // behind a fallback: an air-gapped deployment with no GPU has to be
+          // able to reach the deterministic path deliberately.
           const actionTd = document.createElement('td');
           actionTd.style.textAlign = 'right';
-          const btn = document.createElement('button');
-          btn.className = 'btn primary sm';
-          btn.id = 'btn-gen-' + c.id;
-          btn.textContent = 'Draft Pack';
-          btn.onclick = (e) => { e.stopPropagation(); generatePack(c.id); };
-          actionTd.append(btn);
+          actionTd.style.whiteSpace = 'nowrap';
+
+          const aiBtn = document.createElement('button');
+          aiBtn.className = 'btn primary sm';
+          aiBtn.id = 'btn-gen-ai-' + c.id;
+          aiBtn.textContent = 'AI Copilot';
+          aiBtn.title = 'Draft with the local model (Ollama)';
+          aiBtn.onclick = (e) => { e.stopPropagation(); generatePack(c.id, 'ai'); };
+
+          const heuBtn = document.createElement('button');
+          heuBtn.className = 'btn sm';
+          heuBtn.style.marginLeft = '6px';
+          heuBtn.id = 'btn-gen-heuristic-' + c.id;
+          heuBtn.textContent = 'Heuristic';
+          heuBtn.title = 'Draft with the deterministic generator: no model, no GPU, works air-gapped';
+          heuBtn.onclick = (e) => { e.stopPropagation(); generatePack(c.id, 'heuristic'); };
+
+          actionTd.append(aiBtn, heuBtn);
           tr.append(actionTd);
           
           clustersBody.append(tr);
@@ -609,13 +645,57 @@ ${data.bytes} bytes · ${proof}`;
     refresh();
   }
 
+  // The endpoint returns ok / count / head_uid / head_fingerprint /
+  // checkpoint_valid, or ok:false with a detail string. It was read for
+  // `valid_checkpoints` and `errors`, which it has never returned, so a
+  // successful verification rendered "undefined" twice.
   async function verifyVault() {
     const out = document.getElementById('verify-output');
     out.style.display = 'block';
-    out.innerHTML = "<strong>Verification Started...</strong>";
-    const res = await fetch('/api/verify', { method: 'POST' });
-    const json = await res.json();
-    out.innerHTML = `<strong>Verification Complete</strong><br>Valid chains: ${json.valid_checkpoints}<br>Errors: ${json.errors}`;
+    out.replaceChildren(line('Verification started...', true));
+
+    let json;
+    try {
+      const res = await fetch('/api/verify', { method: 'POST' });
+      json = await res.json();
+    } catch (e) {
+      out.replaceChildren(line('Could not reach the console: ' + e.message, true));
+      return;
+    }
+
+    const rows = [];
+    if (json.ok) {
+      rows.push(line('Chain verified', true));
+      rows.push(line(json.count.toLocaleString() + ' events re-hashed, every link intact'));
+      rows.push(line('Checkpoint signature: ' +
+        (json.checkpoint_signature_valid ? 'valid (Ed25519)' : 'INVALID')));
+      rows.push(line('Signed anchor: ' + (json.checkpoint_at_head
+        ? 'at the current head'
+        : 'trails the head, as expected between periodic checkpoints')));
+      if (json.head_uid) rows.push(line('Head event: ' + json.head_uid));
+      if (json.head_fingerprint) rows.push(line('Head fingerprint: ' + json.head_fingerprint));
+    } else {
+      rows.push(line('Chain verification FAILED', true));
+      if (typeof json.count === 'number') {
+        rows.push(line(json.count.toLocaleString() + ' events examined'));
+      }
+      rows.push(line(json.detail || 'no detail returned'));
+    }
+    out.replaceChildren(...rows);
+  }
+
+  // textContent throughout: the detail string carries event UIDs and, after a
+  // tamper test, attacker-controlled field values.
+  function line(text, strong) {
+    const div = document.createElement('div');
+    if (strong) {
+      const b = document.createElement('strong');
+      b.textContent = text;
+      div.append(b);
+    } else {
+      div.textContent = text;
+    }
+    return div;
   }
 
   async function tamperVault() {
@@ -625,13 +705,22 @@ ${data.bytes} bytes · ${proof}`;
 
   let currentDraftYaml = null;
 
-  async function generatePack(clusterId) {
-    const btn = document.getElementById('btn-gen-' + clusterId);
-    if (btn) btn.innerHTML = 'Drafting...';
-    
+  async function generatePack(clusterId, mode) {
+    mode = mode || 'auto';
+    const label = mode === 'heuristic' ? 'Heuristic' : 'AI Copilot';
+    const btn = document.getElementById('btn-gen-' + mode + '-' + clusterId);
+    const buttons = [
+      document.getElementById('btn-gen-ai-' + clusterId),
+      document.getElementById('btn-gen-heuristic-' + clusterId)
+    ].filter(Boolean);
+    buttons.forEach(b => { b.disabled = true; });
+    if (btn) btn.textContent = 'Drafting...';
+
     document.getElementById('review-pane').style.display = 'block';
     document.getElementById('review-sub').innerText = 'Generating pack for ' + clusterId + '...';
-    document.getElementById('rev-yaml').innerText = 'Calling LLM generation sidecar...';
+    document.getElementById('rev-yaml').innerText = mode === 'heuristic'
+      ? 'Running the deterministic generator...'
+      : 'Asking the local model...';
     document.getElementById('rev-fixtures').innerText = '0/0';
     document.getElementById('rev-accuracy').innerText = '0%';
     document.getElementById('btn-approve').style.display = 'none';
@@ -640,7 +729,7 @@ ${data.bytes} bytes · ${proof}`;
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cluster_id: clusterId })
+        body: JSON.stringify({ cluster_id: clusterId, mode: mode })
       });
       if (!res.ok) {
         let msg = res.statusText;
@@ -650,20 +739,31 @@ ${data.bytes} bytes · ${proof}`;
       const data = await res.json();
       
       currentDraftYaml = data.pack_yaml;
-      document.getElementById('review-sub').innerText = 'Candidate generated. Review scores before approving.';
+      // Name the generator that actually produced this. In auto mode the
+      // server may have fallen back, and a reviewer needs to know which of the
+      // two paths they are reading before they approve it.
+      const via = data.generator === 'heuristic'
+        ? 'deterministic heuristic generator'
+        : 'model ' + (data.model || 'unknown');
+      const fellBack = data.reason === 'llm-offline'
+        ? ' The model was unreachable, so the deterministic generator ran instead.'
+        : '';
+      document.getElementById('review-sub').innerText =
+        'Candidate generated by the ' + via + '. Review scores before approving.' + fellBack;
       document.getElementById('rev-yaml').innerText = data.pack_yaml;
       document.getElementById('rev-fixtures').innerText = `${data.fixtures_passed}/${data.fixtures}`;
       document.getElementById('rev-accuracy').innerText = `${(data.field_accuracy * 100).toFixed(1)}%`;
-      
+
       document.getElementById('btn-approve').style.display = 'inline-flex';
-      if (btn) btn.innerHTML = 'Draft Pack';
-      
+
       // Scroll to review pane
       document.getElementById('review-pane').scrollIntoView({ behavior: 'smooth' });
     } catch(e) {
       document.getElementById('review-sub').innerText = 'Generation failed.';
       document.getElementById('rev-yaml').innerText = e.message;
-      if (btn) btn.innerHTML = 'Draft Pack';
+    } finally {
+      buttons.forEach(b => { b.disabled = false; });
+      if (btn) btn.textContent = label;
     }
   }
 
