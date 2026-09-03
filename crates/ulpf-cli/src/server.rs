@@ -206,18 +206,34 @@ async fn generate(
         return Err(ApiError(StatusCode::NOT_FOUND, "cluster not found".into()));
     }
 
-    // Call the LLM
-    let client = ulpf_generator::llm::GeneratorClient::new("http://localhost:8080");
+    let client = ulpf_generator::llm::GeneratorClient::from_env();
+
+    // Probe first so an offline model gives an actionable message rather than
+    // a 500 in front of whoever is watching the console.
+    if let Err(error) = client.probe().await {
+        return Err(ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!(
+                "No local model reachable at {}. Start one, or set ULPF_LLM_ENDPOINT.                  Clustering still works without it. ({error})",
+                client.endpoint()
+            ),
+        ));
+    }
+
     let pack = client
         .draft_pack(&body.cluster_id, &samples)
         .await
+        .map_err(|e| ApiError(StatusCode::BAD_GATEWAY, e.to_string()))?;
+
+    // Grade the candidate against the samples it was drafted from, before a
+    // human is asked to approve it.
+    let score = ulpf_generator::scorer::Scorer::score(&pack);
+    let pack_yaml = serde_yaml::to_string(&pack)
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Score it
-    let score = ulpf_generator::scorer::Scorer::score(&pack);
-
     Ok(Json(json!({
-        "pack_yaml": serde_yaml::to_string(&pack).unwrap(),
+        "pack_yaml": pack_yaml,
+        "model": client.model(),
         "fixtures": score.total,
         "fixtures_passed": score.passed,
         "field_accuracy": score.field_accuracy(),

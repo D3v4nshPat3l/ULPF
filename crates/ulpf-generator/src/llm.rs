@@ -1,120 +1,954 @@
-//! LLM Sidecar Integration
+//! Local model integration for drafting Source Packs.
 //!
-//! Talks to a local `llama.cpp` instance running a quantized model (e.g. Qwen3-4B)
-//! to generate Source Packs from unparsed log samples.
+//! Talks to a model server running on the same host — Ollama by default, or a
+//! `llama.cpp` server — so the whole loop stays inside the air gap.
+//!
+//! # Why the model is asked for a small JSON object, not a Pack
+//!
+//! A Source Pack is a large nested document, and a 1.5B-parameter model asked
+//! to emit one verbatim will usually produce something that is *almost* valid
+//! YAML. Instead the model is asked for a handful of decisions it is actually
+//! good at — which vendor this looks like, which substrings identify it, which
+//! decoders to chain, which source field maps to which OCSF attribute — and
+//! this crate assembles the Pack from that in Rust. Structure is a job for
+//! code; recognition is the job for the model.
+//!
+//! Ollama's `format: "json"` constrains decoding to syntactically valid JSON,
+//! which removes the single largest failure mode.
+//!
+//! # No silent fallbacks
+//!
+//! If the model is unreachable or returns something unusable, this returns an
+//! error saying so. An earlier version quietly substituted a hand-written
+//! "mock" pack, which would have presented fabricated output as generated work.
 
-use anyhow::Result;
+use std::collections::BTreeMap;
+
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use ulpf_pack::Pack;
+use ulpf_pack::spec::{Detector, ExtractStep, Fixture, Identity, MapSpec, Pack, Provenance};
 
-#[derive(Serialize)]
-struct LlamaRequest {
-    prompt: String,
-    n_predict: usize,
-    temperature: f64,
-    grammar: String,
+/// Which local model server to talk to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Backend {
+    /// Ollama: `POST /api/generate`, supports `format: "json"`.
+    Ollama,
+    /// llama.cpp server: `POST /completion`.
+    LlamaCpp,
 }
 
-#[derive(Deserialize)]
-struct LlamaResponse {
-    content: String,
-}
+pub const DEFAULT_ENDPOINT: &str = "http://127.0.0.1:11434";
+pub const DEFAULT_MODEL: &str = "qwen2.5:1.5b-instruct";
+
+/// OCSF attributes the drafter may target. Keeping the list short keeps the
+/// model on paths that actually exist in the schema, and lets an out-of-range
+/// suggestion be rejected rather than compiled into a broken pack.
+const ALLOWED_FIELDS: &[&str] = &[
+    "src_endpoint.ip",
+    "src_endpoint.port",
+    "dst_endpoint.ip",
+    "dst_endpoint.port",
+    "connection_info.protocol_name",
+    "device.hostname",
+    "actor.user.name",
+    "url",
+    "message",
+];
 
 #[derive(Clone)]
 pub struct GeneratorClient {
     endpoint: String,
+    model: String,
+    backend: Backend,
     client: reqwest::Client,
 }
 
+/// The small decision object the model is asked to fill in.
+#[derive(Debug, Deserialize)]
+struct DraftSpec {
+    #[serde(default)]
+    vendor: String,
+    #[serde(default)]
+    product: String,
+    #[serde(default)]
+    log_format: String,
+    /// OCSF attribute path -> source field name produced by the decoders.
+    #[serde(default)]
+    fields: BTreeMap<String, String>,
+}
+
+#[derive(Serialize)]
+struct OllamaRequest<'a> {
+    model: &'a str,
+    prompt: String,
+    stream: bool,
+    format: &'a str,
+    options: OllamaOptions,
+}
+
+#[derive(Serialize)]
+struct OllamaOptions {
+    temperature: f64,
+    num_predict: u32,
+}
+
+#[derive(Deserialize)]
+struct OllamaResponse {
+    response: String,
+}
+
+#[derive(Serialize)]
+struct LlamaCppRequest {
+    prompt: String,
+    n_predict: u32,
+    temperature: f64,
+}
+
+#[derive(Deserialize)]
+struct LlamaCppResponse {
+    content: String,
+}
+
 impl GeneratorClient {
-    pub fn new(endpoint: &str) -> Self {
+    pub fn new(endpoint: &str, model: &str, backend: Backend) -> Self {
         Self {
             endpoint: endpoint.trim_end_matches('/').to_string(),
+            model: model.to_string(),
+            backend,
             client: reqwest::Client::new(),
         }
     }
 
-    pub async fn draft_pack(&self, cluster_id: &str, samples: &[String]) -> Result<Pack> {
-        let grammar = r#"
-root ::= "identity:\n  id: " id "\n  vendor: " string "\n  product: " string "\n  detect:\n    - contains_all: [" string_list "]\n" extract map fixtures
-id ::= [a-z0-9_-]+
-extract ::= "extract:\n" extract_list
-extract_list ::= "  - decoder: " id "\n" | "  - decoder: " id "\n" extract_list
-map ::= "map:\n" map_list
-map_list ::= "  " id ": " string "\n" | "  " id ": " string "\n" map_list
-fixtures ::= "fixtures:\n" fixture_list
-fixture_list ::= fixture | fixture fixture_list
-fixture ::= "  - raw: " string "\n    expect: {}\n"
-string ::= "'" [^']* "'"
-string_list ::= string | string ", " string_list
-        "#.trim().to_string();
-
-        let prompt = format!(
-            "You are a cybersecurity expert. Create a valid Source Pack YAML for these log samples:\n\n{}\n\nOutput only the YAML.",
-            samples.join("\n")
-        );
-
-        let req = LlamaRequest {
-            prompt,
-            n_predict: 1024,
-            temperature: 0.1,
-            grammar,
+    /// Build from the environment, so an operator can point at whatever model
+    /// server the air-gapped host runs without a rebuild.
+    ///
+    /// `ULPF_LLM_ENDPOINT`, `ULPF_LLM_MODEL`, `ULPF_LLM_BACKEND`
+    /// (`ollama` | `llamacpp`).
+    pub fn from_env() -> Self {
+        let endpoint =
+            std::env::var("ULPF_LLM_ENDPOINT").unwrap_or_else(|_| DEFAULT_ENDPOINT.to_string());
+        let model = std::env::var("ULPF_LLM_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
+        let backend = match std::env::var("ULPF_LLM_BACKEND").as_deref() {
+            Ok("llamacpp") | Ok("llama.cpp") => Backend::LlamaCpp,
+            _ => Backend::Ollama,
         };
+        Self::new(&endpoint, &model, backend)
+    }
 
+    pub fn endpoint(&self) -> &str {
+        &self.endpoint
+    }
+
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// Cheap reachability check, so the console can say the model is offline
+    /// instead of surfacing a 500 when someone presses Generate.
+    pub async fn probe(&self) -> Result<()> {
+        let url = match self.backend {
+            Backend::Ollama => format!("{}/api/tags", self.endpoint),
+            Backend::LlamaCpp => format!("{}/health", self.endpoint),
+        };
         let res = self
             .client
-            .post(format!("{}/completion", self.endpoint))
-            .json(&req)
+            .get(&url)
+            .timeout(std::time::Duration::from_secs(3))
             .send()
-            .await?;
-
+            .await
+            .with_context(|| format!("no model server reachable at {}", self.endpoint))?;
         if !res.status().is_success() {
-            anyhow::bail!("LLM request failed: {}", res.status());
+            bail!(
+                "model server at {} returned {}",
+                self.endpoint,
+                res.status()
+            );
         }
+        Ok(())
+    }
 
-        let resp: LlamaResponse = res.json().await?;
-        let yaml = resp.content.trim().to_string();
-
-        // Ensure the ID matches the cluster for the UI's sake
-        if yaml.contains("id: ") {
-            // We just let the parser handle it, and overwrite later
-        }
-
-        let mut pack: Pack = match serde_yaml::from_str(&yaml) {
-            Ok(p) => p,
-            Err(e) => {
-                // Fallback to a mock pack if the LLM produced invalid YAML despite grammar
-                tracing::warn!("LLM produced invalid YAML: {e}. Falling back to mock.");
-                serde_yaml::from_str(&format!(
-                    r#"identity:
-  id: generated-{cluster_id}
-  vendor: Unknown
-  product: Unknown
-  detect:
-    - contains_all: []
-extract:
-  - decoder: syslog
-map:
-  class_uid: 4001
-fixtures:
-  - raw: '{sample}'
-    expect: {{}}
-"#,
-                    cluster_id = cluster_id,
-                    sample = samples.first().unwrap_or(&"empty".to_string())
-                ))?
+    async fn complete(&self, prompt: String) -> Result<String> {
+        match self.backend {
+            Backend::Ollama => {
+                let req = OllamaRequest {
+                    model: &self.model,
+                    prompt,
+                    stream: false,
+                    format: "json",
+                    options: OllamaOptions {
+                        temperature: 0.1,
+                        num_predict: 700,
+                    },
+                };
+                let res = self
+                    .client
+                    .post(format!("{}/api/generate", self.endpoint))
+                    .json(&req)
+                    .timeout(std::time::Duration::from_secs(120))
+                    .send()
+                    .await
+                    .with_context(|| {
+                        format!("could not reach the model server at {}", self.endpoint)
+                    })?;
+                if !res.status().is_success() {
+                    bail!("model server returned {}", res.status());
+                }
+                Ok(res.json::<OllamaResponse>().await?.response)
             }
-        };
+            Backend::LlamaCpp => {
+                let req = LlamaCppRequest {
+                    prompt,
+                    n_predict: 700,
+                    temperature: 0.1,
+                };
+                let res = self
+                    .client
+                    .post(format!("{}/completion", self.endpoint))
+                    .json(&req)
+                    .timeout(std::time::Duration::from_secs(120))
+                    .send()
+                    .await
+                    .with_context(|| {
+                        format!("could not reach the model server at {}", self.endpoint)
+                    })?;
+                if !res.status().is_success() {
+                    bail!("model server returned {}", res.status());
+                }
+                Ok(res.json::<LlamaCppResponse>().await?.content)
+            }
+        }
+    }
 
-        pack.identity.id = format!("generated-{cluster_id}");
-        pack.provenance = Some(ulpf_pack::spec::Provenance {
-            author: Some("generated".to_string()),
+    /// Draft a candidate pack for one dead-letter cluster.
+    ///
+    /// The result is a *candidate*. It is never activated here; the caller
+    /// scores it against the samples and a human approves it.
+    pub async fn draft_pack(&self, cluster_id: &str, samples: &[String]) -> Result<Pack> {
+        if samples.is_empty() {
+            bail!("cluster {cluster_id} has no samples to learn from");
+        }
+
+        let shown: Vec<&String> = samples.iter().take(5).collect();
+        // Extract the field names that genuinely exist in this format and give
+        // the model a closed list. Asked open-endedly, a 1.5B model answers
+        // with the *value* it saw ("10.2.4.7") rather than the name
+        // ("src_addr"); turning generation into selection removes that failure.
+        let available = available_field_names(samples);
+        let prompt = build_prompt(&shown, &available);
+        let raw = self.complete(prompt).await?;
+
+        let spec: DraftSpec = parse_json_object(&raw)
+            .with_context(|| format!("model did not return a usable JSON object: {raw:.400}"))?;
+
+        Ok(assemble_pack(cluster_id, spec, samples, &self.model))
+    }
+}
+
+fn build_prompt(samples: &[&String], available: &[String]) -> String {
+    // The log lines go LAST, and no filled-in example is shown. An earlier
+    // version put a complete FortiGate example in the prompt and a 1.5B model
+    // simply copied it back — emitting `devname=` and `srcip` for an Apache
+    // log. Describing the value types instead of demonstrating them removes
+    // anything worth copying.
+    format!(
+        "You analyse security log formats. Answer ONLY with a JSON object.
+
+         Keys and the value each must hold:
+         \"vendor\": the vendor that most likely produced these lines, else \"Unknown\"
+         \"product\": the product name, else \"Unknown\"
+         \"log_format\": a short hyphenated label describing the shape you see
+         \"fields\": object mapping an OCSF attribute to ONE name from the          AVAILABLE NAMES list. Use the name itself, never the value it holds.          Omit an attribute if no name fits. Allowed attributes: {fields}
+
+         AVAILABLE NAMES (choose only from these): {available}
+
+         LOG LINES:
+{lines}",
+        fields = ALLOWED_FIELDS.join(", "),
+        available = available.join(", "),
+        lines = samples
+            .iter()
+            .map(|s| format!("- {s}"))
+            .collect::<Vec<_>>()
+            .join("
+"),
+    )
+}
+
+/// Pull the first JSON object out of a model reply.
+///
+/// `format: "json"` makes Ollama emit bare JSON, but llama.cpp and chattier
+/// models still wrap it in prose or a code fence.
+fn parse_json_object(raw: &str) -> Result<DraftSpec> {
+    let text = raw.trim();
+    let start = text.find('{').context("no JSON object in reply")?;
+    let end = text.rfind('}').context("no closing brace in reply")?;
+    if end <= start {
+        bail!("malformed JSON object in reply");
+    }
+    Ok(serde_json::from_str(&text[start..=end])?)
+}
+
+/// Reject detector literals that would only ever match the sample they came
+/// from. This is the same failure that made an earlier drafter emit detectors
+/// containing a wall-clock time, which can never match future traffic.
+fn is_stable_literal(s: &str) -> bool {
+    let t = s.trim();
+    if t.len() < 3 || t.len() > 40 {
+        return false;
+    }
+    // Any run of digits long enough to be a time, date, port or address makes
+    // the literal volatile.
+    let longest_digit_run = t
+        .split(|c: char| !c.is_ascii_digit())
+        .map(str::len)
+        .max()
+        .unwrap_or(0);
+    if longest_digit_run >= 3 {
+        return false;
+    }
+    // Clock- and date-shaped fragments.
+    if t.contains(':') && t.chars().any(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    // Month abbreviations and bare weekday names look stable inside one
+    // capture but rotate with the calendar, and a single hostname does not
+    // generalise past the box it came from. Require some structure -
+    // punctuation or a separator - which is what real format markers have.
+    const CALENDAR: &[&str] = &[
+        "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "mon",
+        "tue", "wed", "thu", "fri", "sat", "sun",
+    ];
+    if CALENDAR.contains(&t.to_ascii_lowercase().as_str()) {
+        return false;
+    }
+    // Either the token carries format punctuation (`devname=`, `zephyrfw:`),
+    // or it is long enough to be a distinctive product string rather than a
+    // short host label: "MyAppClient" identifies a source, "gw01" identifies
+    // one box.
+    let has_structure = t.contains(|c: char| "=:[]/\"|_".contains(c));
+    (has_structure || t.len() >= 8) && t.chars().any(|c| c.is_ascii_alphabetic())
+}
+
+/// Decide the decoder chain from the shape of the samples.
+fn infer_decoders(samples: &[String]) -> Vec<&'static str> {
+    let joined = samples.join(
+        "
+",
+    );
+    let first = samples.first().map(String::as_str).unwrap_or("");
+
+    let mut chain = Vec::new();
+
+    // A syslog envelope wraps the body; strip it before reading the body.
+    let syslog_framed = first.starts_with('<')
+        || first
+            .split_whitespace()
+            .next()
+            .map(|t| {
+                matches!(
+                    t.to_ascii_lowercase().as_str(),
+                    "jan"
+                        | "feb"
+                        | "mar"
+                        | "apr"
+                        | "may"
+                        | "jun"
+                        | "jul"
+                        | "aug"
+                        | "sep"
+                        | "oct"
+                        | "nov"
+                        | "dec"
+                )
+            })
+            .unwrap_or(false);
+    if syslog_framed {
+        chain.push("syslog");
+    }
+
+    if joined.contains("CEF:") {
+        chain.push("cef");
+    } else if joined.contains("LEEF:") {
+        chain.push("leef");
+    } else if first.trim_start().starts_with('{') {
+        chain.push("json");
+    } else if first.trim_start().starts_with('<') && first.contains("</") {
+        chain.push("xml");
+    } else if count_kv_pairs(&joined) >= 2 {
+        chain.push("keyvalue");
+    } else if first.matches(',').count() >= 5 {
+        chain.push("csv");
+    }
+
+    if chain.is_empty() {
+        chain.push("keyvalue");
+    }
+    chain
+}
+
+/// Count `key=value` pairs, ignoring `=` inside quotes.
+fn count_kv_pairs(text: &str) -> usize {
+    text.split_whitespace()
+        .filter(|t| {
+            t.split_once('=')
+                .map(|(k, _)| {
+                    !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                })
+                .unwrap_or(false)
+        })
+        .count()
+}
+
+fn assemble_pack(cluster_id: &str, spec: DraftSpec, samples: &[String], model: &str) -> Pack {
+    // Detectors are derived from the samples themselves rather than taken on
+    // the model's word. A literal that does not occur in every sample cannot
+    // identify the source, and a model that hallucinates one would produce a
+    // pack that silently matches nothing.
+    let detect = derive_detectors(samples);
+
+    // Which decoders a body needs is decided by looking at the bytes, not by
+    // asking the model. A 1.5B model offered "cef" for a plain key=value body;
+    // the shape of the text answers this question exactly.
+    let decoders: Vec<ExtractStep> = infer_decoders(samples)
+        .into_iter()
+        .map(|d| ExtractStep {
+            decoder: d.to_string(),
+            sep: None,
+            delim: None,
+            headers: Vec::new(),
+            patterns: Vec::new(),
+            // A drafted chain is a guess; a step that does not fit should not
+            // sink the record.
+            optional: true,
+        })
+        .collect();
+
+    let mut map: BTreeMap<String, MapSpec> = BTreeMap::new();
+    map.insert(
+        "class_uid".into(),
+        MapSpec::Literal(serde_json::json!(4001)),
+    );
+    map.insert("activity_id".into(), MapSpec::Literal(serde_json::json!(6)));
+    map.insert("severity_id".into(), MapSpec::Literal(serde_json::json!(1)));
+    // Convention-based mapping first: it is deterministic and correct far more
+    // often than a small model's guess.
+    let available = available_field_names(samples);
+    for (ocsf_path, source) in infer_field_map(&available) {
+        let cast = if ocsf_path.ends_with(".port") {
+            Some(ulpf_pack::spec::Cast::Int)
+        } else {
+            None
+        };
+        map.insert(
+            ocsf_path,
+            MapSpec::Field(ulpf_pack::spec::FieldSpec {
+                from: ulpf_pack::spec::OneOrMany::One(source),
+                cast,
+                format: None,
+                enum_table: None,
+                default: None,
+                observable: None,
+            }),
+        );
+    }
+
+    // Anything the model suggested that convention missed, if it survives
+    // validation, fills the remaining gaps.
+    for (ocsf_path, source) in spec.fields {
+        if !ALLOWED_FIELDS.contains(&ocsf_path.as_str())
+            || source.trim().is_empty()
+            || map.contains_key(&ocsf_path)
+        {
+            continue;
+        }
+        // A positional format such as an Apache access line has no named
+        // fields, and a small model asked for one tends to answer with the
+        // *value* it saw ("192.168.1.100") instead. Emitting that as a source
+        // field name would produce a pack that silently maps nothing, so only
+        // names that actually occur as keys in the samples are kept.
+        if !looks_like_a_field_name(&source, samples) {
+            continue;
+        }
+        map.insert(
+            ocsf_path,
+            MapSpec::Field(ulpf_pack::spec::FieldSpec {
+                from: ulpf_pack::spec::OneOrMany::One(source),
+                cast: None,
+                format: None,
+                enum_table: None,
+                default: None,
+                observable: None,
+            }),
+        );
+    }
+
+    // Fixtures come from the real samples, so the scorer grades the candidate
+    // against the traffic it was drafted from.
+    let fixtures: Vec<Fixture> = samples
+        .iter()
+        .take(3)
+        .map(|raw| Fixture {
+            raw: raw.clone(),
+            expect: BTreeMap::new(),
+            note: Some("Representative sample; confirm mappings before approval.".into()),
+        })
+        .collect();
+
+    Pack {
+        identity: Identity {
+            id: format!("candidate-{cluster_id}"),
+            vendor: blank_to_unknown(spec.vendor),
+            product: blank_to_unknown(spec.product),
+            version: None,
+            log_format: Some(blank_to_unknown(spec.log_format)),
+            detect: vec![Detector {
+                contains_all: detect,
+                contains_any: Vec::new(),
+                contains_none: Vec::new(),
+                starts_with: None,
+            }],
+            // Well below every hand-written pack, so a candidate can never
+            // shadow a reviewed one.
+            priority: 1000,
+        },
+        extract: if decoders.is_empty() {
+            vec![ExtractStep {
+                decoder: "keyvalue".into(),
+                sep: None,
+                delim: None,
+                headers: Vec::new(),
+                patterns: Vec::new(),
+                optional: true,
+            }]
+        } else {
+            decoders
+        },
+        map,
+        enums: BTreeMap::new(),
+        fixtures,
+        provenance: Some(Provenance {
+            author: Some("generated".into()),
             created: Some(ulpf_core::now_nanos().to_string()),
             cluster_id: Some(cluster_id.to_string()),
             approved_by: None,
-            model: Some("llama.cpp".to_string()),
-        });
+            model: Some(model.to_string()),
+        }),
+    }
+}
 
-        Ok(pack)
+/// Map source field names onto OCSF attributes by naming convention.
+///
+/// Device vendors are remarkably consistent here: a source address is
+/// `srcip`, `src_addr`, `src`, `source_ip` or `saddr`, essentially never
+/// anything else. Matching those patterns is deterministic and, unlike a small
+/// model, cannot answer with the field's *value*.
+///
+/// `qwen2.5:1.5b-instruct` returned values rather than names even when handed
+/// an explicit list of the available names, so this carries the mapping and
+/// the model is used only for naming the vendor and format.
+pub fn infer_field_map(available: &[String]) -> BTreeMap<String, String> {
+    // Ordered: the first available name matching any pattern wins, so more
+    // specific spellings are listed before looser ones.
+    const RULES: &[(&str, &[&str])] = &[
+        (
+            "src_endpoint.port",
+            &[
+                "srcport",
+                "src_port",
+                "src_prt",
+                "sport",
+                "spt",
+                "sourceport",
+            ],
+        ),
+        (
+            "dst_endpoint.port",
+            &[
+                "dstport",
+                "dst_port",
+                "dst_prt",
+                "dport",
+                "dpt",
+                "destport",
+                "destinationport",
+            ],
+        ),
+        (
+            "src_endpoint.ip",
+            &[
+                "srcip",
+                "src_ip",
+                "src_addr",
+                "saddr",
+                "sourceip",
+                "source_ip",
+                "src",
+            ],
+        ),
+        (
+            "dst_endpoint.ip",
+            &[
+                "dstip",
+                "dst_ip",
+                "dst_addr",
+                "daddr",
+                "destip",
+                "destination_ip",
+                "dst",
+            ],
+        ),
+        (
+            "connection_info.protocol_name",
+            &["proto", "protocol", "ipproto", "transport"],
+        ),
+        (
+            "device.hostname",
+            &["devname", "hostname", "host", "device", "dvchost", "devid"],
+        ),
+        (
+            "actor.user.name",
+            &["user", "username", "usr", "suser", "srcuser", "account"],
+        ),
+        ("url", &["url", "request", "uri", "requesturl", "cs_uri"]),
+        (
+            "message",
+            &["msg", "message", "evt", "event", "reason", "description"],
+        ),
+    ];
+
+    let normalise = |s: &str| {
+        s.to_ascii_lowercase()
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .collect::<String>()
+    };
+
+    let mut out = BTreeMap::new();
+    let mut used: Vec<String> = Vec::new();
+
+    for (ocsf_path, patterns) in RULES {
+        for pattern in *patterns {
+            let target = normalise(pattern);
+            if let Some(found) = available
+                .iter()
+                .find(|name| normalise(name) == target && !used.contains(name))
+            {
+                out.insert(ocsf_path.to_string(), found.clone());
+                used.push(found.clone());
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// Field names that actually occur in the samples.
+///
+/// Handles the two shapes that carry names — `key=value` bodies and JSON
+/// objects — and falls back to positional `col.N` for delimited records.
+pub fn available_field_names(samples: &[String]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+
+    for sample in samples.iter().take(5) {
+        // key=value
+        for token in sample.split_whitespace() {
+            if let Some((key, _)) = token.split_once('=') {
+                if !key.is_empty()
+                    && key
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+                    && !names.iter().any(|n| n == key)
+                {
+                    names.push(key.to_string());
+                }
+            }
+        }
+        // JSON keys
+        if sample.trim_start().starts_with('{') {
+            if let Ok(serde_json::Value::Object(map)) =
+                serde_json::from_str::<serde_json::Value>(sample)
+            {
+                for key in map.keys() {
+                    if !names.iter().any(|n| n == key) {
+                        names.push(key.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    // Positional fallback for delimited records with no names at all.
+    if names.is_empty() {
+        if let Some(first) = samples.first() {
+            let columns = first.matches(',').count() + 1;
+            if columns >= 3 {
+                names.extend((0..columns.min(40)).map(|i| format!("col.{i}")));
+            }
+        }
+    }
+
+    names.truncate(60);
+    names
+}
+
+/// Whether `candidate` plausibly names a field the decoders will produce.
+///
+/// Accepts `col.N` (positional CSV), and any token that appears in the samples
+/// immediately followed by `=` or `":` — i.e. it is used as a key there, not
+/// as a value.
+fn looks_like_a_field_name(candidate: &str, samples: &[String]) -> bool {
+    let name = candidate.trim();
+    if name.is_empty() || name.eq_ignore_ascii_case("unknown") || name.contains(' ') {
+        return false;
+    }
+    if name.starts_with("col.") {
+        return true;
+    }
+    let as_kv = format!("{name}=");
+    let as_json = format!("\"{name}\"");
+    samples
+        .iter()
+        .any(|s| s.contains(&as_kv) || s.contains(&as_json))
+}
+
+/// Derive detector literals from the samples themselves.
+///
+/// Takes the whitespace-separated tokens that appear, unchanged, in *every*
+/// sample in the cluster — which is exactly what Drain's template already
+/// tells us is the fixed part of the shape. Volatile tokens are excluded by
+/// [`is_stable_literal`], so timestamps and addresses can never end up in a
+/// detector.
+fn derive_detectors(samples: &[String]) -> Vec<String> {
+    let Some(first) = samples.first() else {
+        return Vec::new();
+    };
+
+    let mut shared: Vec<String> = first
+        .split_whitespace()
+        .map(str::to_string)
+        .filter(|t| is_stable_literal(t))
+        .collect();
+
+    for sample in samples.iter().skip(1) {
+        shared.retain(|token| sample.contains(token.as_str()));
+    }
+
+    shared.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+    shared.dedup();
+    shared.truncate(3);
+    shared
+}
+
+fn blank_to_unknown(s: String) -> String {
+    if s.trim().is_empty() {
+        "Unknown".into()
+    } else {
+        s
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn volatile_detector_literals_are_rejected() {
+        // These are what made an earlier drafter emit unusable detectors.
+        assert!(!is_stable_literal("12:11:24"));
+        assert!(!is_stable_literal("192.168.1.10"));
+        assert!(!is_stable_literal("2024-03-15"));
+        assert!(!is_stable_literal("1045"));
+        assert!(!is_stable_literal("UserID: 1045"));
+    }
+
+    #[test]
+    fn stable_detector_literals_are_kept() {
+        assert!(is_stable_literal("devname="));
+        assert!(is_stable_literal("type=traffic"));
+        assert!(is_stable_literal("[AppServer]"));
+        assert!(is_stable_literal("MyAppClient"));
+    }
+
+    #[test]
+    fn field_names_map_onto_ocsf_by_convention() {
+        // The exact names from the unknown appliance in testing.
+        let available: Vec<String> = [
+            "evt", "src_addr", "src_prt", "dst_addr", "dst_prt", "proto", "verdict", "rule",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let m = infer_field_map(&available);
+        assert_eq!(
+            m.get("src_endpoint.ip").map(String::as_str),
+            Some("src_addr")
+        );
+        assert_eq!(
+            m.get("src_endpoint.port").map(String::as_str),
+            Some("src_prt")
+        );
+        assert_eq!(
+            m.get("dst_endpoint.ip").map(String::as_str),
+            Some("dst_addr")
+        );
+        assert_eq!(
+            m.get("dst_endpoint.port").map(String::as_str),
+            Some("dst_prt")
+        );
+        assert_eq!(
+            m.get("connection_info.protocol_name").map(String::as_str),
+            Some("proto")
+        );
+
+        // FortiGate spellings resolve too.
+        let fg: Vec<String> = ["srcip", "srcport", "dstip", "dstport", "devname", "action"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let m2 = infer_field_map(&fg);
+        assert_eq!(m2.get("src_endpoint.ip").map(String::as_str), Some("srcip"));
+        assert_eq!(
+            m2.get("device.hostname").map(String::as_str),
+            Some("devname")
+        );
+    }
+
+    #[test]
+    fn a_source_name_is_never_reused_for_two_attributes() {
+        let available: Vec<String> = ["src", "dst"].iter().map(|s| s.to_string()).collect();
+        let m = infer_field_map(&available);
+        let sources: Vec<&String> = m.values().collect();
+        let mut uniq = sources.clone();
+        uniq.sort();
+        uniq.dedup();
+        assert_eq!(sources.len(), uniq.len(), "a field was mapped twice: {m:?}");
+    }
+
+    #[test]
+    fn decoder_chain_is_inferred_from_the_bytes() {
+        let kv = vec!["Mar 15 10:30:01 gw01 fw: src_addr=10.0.0.1 dst_addr=8.8.8.8".to_string()];
+        assert_eq!(infer_decoders(&kv), vec!["syslog", "keyvalue"]);
+
+        let cef = vec!["CEF:0|V|P|1|1|name|5|src=10.0.0.1".to_string()];
+        assert_eq!(infer_decoders(&cef), vec!["cef"]);
+
+        let js = vec![r#"{"src_ip":"10.0.0.1"}"#.to_string()];
+        assert_eq!(infer_decoders(&js), vec!["json"]);
+
+        let csv = vec!["a,b,c,d,e,f,g,h".to_string()];
+        assert_eq!(infer_decoders(&csv), vec!["csv"]);
+    }
+
+    #[test]
+    fn calendar_words_and_bare_hostnames_are_weak_detectors() {
+        // Stable within one capture, but "Mar" fails in April and "gw01"
+        // fails on the next appliance.
+        assert!(!is_stable_literal("Mar"));
+        assert!(!is_stable_literal("gw01"));
+        // A real format marker has structure.
+        assert!(is_stable_literal("zephyrfw:"));
+        assert!(is_stable_literal("devname="));
+    }
+
+    #[test]
+    fn values_are_not_accepted_as_field_names() {
+        // What a small model actually returns for a positional format.
+        let apache = vec![
+            r#"192.168.1.100 - - [15/Mar/2024:10:30:01 +0000] "GET /a HTTP/1.1" 200 1024"#
+                .to_string(),
+        ];
+        assert!(!looks_like_a_field_name("192.168.1.100", &apache));
+        assert!(!looks_like_a_field_name("/api/v1/users", &apache));
+        assert!(!looks_like_a_field_name("Unknown", &apache));
+        assert!(!looks_like_a_field_name("GET /a HTTP/1.1", &apache));
+    }
+
+    #[test]
+    fn real_field_names_are_accepted() {
+        let kv = vec!["devname=\"FGT\" srcip=10.0.0.1 action=accept".to_string()];
+        assert!(looks_like_a_field_name("srcip", &kv));
+        assert!(looks_like_a_field_name("action", &kv));
+
+        let js = vec![r#"{"src_ip":"10.0.0.1","action":"allow"}"#.to_string()];
+        assert!(looks_like_a_field_name("src_ip", &js));
+
+        // Positional columns are always legitimate.
+        assert!(looks_like_a_field_name("col.7", &kv));
+    }
+
+    #[test]
+    fn detectors_come_from_tokens_shared_by_every_sample() {
+        // Real Apache lines: the shared, non-volatile tokens are the format
+        // markers, never the addresses or timestamps.
+        let samples = vec![
+            r#"192.168.1.100 - - [15/Mar/2024:10:30:01 +0000] "GET /a HTTP/1.1" 200 1024 "-" "MyAppClient/1.0""#.to_string(),
+            r#"10.2.4.19 - - [15/Mar/2024:10:31:44 +0000] "POST /b HTTP/1.1" 401 512 "-" "MyAppClient/1.0""#.to_string(),
+        ];
+        let detect = derive_detectors(&samples);
+        assert!(!detect.is_empty(), "expected at least one detector");
+        for d in &detect {
+            assert!(
+                samples.iter().all(|s| s.contains(d.as_str())),
+                "`{d}` is not present in every sample"
+            );
+            assert!(!d.contains("192.168"), "address leaked into detector: {d}");
+            assert!(!d.contains("10:30"), "timestamp leaked into detector: {d}");
+        }
+    }
+
+    #[test]
+    fn json_is_extracted_from_a_fenced_reply() {
+        let reply = "Here you go:
+```json
+{\"vendor\":\"Acme\",\"product\":\"Gateway\"}
+```";
+        let spec = parse_json_object(reply).unwrap();
+        assert_eq!(spec.vendor, "Acme");
+        assert_eq!(spec.product, "Gateway");
+    }
+
+    #[test]
+    fn a_reply_with_no_json_is_an_error_not_a_fabricated_pack() {
+        assert!(parse_json_object("I could not determine the format.").is_err());
+    }
+
+    #[test]
+    fn assembled_pack_is_low_priority_and_marked_generated() {
+        let spec = DraftSpec {
+            vendor: "Acme".into(),
+            product: "Gateway".into(),
+            log_format: "syslog-keyvalue".into(),
+            fields: BTreeMap::from([
+                ("src_endpoint.ip".into(), "srcip".into()),
+                ("not_a_real_field".into(), "x".into()),
+            ]),
+        };
+        let samples = vec![
+            "acme_fw srcip=10.0.0.1 action=accept".to_string(),
+            "acme_fw srcip=10.0.0.2 action=deny".to_string(),
+        ];
+        let pack = assemble_pack("abc", spec, &samples, "test-model");
+
+        // Never shadows a reviewed pack.
+        assert_eq!(pack.identity.priority, 1000);
+        // Detectors are derived from tokens common to every sample, so the
+        // shared marker survives and the per-line values do not.
+        let detect = &pack.identity.detect[0].contains_all;
+        assert!(detect.contains(&"acme_fw".to_string()), "got {detect:?}");
+        assert!(
+            !detect.iter().any(|d| d.contains("10.0.0.1")),
+            "got {detect:?}"
+        );
+        // Decoders are inferred from the samples, not taken from the model:
+        // an unframed key=value body needs exactly the keyvalue decoder.
+        let chain: Vec<&str> = pack.extract.iter().map(|e| e.decoder.as_str()).collect();
+        assert_eq!(chain, vec!["keyvalue"]);
+        // Unknown OCSF paths are filtered out; the real one survives.
+        assert!(pack.map.contains_key("src_endpoint.ip"));
+        assert!(!pack.map.contains_key("not_a_real_field"));
+        // Provenance records that a human has not signed off.
+        let prov = pack.provenance.unwrap();
+        assert_eq!(prov.author.as_deref(), Some("generated"));
+        assert!(prov.approved_by.is_none());
     }
 }
