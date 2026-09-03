@@ -48,6 +48,7 @@ pub struct AppState {
     pub vault_dir: std::path::PathBuf,
     pub packs_dir: std::path::PathBuf,
     pub drain: ulpf_generator::drain::Drain,
+    pub simulator: crate::simulator::Simulator,
 }
 
 #[derive(Clone)]
@@ -76,6 +77,9 @@ pub fn router(state: Shared) -> Router {
         .route("/api/verify", post(verify))
         .route("/api/tamper", post(tamper))
         .route("/api/clear", post(clear))
+        .route("/api/sim/sources", get(sim_sources))
+        .route("/api/sim/toggle", post(sim_toggle))
+        .route("/api/sim/stop-all", post(sim_stop_all))
         .layer(DefaultBodyLimit::max(MAX_INGEST_BYTES))
         .with_state(state)
 }
@@ -193,6 +197,12 @@ struct GenerateBody {
     cluster_id: Option<String>,
     #[serde(default)]
     raw_log: Option<String>,
+    /// "ai" drafts with the local model; "heuristic" uses the deterministic
+    /// generator only. Absent means "ai, falling back to heuristic if the model
+    /// is unreachable", which is the behaviour the console had before the
+    /// choice was made explicit.
+    #[serde(default)]
+    mode: Option<String>,
 }
 
 async fn generate(
@@ -237,26 +247,41 @@ async fn generate(
         ));
     }
 
+    // The operator chooses the generator explicitly. A deployment with no GPU,
+    // or one where an LLM is not permitted at all, must still be able to draft
+    // a pack — so the deterministic path is a first-class option, not just a
+    // failure mode.
+    let mode = body.mode.as_deref().unwrap_or("auto");
+    if mode == "heuristic" {
+        return heuristic_draft(&samples, "requested");
+    }
+    if !matches!(mode, "auto" | "ai") {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            format!("unknown mode '{mode}': expected 'ai' or 'heuristic'"),
+        ));
+    }
+
     let client = ulpf_generator::llm::GeneratorClient::from_env();
 
     // Probe first so an offline model gives an actionable message rather than
     // a 500 in front of whoever is watching the console.
     if let Err(error) = client.probe().await {
-        tracing::warn!("LLM offline ({}). Falling back to deterministic heuristic generator.", error);
-        
-        let raw_log = samples.get(0).cloned().unwrap_or_default();
-        let draft = match ulpf_generator::heuristic::draft_pack(&raw_log) {
-            Ok(d) => d,
-            Err(e) => return Err(ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
-        };
-
-        return Ok(Json(json!({
-            "pack_yaml": draft.pack_yaml,
-            "model": draft.model,
-            "fixtures": draft.fixtures,
-            "fixtures_passed": draft.fixtures_passed,
-            "field_accuracy": 0.0,
-        })));
+        // "ai" was asked for by name, so silently substituting a different
+        // generator would misreport what produced the pack.
+        if mode == "ai" {
+            return Err(ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!(
+                    "the local model is unreachable ({error}).                      Start Ollama, or choose the deterministic heuristic generator."
+                ),
+            ));
+        }
+        tracing::warn!(
+            "LLM offline ({}). Falling back to deterministic heuristic generator.",
+            error
+        );
+        return heuristic_draft(&samples, "llm-offline");
     }
 
     let pack = client
@@ -273,10 +298,84 @@ async fn generate(
     Ok(Json(json!({
         "pack_yaml": pack_yaml,
         "model": client.model(),
+        "generator": "ai",
+        "reason": "model-drafted",
         "fixtures": score.total,
         "fixtures_passed": score.passed,
         "field_accuracy": score.field_accuracy(),
     })))
+}
+
+/// Draft a pack with the rules-based generator.
+///
+/// Every sample is passed, not just the first: detector derivation needs more
+/// than one line to tell fixed structure from per-record values, and a pack
+/// with no detector loads but claims nothing.
+fn heuristic_draft(samples: &[String], reason: &str) -> Result<Json<Value>, ApiError> {
+    let raw_log = samples.join(
+        "
+",
+    );
+    let draft = ulpf_generator::heuristic::draft_pack(&raw_log)
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(json!({
+        "pack_yaml": draft.pack_yaml,
+        "model": draft.model,
+        "generator": "heuristic",
+        "reason": reason,
+        "fixtures": draft.fixtures,
+        "fixtures_passed": draft.fixtures_passed,
+        "field_accuracy": draft.field_accuracy,
+    })))
+}
+
+/// The corpora the simulator can replay, with live per-stream counters.
+async fn sim_sources(State(state): State<Shared>) -> Json<Value> {
+    let s = lock(&state);
+    Json(json!({
+        "target": s.simulator.target(),
+        "data_dir": s.simulator.data_dir().display().to_string(),
+        "running": s.simulator.running_count(),
+        "total_sent": s.simulator.total_sent(),
+        "sources": s.simulator.status(),
+    }))
+}
+
+#[derive(serde::Deserialize)]
+struct SimToggleBody {
+    id: String,
+    on: bool,
+    #[serde(default)]
+    eps: Option<u64>,
+}
+
+/// Flip one source on or off.
+async fn sim_toggle(
+    State(state): State<Shared>,
+    Json(body): Json<SimToggleBody>,
+) -> Result<Json<Value>, ApiError> {
+    let mut s = lock(&state);
+    if body.on {
+        // A missing corpus is the operator's problem to fix, not a server
+        // fault, so it comes back as 400 with the fetch command in the text.
+        s.simulator
+            .start(&body.id, body.eps.unwrap_or(20))
+            .map_err(|e| ApiError(StatusCode::BAD_REQUEST, e.to_string()))?;
+    } else {
+        s.simulator.stop(&body.id);
+    }
+    Ok(Json(json!({
+        "ok": true,
+        "running": s.simulator.running_count(),
+        "sources": s.simulator.status(),
+    })))
+}
+
+async fn sim_stop_all(State(state): State<Shared>) -> Json<Value> {
+    let mut s = lock(&state);
+    s.simulator.stop_all();
+    Json(json!({ "ok": true, "sources": s.simulator.status() }))
 }
 
 #[derive(serde::Deserialize)]
@@ -646,12 +745,21 @@ async fn verify(State(state): State<Shared>) -> Json<Value> {
             "count": events.len(),
             "head_uid": head.as_ref().map(|h| h.uid.clone()),
             "head_fingerprint": head.map(|h| h.fingerprint.value),
-            "checkpoint_valid": s.latest_checkpoint.as_ref().is_some_and(|checkpoint| {
-                checkpoint.verify_self_signed().is_ok()
-                    && s.pipeline.chain_head().is_some_and(|head| {
-                        checkpoint.head_uid == head.uid
-                            && checkpoint.head == head.fingerprint
-                    })
+            // Two separate facts. The signature is either good or it is not,
+            // and that is the security property. Whether the checkpoint also
+            // names the current head is just a question of how recently one
+            // was written — checkpoints are periodic, so between intervals a
+            // perfectly valid checkpoint necessarily trails the live head.
+            // Reporting a single "valid" flag conflated the two and made a
+            // healthy chain look broken for 499 events out of every 500.
+            "checkpoint_signature_valid": s
+                .latest_checkpoint
+                .as_ref()
+                .is_some_and(|checkpoint| checkpoint.verify_self_signed().is_ok()),
+            "checkpoint_at_head": s.latest_checkpoint.as_ref().is_some_and(|checkpoint| {
+                s.pipeline.chain_head().is_some_and(|head| {
+                    checkpoint.head_uid == head.uid && checkpoint.head == head.fingerprint
+                })
             }),
         })),
         Err(e) => Json(json!({ "ok": false, "count": events.len(), "detail": e.to_string() })),
