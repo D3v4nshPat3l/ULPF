@@ -1,11 +1,30 @@
+//! Replay a raw log file over UDP to stand in for a live device.
+//!
+//! Pacing is deadline-based rather than sleep-per-event. Sleeping after every
+//! datagram caps the sender at roughly 1,000 EPS on Windows, where the timer
+//! granularity is about a millisecond — which silently makes the *sender* the
+//! bottleneck and understates what the collector can absorb. Here each event
+//! has an absolute deadline from a fixed start instant, so error cannot
+//! accumulate, and the loop only sleeps when it is genuinely ahead of schedule.
+
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::net::UdpSocket;
 use std::path::Path;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-pub fn cmd_replay(source_file: &Path, target: &str, eps: u64) -> anyhow::Result<()> {
+/// Sleeping for less than this is not worth the syscall: the OS will overshoot
+/// it anyway. Below the threshold the loop just keeps sending and lets the
+/// deadline arithmetic even the rate out over the next few events.
+const MIN_SLEEP: Duration = Duration::from_millis(2);
+
+pub fn cmd_replay(
+    source_file: &Path,
+    target: &str,
+    eps: u64,
+    count: Option<u64>,
+) -> anyhow::Result<()> {
     let socket = UdpSocket::bind("0.0.0.0:0")?;
     let file = File::open(source_file)?;
     let reader = BufReader::new(file);
@@ -22,20 +41,66 @@ pub fn cmd_replay(source_file: &Path, target: &str, eps: u64) -> anyhow::Result<
         anyhow::bail!("Source file is empty");
     }
 
-    println!("Replaying {} lines to {} at {} EPS...", lines.len(), target, eps);
-    let sleep_duration = Duration::from_micros(1_000_000 / eps.max(1));
+    match count {
+        Some(n) => println!(
+            "Replaying {} lines to {} at {} EPS ({} events, then stop)...",
+            lines.len(),
+            target,
+            eps,
+            n
+        ),
+        None => println!(
+            "Replaying {} lines to {} at {} EPS (Ctrl-C to stop)...",
+            lines.len(),
+            target,
+            eps
+        ),
+    }
 
-    let mut i = 0;
+    let start = Instant::now();
+    let interval = Duration::from_nanos(1_000_000_000 / eps.max(1));
+    let mut sent: u64 = 0;
+
     loop {
-        let line = &lines[i % lines.len()];
-        // Note: Simple replay for now. A real replay engine would parse and rewrite timestamps.
-        socket.send_to(line.as_bytes(), target)?;
-        i += 1;
-
-        if i % (eps as usize) == 0 {
-            println!("Sent {} events...", i);
+        if let Some(limit) = count {
+            if sent >= limit {
+                break;
+            }
         }
 
-        thread::sleep(sleep_duration);
+        let line = &lines[(sent as usize) % lines.len()];
+        socket.send_to(line.as_bytes(), target)?;
+        sent += 1;
+
+        if sent % eps.max(1) == 0 {
+            let elapsed = start.elapsed().as_secs_f64();
+            println!(
+                "Sent {} events ({:.0} EPS actual)",
+                sent,
+                sent as f64 / elapsed.max(f64::EPSILON)
+            );
+        }
+
+        // Absolute deadline for the *next* event, measured from the start.
+        // Falling behind simply means no sleep, so the loop catches up instead
+        // of drifting further out.
+        let deadline_ns = (sent as u128) * interval.as_nanos();
+        let elapsed_ns = start.elapsed().as_nanos();
+        if deadline_ns > elapsed_ns {
+            let ahead =
+                Duration::from_nanos((deadline_ns - elapsed_ns).min(u64::MAX as u128) as u64);
+            if ahead >= MIN_SLEEP {
+                thread::sleep(ahead);
+            }
+        }
     }
+
+    let elapsed = start.elapsed().as_secs_f64();
+    println!(
+        "Done: {} events in {:.2}s = {:.0} EPS",
+        sent,
+        elapsed,
+        sent as f64 / elapsed.max(f64::EPSILON)
+    );
+    Ok(())
 }
