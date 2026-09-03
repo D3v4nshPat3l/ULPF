@@ -195,6 +195,11 @@ enum Command {
         host: String,
         #[arg(long, short, default_value_t = 8787)]
         port: u16,
+        /// Socket the UDP syslog receiver binds. Configurable so two
+        /// collectors can share a host, which is what the horizontal-scale
+        /// deployment needs.
+        #[arg(long, default_value = "0.0.0.0:5514")]
+        syslog_bind: String,
         /// OpenSearch base URL.
         #[arg(long)]
         opensearch: Option<String>,
@@ -332,6 +337,7 @@ fn main() -> anyhow::Result<()> {
             chain,
             host,
             port,
+            syslog_bind,
             opensearch,
             opensearch_index,
             splunk_hec,
@@ -347,6 +353,7 @@ fn main() -> anyhow::Result<()> {
             chain,
             host,
             port,
+            syslog_bind,
             opensearch,
             opensearch_index,
             splunk_hec,
@@ -608,6 +615,7 @@ pub struct ServeConfig {
     pub chain: String,
     pub host: String,
     pub port: u16,
+    pub syslog_bind: String,
     pub opensearch: Option<String>,
     pub opensearch_index: String,
     pub splunk_hec: Option<String>,
@@ -622,6 +630,7 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
     let ServeConfig {
         packs_dir,
         vault_dir,
+        syslog_bind,
         integrity_dir,
         chain,
         host,
@@ -693,14 +702,20 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         sink_batch_size,
     )?;
 
-    // Spawn UDP syslog listener on a dedicated thread to avoid blocking async
+    // Spawn UDP syslog listener on a dedicated thread to avoid blocking async.
+    //
+    // `bind_receiver` rather than a plain `UdpSocket::bind`: the console is the
+    // path the simulator and any real device actually send to, so it needs the
+    // same enlarged receive buffer the measured `listen` numbers were taken
+    // with. Binding plainly here left the demo running on the ~64 KB OS
+    // default, which docs/THROUGHPUT.md records as 37% loss at 15,000 EPS.
     let listener_state = state.clone();
+    let bind = syslog_bind.clone();
     std::thread::spawn(move || {
-        let bind = "0.0.0.0:5514";
-        let socket = match std::net::UdpSocket::bind(bind) {
+        let socket = match bind_receiver(&bind) {
             Ok(s) => s,
             Err(e) => {
-                tracing::error!("Failed to bind UDP syslog listener to {}: {}", bind, e);
+                tracing::error!("Failed to bind UDP syslog listener to {}: {:#}", bind, e);
                 return;
             }
         };
@@ -718,7 +733,7 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
                 Ok((len, peer)) => {
                     let envelope = Envelope::new(Transport::SyslogUdp, "udp-listener")
                         .with_peer(peer.ip())
-                        .with_origin(bind.to_string());
+                        .with_origin(bind.clone());
 
                     let mut st = listener_state.lock().unwrap();
                     let processed = match st.pipeline.process(&buffer[..len], &envelope) {
@@ -796,8 +811,26 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
 
     runtime.block_on(async {
         let app = server::router(state.clone());
-        let addr: std::net::SocketAddr = format!("{}:{}", host, port).parse().unwrap();
-        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        let addr: std::net::SocketAddr = match format!("{host}:{port}").parse() {
+            Ok(addr) => addr,
+            Err(e) => {
+                eprintln!("  {host}:{port} is not a valid socket address: {e}");
+                std::process::exit(2);
+            }
+        };
+        // A taken port is an ordinary operator mistake — two collectors on one
+        // host, a console already running — and deserves a sentence, not a
+        // panic and a backtrace.
+        let listener = match tokio::net::TcpListener::bind(addr).await {
+            Ok(listener) => listener,
+            Err(e) => {
+                eprintln!("  could not bind the console to {addr}: {e}");
+                eprintln!(
+                    "  choose another port with --port, or stop the process already using it."
+                );
+                std::process::exit(2);
+            }
+        };
 
         eprintln!();
         eprintln!(

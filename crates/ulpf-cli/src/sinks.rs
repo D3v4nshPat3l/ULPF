@@ -474,8 +474,12 @@ impl ParquetSink {
             .and_then(serde_json::Value::as_i64)
             .ok_or_else(|| anyhow::anyhow!("event has no time"))?;
 
+        // OCSF `time` is nanoseconds. Reading it as milliseconds overflowed
+        // chrono's range on every real timestamp, `unwrap_or_default()` quietly
+        // returned the epoch, and so every row landed in `dt=1970-01-01` — one
+        // unbounded file that partition pruning could do nothing with.
         use chrono::DateTime;
-        let timestamp = DateTime::from_timestamp_millis(time).unwrap_or_default();
+        let timestamp = DateTime::from_timestamp_nanos(time);
         let partition = timestamp.format("dt=%Y-%m-%d").to_string();
 
         if self.active_partition.as_ref() != Some(&partition) {
