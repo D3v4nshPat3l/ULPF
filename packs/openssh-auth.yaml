@@ -1,0 +1,89 @@
+# OpenSSH authentication events via syslog.
+#
+# Written against the Loghub OpenSSH corpus (655k real production lines).
+# Perimeter-relevant because SSH is how VPN concentrators and jump hosts are
+# reached, and failed-auth volume is a primary brute-force signal.
+identity:
+  id: openssh-auth
+  vendor: OpenBSD
+  product: OpenSSH
+  log_format: syslog-sshd
+  priority: 25
+  detect:
+    - contains_all: ["sshd["]
+
+extract:
+  - decoder: syslog
+  - decoder: regex
+    optional: true
+    patterns:
+      - '^Failed (?P<method>\S+) for (?:invalid user )?(?P<user>\S+) from (?P<src>[\d.]+) port (?P<sport>\d+)'
+      - '^Accepted (?P<method>\S+) for (?P<user>\S+) from (?P<src>[\d.]+) port (?P<sport>\d+)'
+      - '^Invalid user (?P<user>\S+) from (?P<src>[\d.]+)'
+      - '^Connection closed by (?:authenticating user (?P<user>\S+) )?(?P<src>[\d.]+)'
+      - '^(?:error: )?maximum authentication attempts exceeded for (?:invalid user )?(?P<user>\S+) from (?P<src>[\d.]+) port (?P<sport>\d+)'
+      - 'from (?P<src>[\d.]+)'
+
+map:
+  class_uid: 3002                      # Authentication
+  activity_id: 1                       # Logon
+  severity_id:
+    from: regex.matched
+    enum: ssh_severity
+    default: 1
+  status_id:
+    from: regex.matched
+    enum: ssh_status
+    default: 0
+  time:
+    from: syslog.timestamp
+    format: rfc3164
+  src_endpoint.ip:
+    from: src
+    observable: ip
+  src_endpoint.port:
+    from: sport
+    as: int
+  actor.user.name:
+    from: user
+    observable: user
+  auth_protocol:
+    from: method
+  device.hostname:
+    from: syslog.hostname
+    observable: hostname
+  message:
+    from: syslog.appname
+
+enums:
+  # regex.matched is the index of the alternative that fired, so the outcome is
+  # known from which shape the line took.
+  ssh_status:
+    "0": 2   # Failed password       -> Failure
+    "1": 1   # Accepted              -> Success
+    "2": 2   # Invalid user          -> Failure
+    "3": 0   # Connection closed     -> Unknown
+    "4": 2   # Max attempts exceeded -> Failure
+  ssh_severity:
+    "0": 3
+    "2": 3
+    "4": 4
+
+fixtures:
+  - note: Real Loghub line - invalid user probe.
+    raw: 'Dec 10 06:55:46 LabSZ sshd[24200]: Invalid user webmaster from 173.234.31.186'
+    expect:
+      class_uid: 3002
+      src_endpoint.ip: 173.234.31.186
+      actor.user.name: webmaster
+      status_id: 2
+      device.hostname: LabSZ
+
+  - note: Real Loghub line - failed password with port.
+    raw: 'Dec 10 07:07:38 LabSZ sshd[24206]: Failed password for root from 112.95.230.3 port 46013 ssh2'
+    expect:
+      class_uid: 3002
+      src_endpoint.ip: 112.95.230.3
+      src_endpoint.port: 46013
+      actor.user.name: root
+      status_id: 2
