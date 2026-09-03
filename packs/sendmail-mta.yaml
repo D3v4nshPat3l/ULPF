@@ -1,0 +1,65 @@
+# Sendmail MTA via syslog.
+#
+# Written against the Honeynet SotM34 maillog. A mail gateway is a perimeter
+# device, and the body is comma-separated key=value after a queue id.
+identity:
+  id: sendmail-mta
+  vendor: Sendmail
+  product: Sendmail MTA
+  log_format: syslog-sendmail
+  priority: 40
+  detect:
+    - contains_all: ["sendmail["]
+
+extract:
+  - decoder: syslog
+  - decoder: regex
+    optional: true
+    patterns:
+      - '^(?P<queue_id>[A-Za-z0-9]{10,}):\s+\[(?P<peer_ip>[\d.]+)\]\s+(?P<body>did not issue.*)$'
+      - '^(?P<queue_id>[A-Za-z0-9]{10,}):\s+(?P<body>.*)$'
+      # Daemon-level notices carry no queue id at all, e.g.
+      #   "rejecting connections on daemon MTA: load average: 13"
+      - '^(?P<daemon_event>rejecting connections[^:]*|starting daemon[^:]*)(?::\s*(?P<body>.*))?$'
+  - decoder: keyvalue
+    # Optional: daemon notices and rejection messages carry no key=value pairs
+    # at all ("rejecting connections on daemon MTA: load average: 13"), and a
+    # missing body should not fail a record whose envelope parsed fine.
+    optional: true
+    sep: "="
+    delim: ","
+
+map:
+  class_uid: 4009                      # Email Activity
+  activity_id: 1                       # Send
+  severity_id: 1
+  time:
+    from: syslog.timestamp
+    format: rfc3164
+  message:
+    from: [queue_id, daemon_event]
+  src_endpoint.ip:
+    from: peer_ip
+    observable: ip
+  email.from:
+    from: from
+  email.to:
+    from: to
+  email.size:
+    from: size
+    as: int
+  device.hostname:
+    from: syslog.hostname
+    observable: hostname
+  actor.user.name:
+    from: ctladdr
+    observable: user
+
+fixtures:
+  - note: Real SotM34 maillog line.
+    raw: 'Mar 13 04:16:16 combo sendmail[26065]: j2D9FD3X026065: from=root, size=39455, class=0, nrcpts=1, msgid=<200503130915.j2D9FD3X026065@combo.honeypotbox.com>, relay=root@localhost'
+    expect:
+      class_uid: 4009
+      email.from: root
+      email.size: 39455
+      device.hostname: combo
