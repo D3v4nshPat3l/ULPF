@@ -1,404 +1,395 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ULPF Source Simulator</title>
-    <style>
-    :root {
-      /* Light Theme (Wazuh Default) */
-      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      --page: #f5f7fa;
-      --surface: #ffffff;
-      --surface-alt: #f7f9fc;
-      --surface-sunken: #eef2f7;
-      --nav: #1a2634;
-      --nav-hover: #243346;
-      --nav-active: #0d1b2a;
-      --nav-text: #c5cfdb;
-      --nav-text-strong: #ffffff;
-      --border: #d3dae6;
-      --border-strong: #b6c0ce;
-      --text: #2f3841;
-      --text-muted: #69707d;
-      --text-faint: #98a2b3;
-      --primary: #8c1d18;
-      --primary-hover: #691512;
-      --primary-soft: #fbeceb;
-      --high: #bd271e;
-      --success: #017d73;
-      --success-soft: #e6f2f1;
-      --danger-soft: #fbeceb;
-      --warning-soft: #fdf6e3;
-      --radius: 6px;
-      --shadow: 0 2px 4px rgba(23,35,51,.06);
+<!--
+  Traffic source simulator.
+
+  A control plane for the demo: each switch replays one real public corpus over
+  UDP into the collector at a rate the operator sets. Streams live in the
+  server, so they keep running whether or not this page is open.
+
+  A corpus that is not on disk is reported `absent` and cannot be switched on.
+  There is deliberately no fallback to invented data — every line this sends is
+  an unmodified record from a published capture.
+
+  Same design language as the console, and served the same way: compiled into
+  the binary, no CDN, no external font.
+-->
+<title>ULPF Traffic Simulator</title>
+<style>
+  :root{
+    --nav:#1D1E24; --nav-text:#98A2B3;
+    --page:#F7F8FC; --panel:#FFFFFF; --sunken:#F1F4FA; --border:#D3DAE6;
+    --text:#1A1C21; --text-2:#535966; --text-3:#7E8494;
+    --primary:#006BB4; --primary-soft:#E6F0F8;
+    --success:#00786B; --success-soft:#E0F2F0;
+    --warning:#8A6100; --warning-soft:#FDF3DC;
+    --danger:#BD271E; --danger-soft:#F8E7E6;
+    --shadow:0 1px 3px rgba(29,30,36,.08);
+    --radius:4px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --nav:#111216; --nav-text:#8C93A5;
+      --page:#141519; --panel:#1D1E24; --sunken:#25262E; --border:#343741;
+      --text:#DFE5EF; --text-2:#AEB6C4; --text-3:#81858F;
+      --primary:#36A2EF; --primary-soft:#0E2B40;
+      --success:#7DDED4; --success-soft:#10312E;
+      --warning:#F5C452; --warning-soft:#33280C;
+      --danger:#F0837C; --danger-soft:#3A1B19;
+      --shadow:0 1px 3px rgba(0,0,0,.4);
     }
-    
-    [data-theme="dark"] {
-      --page: #0b1120;
-      --surface: #1e293b;
-      --surface-alt: #0f172a;
-      --surface-sunken: #0b1120;
-      --nav: #0f172a;
-      --nav-hover: #1e293b;
-      --nav-active: #334155;
-      --nav-text: #94a3b8;
-      --nav-text-strong: #f8fafc;
-      --border: #334155;
-      --border-strong: #475569;
-      --text: #f8fafc;
-      --text-muted: #cbd5e1;
-      --text-faint: #64748b;
-      --primary: #f87171;
-      --primary-hover: #fca5a5;
-      --primary-soft: rgba(239, 68, 68, 0.15);
-      --high: #f87171;
-      --success: #10b981;
-      --success-soft: rgba(16, 185, 129, 0.1);
-      --danger-soft: rgba(239, 68, 68, 0.1);
-      --warning-soft: rgba(251, 191, 36, 0.1);
-      --shadow: 0 4px 12px rgba(0,0,0,0.3);
-    }
+  }
+  :root[data-theme="dark"]{
+    --nav:#111216; --nav-text:#8C93A5;
+    --page:#141519; --panel:#1D1E24; --sunken:#25262E; --border:#343741;
+    --text:#DFE5EF; --text-2:#AEB6C4; --text-3:#81858F;
+    --primary:#36A2EF; --primary-soft:#0E2B40;
+    --success:#7DDED4; --success-soft:#10312E;
+    --warning:#F5C452; --warning-soft:#33280C;
+    --danger:#F0837C; --danger-soft:#3A1B19;
+    --shadow:0 1px 3px rgba(0,0,0,.4);
+  }
 
-    * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; background: var(--page); color: var(--text); font: 400 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
-    button, input, textarea, select { font: inherit; color: inherit; }
-    a { color: var(--primary); }
-    h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
-    code, pre, .mono { font-family: var(--mono); }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--page);color:var(--text);
+    font:400 14px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
 
-    /* Top Navigation Refactor */
-    .app { min-height: 100vh; display: flex; flex-direction: column; }
-    .top-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 60px; background: var(--nav); color: var(--nav-text); position: sticky; top: 0; z-index: 50; box-shadow: var(--shadow); }
-    
-    .top-brand { display: flex; align-items: center; gap: 12px; }
-    .top-brand .logo { width: 32px; height: 32px; display: grid; place-items: center; background: var(--high); border-radius: var(--radius); color: #fff; font: 700 16px var(--mono); }
-    .top-brand b { color: var(--nav-text-strong); font-size: 16px; font-weight: 600; letter-spacing: .02em; }
-    
-    .top-controls { display: flex; align-items: center; gap: 16px; margin-left: auto; }
-    .theme-toggle { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: var(--nav-text); width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: grid; place-items: center; transition: all 0.2s; }
-    .theme-toggle:hover { background: rgba(255,255,255,0.1); color: #fff; }
-    
-    .conn { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; }
-    .conn i { width: 8px; height: 8px; border-radius: 50%; background: #6b7787; }
-    .conn.up i { background: #54b399; box-shadow: 0 0 8px #54b399; }
-    
-    .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-    .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 16px 32px; background: var(--surface); border-bottom: 1px solid var(--border); }
-    .topbar h1 { font-size: 22px; }
-    .topbar .crumb { color: var(--text-muted); font: 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+  .topbar{
+    display:flex;align-items:center;gap:14px;padding:0 22px;height:52px;
+    background:var(--nav);border-bottom:1px solid rgba(255,255,255,.08);position:sticky;top:0;z-index:20;
+  }
+  .topbar .mark{
+    width:28px;height:28px;border-radius:var(--radius);background:var(--primary);
+    display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px;
+  }
+  .topbar b{color:#fff;font-size:14px}
+  .topbar .sep{color:#4A5162}
+  .topbar .where{color:var(--nav-text);font-size:13px}
+  .topbar .spacer{flex:1}
+  .topbar a{color:var(--nav-text);text-decoration:none;font-size:13px;font-weight:500}
+  .topbar a:hover{color:#fff}
 
-    .content { padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 20px; max-width: 1600px; margin: 0 auto; width: 100%; }
+  .wrap{max-width:1180px;margin:0 auto;padding:22px 22px 60px}
+  .pagehead{margin-bottom:18px}
+  .pagehead h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-.2px}
+  .pagehead p{margin:4px 0 0;color:var(--text-2);font-size:13px;max-width:78ch}
 
-    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 16px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
-    .btn:hover:not(:disabled) { background: var(--surface-sunken); border-color: var(--primary); }
-    .btn.danger { border-color: var(--high); color: var(--high); }
-    .btn.danger:hover:not(:disabled) { background: var(--danger-soft); }
-    .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px}
+  .stat{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow)}
+  .stat .k{font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--text-3);font-weight:600}
+  .stat .v{font:600 24px/1.15 "JetBrains Mono",monospace;font-variant-numeric:tabular-nums;margin-top:7px}
+  .stat .n{font-size:11.5px;color:var(--text-3);margin-top:3px;word-break:break-all}
+  .stat.accent .v{color:var(--primary)}
+  .stat.good .v{color:var(--success)}
 
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow-x: auto; }
-    .card-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--surface-alt); }
-    .card-head h2 { font-size: 15px; font-weight: 600; color: var(--text); }
-    .card-head .sub { color: var(--text-muted); font-size: 13px; }
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .panel-head{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)}
+  .panel-head h2{margin:0;font-size:14px;font-weight:600}
+  .panel-head .sub{font-size:12px;color:var(--text-3)}
+  .panel-head .right{margin-left:auto;display:flex;gap:8px;align-items:center}
 
-    .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; }
-    .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 6px; }
-    .stat .label { color: var(--text-muted); font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
-    .stat .value { font: 700 28px/1.2 var(--sans); color: var(--text); font-variant-numeric: tabular-nums; }
+  .btn{
+    display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:var(--radius);
+    border:1px solid var(--border);background:var(--panel);color:var(--text);
+    font:600 12.5px/1.35 inherit;cursor:pointer;
+  }
+  .btn:hover:not(:disabled){background:var(--sunken)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.danger{background:var(--danger);border-color:var(--danger);color:#fff}
+  .btn.sm{padding:5px 9px;font-size:11.5px}
+  .btn:focus-visible,input:focus-visible,.sw input:focus-visible+span{outline:2px solid var(--primary);outline-offset:2px}
 
-    table { width: 100%; border-collapse: collapse; }
-    th { text-align: left; font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding: 10px 20px; border-bottom: 1px solid var(--border); white-space: nowrap; background: var(--surface-alt); height: 40px; }
-    td { padding: 10px 20px; border-bottom: 1px solid var(--surface-sunken); vertical-align: middle; color: var(--text); font-size: 13px; height: 56px; }
-    tr:last-child td { border-bottom: 0; }
-    td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
-    .src-label { font-weight: 600; color: var(--text); }
-    .src-origin { color: var(--text-faint); font-size: 12px; margin-top: 2px; }
+  .tablewrap{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;font-size:13px;min-width:760px}
+  thead th{
+    background:var(--sunken);text-align:left;font:600 10.5px/1 inherit;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--text-3);padding:9px 12px;border-bottom:1px solid var(--border);white-space:nowrap;
+  }
+  tbody td{padding:10px 12px;border-bottom:1px solid var(--border);color:var(--text-2);vertical-align:middle}
+  tbody tr:last-child td{border-bottom:0}
+  td.num,th.num{text-align:right;font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+  .srcname{font-weight:600;color:var(--text)}
+  .srcorigin{font-size:11.5px;color:var(--text-3);margin-top:2px}
 
-    .chip { display: inline-block; padding: 3px 10px; border-radius: 12px; font: 600 11px var(--sans); background: var(--surface-sunken); color: var(--text-muted); }
-    .chip.on { background: var(--success-soft); color: var(--success); }
-    .chip.absent { background: var(--warning-soft); color: var(--medium); }
+  /* switch */
+  .sw{position:relative;display:inline-block;width:38px;height:21px;flex:0 0 38px}
+  .sw input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;z-index:2}
+  .sw span{
+    position:absolute;inset:0;background:var(--border);border-radius:21px;transition:background .15s;
+  }
+  .sw span::after{
+    content:"";position:absolute;left:3px;top:3px;width:15px;height:15px;border-radius:50%;
+    background:#fff;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.25);
+  }
+  .sw input:checked+span{background:var(--success)}
+  .sw input:checked+span::after{transform:translateX(17px)}
+  .sw input:disabled{cursor:not-allowed}
+  .sw input:disabled+span{opacity:.45}
 
-    .switch { position: relative; display: inline-block; width: 44px; height: 24px; flex: none; }
-    .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
-    .switch span { position: absolute; inset: 0; background: var(--border-strong); border-radius: 24px; transition: background .15s; pointer-events: none; }
-    .switch span::before { content: ""; position: absolute; height: 18px; width: 18px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform .15s; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
-    .switch input:checked + span { background: var(--success); }
-    .switch input:checked + span::before { transform: translateX(20px); }
-    .switch input:disabled { cursor: not-allowed; }
-    .switch input:disabled + span { opacity: .4; }
-    .switch input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: 2px; }
+  input.eps{width:82px;padding:5px 7px;font:400 12.5px/1.3 "JetBrains Mono",monospace;
+    background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);text-align:right}
 
-    .eps-input { width: 80px; padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius); font-family: var(--mono); font-size: 12px; text-align: right; background: var(--surface); color: var(--text); }
-    
-    .banner { padding: 12px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; }
-    .banner.warn { background: var(--warning-soft); border: 1px solid rgba(251, 191, 36, 0.3); color: #b45309; }
-    .banner.err { background: var(--danger-soft); border: 1px solid rgba(239, 68, 68, 0.3); color: var(--high); }
-    [data-theme="dark"] .banner.warn { color: #fcd34d; }
-    [data-theme="dark"] .banner.err { color: #fca5a5; }
-    .banner code { background: rgba(0,0,0,.06); padding: 2px 6px; border-radius: 4px; }
-    [data-theme="dark"] .banner code { background: rgba(255,255,255,.1); }
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:12px;font:600 11px/1.35 inherit;white-space:nowrap}
+  .pill i{width:7px;height:7px;border-radius:50%;background:currentColor;display:block}
+  .pill.ok{background:var(--success-soft);color:var(--success)}
+  .pill.warn{background:var(--warning-soft);color:var(--warning)}
+  .pill.bad{background:var(--danger-soft);color:var(--danger)}
+  .pill.neutral{background:var(--sunken);color:var(--text-2)}
 
-    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
-  </style>
-</head>
-<body>
+  .callout{border-left:3px solid var(--c);background:var(--cs);padding:11px 14px;border-radius:0 var(--radius) var(--radius) 0;font-size:13px;color:var(--text-2);margin-bottom:14px}
+  .callout.info{--c:var(--primary);--cs:var(--primary-soft)}
+  .callout.warn{--c:var(--warning);--cs:var(--warning-soft)}
+  .callout.bad{--c:var(--danger);--cs:var(--danger-soft)}
+  .callout b{color:var(--text)}
+  #alerts:empty{display:none}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
 
-<div class="app">
-  <header class="top-nav">
-    <div class="top-brand">
-      <div class="logo" style="background:var(--high);">A</div>
-      <b>Attacker / Dev Node</b>
-    </div>
-    <div class="top-controls">
-      <button class="theme-toggle" id="theme-btn" onclick="toggleTheme()">
-        <svg id="theme-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
-      </button>
-      <div class="conn" id="conn"><i></i> <span id="status-text">connecting</span></div>
-    </div>
-  </header>
+<div class="topbar">
+  <div class="mark">U</div>
+  <b>ULPF</b>
+  <span class="sep">/</span>
+  <span class="where">Traffic source simulator</span>
+  <div class="spacer"></div>
+  <a href="/">&larr; Operator console</a>
+  <button class="btn sm" type="button" id="theme-btn">Theme</button>
+</div>
 
-  <main class="main">
-    <div class="topbar">
-      <div>
-        <div class="crumb">SIMULATION NODE / CONTROLS</div>
-        <h1>Traffic Simulation Control Plane</h1>
-      </div>
-      <div style="margin-left:auto; display:flex; gap:8px;">
-        <button class="btn danger" id="btn-stop-all">Stop all streams</button>
-      </div>
-    </div>
+<div class="wrap">
+  <div class="pagehead">
+    <h1>Traffic source simulator</h1>
+    <p>
+      Each switch replays one real public corpus over UDP into the collector. Streams run
+      server-side, so they continue whether or not this page is open. A corpus that is not on
+      disk reads <b>absent</b> and cannot be started &mdash; there is no fallback to invented data.
+    </p>
+  </div>
 
-    <div class="content">
-      <div class="stat-row">
-        <div class="stat"><span class="label">Streams running</span><span class="value" id="s-running">0</span></div>
-        <div class="stat"><span class="label">Datagrams sent</span><span class="value" id="s-sent">0</span></div>
-        <div class="stat"><span class="label">Aggregate rate</span><span class="value"><span id="s-rate">0</span><small style="font-size:13px; color:var(--text-muted)"> EPS</small></span></div>
-        <div class="stat"><span class="label">Corpora available</span><span class="value" id="s-avail">0</span></div>
-      </div>
+  <div id="alerts"></div>
 
-      <div id="alerts"></div>
+  <div class="stats">
+    <div class="stat accent"><div class="k">Streams running</div><div class="v" id="s-running">0</div><div class="n" id="s-of">of 0 available</div></div>
+    <div class="stat good"><div class="k">Records sent</div><div class="v" id="s-sent">0</div><div class="n" id="s-rate">idle</div></div>
+    <div class="stat"><div class="k">Collector target</div><div class="v mono" id="s-target" style="font-size:15px">—</div><div class="n">UDP syslog receiver</div></div>
+    <div class="stat"><div class="k">Corpus directory</div><div class="v mono" id="s-dir" style="font-size:13px">—</div><div class="n" id="s-present">—</div></div>
+  </div>
 
-      <div class="card">
-        <div class="card-head">
-          <h2>Log source streams</h2>
-          <div class="sub">Each switch replays one public capture over UDP, byte for byte. No log line is synthesised.</div>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th style="width:52px">On</th>
-              <th>Source</th>
-              <th style="width:110px">Category</th>
-              <th style="width:110px">Rate</th>
-              <th class="num" style="width:110px">Sent</th>
-              <th class="num" style="width:100px">Size</th>
-              <th style="width:90px">State</th>
-            </tr>
-          </thead>
-          <tbody id="rows">
-            <tr><td colspan="7" style="color:var(--text-muted)">Loading sources...</td></tr>
-          </tbody>
-        </table>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Sources</h2>
+      <span class="sub">every line is an unmodified record from a published capture</span>
+      <div class="right">
+        <span class="pill neutral" id="conn"><i></i> connecting</span>
+        <button class="btn danger sm" type="button" id="btn-stop-all">Stop all</button>
       </div>
     </div>
-  </main>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:52px">On</th>
+            <th>Source</th>
+            <th>Category</th>
+            <th class="num">Rate (EPS)</th>
+            <th class="num">Sent</th>
+            <th class="num">Size</th>
+            <th>State</th>
+          </tr>
+        </thead>
+        <tbody id="rows"><tr><td colspan="7" style="padding:30px;text-align:center;color:var(--text-3)">Loading sources&hellip;</td></tr></tbody>
+      </table>
+    </div>
+  </div>
 </div>
 
 <script>
-  // Theme Toggle Logic
-  function toggleTheme() {
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
-    localStorage.setItem('theme', isDark ? 'light' : 'dark');
-    updateThemeIcon(!isDark);
-  }
-  function updateThemeIcon(isDark) {
-    const icon = document.getElementById('theme-icon');
-    if(icon) {
-      if(isDark) {
-        icon.innerHTML = '<path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>';
-      } else {
-        icon.innerHTML = '<path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>';
-      }
-    }
-  }
-  const savedTheme = localStorage.getItem('theme');
-  if (savedTheme === 'dark') {
-    document.documentElement.setAttribute('data-theme', 'dark');
-    updateThemeIcon(true);
-  }
-// The simulator lives in the server, not in this page: streams keep running
-// whether or not the tab is open, which is what makes this a control plane
-// rather than a page pretending to be one. Everything below reflects and
-// mutates that server-side state.
+"use strict";
+
 const $ = (id) => document.getElementById(id);
-let lastSent = 0;
-let lastAt = 0;
 
+/* ---------------------------------------------------------------- theming */
+(function initTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem("ulpf-theme"); } catch (e) { /* private mode */ }
+  if (saved) document.documentElement.setAttribute("data-theme", saved);
+})();
+$("theme-btn").addEventListener("click", () => {
+  const dark = document.documentElement.getAttribute("data-theme") !== "dark";
+  document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+  try { localStorage.setItem("ulpf-theme", dark ? "dark" : "light"); } catch (e) { /* private mode */ }
+});
+
+/* --------------------------------------------------------------- helpers */
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined && text !== null) n.textContent = String(text);
+  return n;
+}
+function pill(kind, text) {
+  const p = el("span", "pill " + kind);
+  p.append(el("i"), document.createTextNode(text));
+  return p;
+}
 function fmtBytes(n) {
-  if (!n) return '-';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let i = 0;
-  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
-  return n.toFixed(i ? 1 : 0) + ' ' + units[i];
+  if (!n) return "—";
+  const u = ["B", "KB", "MB", "GB"];
+  let i = 0, v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return (i === 0 ? v : v.toFixed(1)) + " " + u[i];
 }
-
-function showBanner(kind, node) {
-  const box = document.createElement('div');
-  box.className = 'banner ' + kind;
-  box.appendChild(node);
-  $('alerts').replaceChildren(box);
+async function api(path, options) {
+  const res = await fetch(path, options);
+  let body = null;
+  try { body = await res.json(); } catch (e) { body = null; }
+  if (!res.ok) throw new Error((body && body.error) ? body.error : (res.statusText || ("HTTP " + res.status)));
+  return body;
 }
+function banner(kind, text) {
+  const box = el("div", "callout " + kind);
+  box.append(el("b", null, kind === "bad" ? "Could not start that source. " : ""), document.createTextNode(text));
+  $("alerts").replaceChildren(box);
+}
+function clearBanner() { $("alerts").replaceChildren(); }
 
-function clearBanner() { $('alerts').replaceChildren(); }
+/* ------------------------------------------------------------- rendering */
+/* Rates the operator has typed but not yet applied, so a refresh mid-edit
+   does not snap the field back to the server's value. */
+const pendingRates = new Map();
+let busy = new Set();
 
 function buildRow(src) {
-  const tr = document.createElement('tr');
+  const tr = el("tr");
 
-  const tdSwitch = document.createElement('td');
-  const label = document.createElement('label');
-  label.className = 'switch';
-  const input = document.createElement('input');
-  input.type = 'checkbox';
+  // switch
+  const tdSw = el("td");
+  const label = el("label", "sw");
+  const input = document.createElement("input");
+  input.type = "checkbox";
   input.checked = !!src.running;
-  input.disabled = !src.present;
-  input.title = src.present ? src.file : src.file + ' is not on disk';
-  input.addEventListener('change', () => toggle(src.id, input));
-  label.append(input, document.createElement('span'));
-  tdSwitch.appendChild(label);
+  input.disabled = !src.present || busy.has(src.id);
+  input.setAttribute("aria-label", (src.running ? "Stop " : "Start ") + src.label);
+  input.addEventListener("change", () => toggle(src, input));
+  label.append(input, el("span"));
+  tdSw.append(label);
+  tr.append(tdSw);
 
-  const tdName = document.createElement('td');
-  const name = document.createElement('div');
-  name.className = 'src-label';
-  name.textContent = src.label;
-  const origin = document.createElement('div');
-  origin.className = 'src-origin';
-  origin.textContent = src.origin + '  ·  ' + src.file;
-  tdName.append(name, origin);
+  // name + origin
+  const tdName = el("td");
+  tdName.append(el("div", "srcname", src.label));
+  tdName.append(el("div", "srcorigin", src.origin + " · " + src.file));
+  tr.append(tdName);
 
-  const tdCat = document.createElement('td');
-  const cat = document.createElement('span');
-  cat.className = 'chip';
-  cat.textContent = src.category;
-  tdCat.appendChild(cat);
+  tr.append(el("td", null, src.category));
 
-  const tdEps = document.createElement('td');
-  const eps = document.createElement('input');
-  eps.className = 'eps-input';
-  eps.type = 'number';
-  eps.min = '1';
-  eps.max = '200000';
-  eps.value = src.running ? src.eps : 20;
-  eps.disabled = !src.present || !!src.running;
-  eps.dataset.id = src.id;
-  eps.title = src.running ? 'Stop the stream to change its rate' : 'Events per second';
-  tdEps.appendChild(eps);
+  // rate
+  const tdEps = el("td", "num");
+  const eps = el("input", "eps");
+  eps.type = "number";
+  eps.min = "1";
+  eps.max = "200000";
+  eps.value = pendingRates.has(src.id) ? pendingRates.get(src.id) : (src.eps || 2000);
+  eps.disabled = !src.present;
+  eps.setAttribute("aria-label", "Events per second for " + src.label);
+  eps.addEventListener("input", () => pendingRates.set(src.id, eps.value));
+  tdEps.append(eps);
+  tr.append(tdEps);
 
-  const tdSent = document.createElement('td');
-  tdSent.className = 'num';
-  tdSent.textContent = src.sent ? src.sent.toLocaleString() : '-';
+  tr.append(el("td", "num", Number(src.sent || 0).toLocaleString()));
+  tr.append(el("td", "num", fmtBytes(src.bytes)));
 
-  const tdSize = document.createElement('td');
-  tdSize.className = 'num';
-  tdSize.textContent = fmtBytes(src.bytes);
+  const tdState = el("td");
+  if (!src.present) tdState.append(pill("bad", "absent"));
+  else if (busy.has(src.id)) tdState.append(pill("neutral", "working"));
+  else if (src.running) tdState.append(pill("ok", src.eps.toLocaleString() + " EPS"));
+  else tdState.append(pill("neutral", "stopped"));
+  tr.append(tdState);
 
-  const tdState = document.createElement('td');
-  const state = document.createElement('span');
-  if (!src.present) { state.className = 'chip absent'; state.textContent = 'absent'; }
-  else if (src.running) { state.className = 'chip on'; state.textContent = 'live'; }
-  else { state.className = 'chip'; state.textContent = 'ready'; }
-  tdState.appendChild(state);
-
-  tr.append(tdSwitch, tdName, tdCat, tdEps, tdSent, tdSize, tdState);
   return tr;
 }
 
-function render(data) {
-  const sources = data.sources || [];
-  $('s-running').textContent = data.running || 0;
-  $('s-sent').textContent = (data.total_sent || 0).toLocaleString();
-  $('s-avail').textContent = sources.filter((s) => s.present).length + ' / ' + sources.length;
-
-  if (typeof data.total_sent === 'number') {
-    const now = Date.now();
-    if (lastAt && now > lastAt) {
-      const rate = (data.total_sent - lastSent) / ((now - lastAt) / 1000);
-      $('s-rate').textContent = Math.max(0, Math.round(rate)).toLocaleString();
-    }
-    lastSent = data.total_sent;
-    lastAt = now;
-  }
-
-  $('conn').classList.add('up');
-  $('status-text').textContent = data.running ? 'streaming' : 'idle';
-
-  $('rows').replaceChildren(...sources.map(buildRow));
-
-  if (sources.length && sources.every((s) => !s.present)) {
-    const msg = document.createElement('div');
-    msg.append('No corpora found in ');
-    const dir = document.createElement('code');
-    dir.textContent = data.data_dir || '(unset)';
-    msg.append(dir, '. Fetch them with ');
-    const cmd = document.createElement('code');
-    cmd.textContent = 'python tools/fetch_datasets.py';
-    msg.append(cmd, ' — they are not committed to the repository.');
-    showBanner('warn', msg);
-  }
-}
-
-async function refresh() {
-  try {
-    const res = await fetch('/api/sim/sources');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    render(await res.json());
-  } catch (err) {
-    $('conn').classList.remove('up');
-    $('status-text').textContent = 'disconnected';
-  }
-}
-
-async function toggle(id, input) {
+async function toggle(src, input) {
   const on = input.checked;
+  const raw = pendingRates.has(src.id) ? pendingRates.get(src.id) : src.eps;
+  const eps = Math.max(1, Math.min(200000, Number.parseInt(raw, 10) || 2000));
+
+  busy.add(src.id);
   input.disabled = true;
-  const field = document.querySelector('.eps-input[data-id="' + CSS.escape(id) + '"]');
-  const eps = field ? Math.max(1, parseInt(field.value, 10) || 20) : 20;
   try {
-    const res = await fetch('/api/sim/toggle', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: id, on: on, eps: eps })
+    await api("/api/sim/toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: src.id, on: on, eps: eps }),
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      // Put the switch back: the stream did not start, and a switch that
-      // reads "on" while nothing is sending is worse than an error.
-      input.checked = !on;
-      const msg = document.createElement('div');
-      msg.textContent = data.error || ('request failed: HTTP ' + res.status);
-      showBanner('err', msg);
-    } else {
-      clearBanner();
-    }
-  } catch (err) {
+    clearBanner();
+  } catch (e) {
+    // Put the switch back where it was: the stream did not start, and a
+    // switch left in the "on" position would say otherwise.
     input.checked = !on;
-    const msg = document.createElement('div');
-    msg.textContent = 'could not reach the simulator: ' + err.message;
-    showBanner('err', msg);
+    banner("bad", e.message);
   } finally {
+    busy.delete(src.id);
     input.disabled = false;
     refresh();
   }
 }
 
-$('btn-stop-all').addEventListener('click', async () => {
-  await fetch('/api/sim/stop-all', { method: 'POST' }).catch(() => {});
-  refresh();
+let lastSent = 0;
+let lastAt = Date.now();
+
+function render(data) {
+  const sources = data.sources || [];
+  const body = $("rows");
+  body.replaceChildren();
+  sources.forEach((s) => body.append(buildRow(s)));
+
+  const present = sources.filter((s) => s.present).length;
+  $("s-running").textContent = data.running || 0;
+  $("s-of").textContent = "of " + present + " available";
+  $("s-sent").textContent = Number(data.total_sent || 0).toLocaleString();
+  $("s-target").textContent = data.target || "—";
+  $("s-dir").textContent = data.data_dir || "—";
+  $("s-present").textContent = present + " of " + sources.length + " corpora on disk";
+
+  const now = Date.now();
+  const dt = (now - lastAt) / 1000;
+  if (dt > 0.5) {
+    const delta = (data.total_sent || 0) - lastSent;
+    $("s-rate").textContent = delta > 0 ? Math.round(delta / dt).toLocaleString() + " EPS actual" : "idle";
+    lastSent = data.total_sent || 0;
+    lastAt = now;
+  }
+
+  if (present === 0 && sources.length) {
+    banner("warn", "No corpora found in " + (data.data_dir || "the dataset directory")
+      + ". Fetch them first:  python tools/fetch_datasets.py");
+  }
+}
+
+async function refresh() {
+  try {
+    const data = await api("/api/sim/sources");
+    const conn = $("conn");
+    conn.className = "pill ok";
+    conn.replaceChildren(el("i"), document.createTextNode("connected"));
+    render(data);
+  } catch (e) {
+    const conn = $("conn");
+    conn.className = "pill bad";
+    conn.replaceChildren(el("i"), document.createTextNode("collector unreachable"));
+  }
+}
+
+$("btn-stop-all").addEventListener("click", async () => {
+  const btn = $("btn-stop-all");
+  btn.disabled = true;
+  try { await api("/api/sim/stop-all", { method: "POST" }); clearBanner(); }
+  catch (e) { banner("bad", e.message); }
+  finally { btn.disabled = false; refresh(); }
 });
 
 refresh();
-setInterval(refresh, 1500);
+setInterval(refresh, 2000);
 </script>
-</body>
-</html>
