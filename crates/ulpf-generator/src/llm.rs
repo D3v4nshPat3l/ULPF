@@ -483,7 +483,7 @@ fn is_stable_literal(s: &str) -> bool {
 }
 
 /// Decide the decoder chain from the shape of the samples.
-fn infer_decoders(samples: &[String]) -> Vec<&'static str> {
+pub fn infer_decoders(samples: &[String]) -> Vec<&'static str> {
     let joined = samples.join(
         "
 ",
@@ -871,7 +871,7 @@ fn looks_like_a_field_name(candidate: &str, samples: &[String]) -> bool {
 /// tells us is the fixed part of the shape. Volatile tokens are excluded by
 /// [`is_stable_literal`], so timestamps and addresses can never end up in a
 /// detector.
-fn derive_detectors(samples: &[String]) -> Vec<String> {
+pub fn derive_detectors(samples: &[String]) -> Vec<String> {
     let Some(first) = samples.first() else {
         return Vec::new();
     };
