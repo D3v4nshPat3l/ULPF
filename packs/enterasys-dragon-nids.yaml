@@ -1,0 +1,69 @@
+# Enterasys Dragon NIDS, pipe-delimited export.
+#
+# Written against the Honeynet Project Dragon capture. A second IDS vendor
+# alongside Snort and Suricata, and a genuinely different wire format:
+# positional, pipe-separated, no field names.
+#
+# Column order: date|time|sensor|signature|src|dst|sport|dport|dir|?|proto|data
+identity:
+  id: enterasys-dragon-nids
+  vendor: Enterasys
+  product: Dragon NIDS
+  log_format: dragon-pipe
+  priority: 20
+  detect:
+    - contains_all: ["|dralion"]
+    - contains_all: ["|I||"]
+
+extract:
+  - decoder: csv
+    delim: "|"
+
+map:
+  class_uid: 2004                      # Detection Finding
+  activity_id: 1                       # Create
+  severity_id: 3
+  is_alert: true
+  finding_info.uid:
+    from: col.3
+  finding_info.title:
+    from: col.3
+  finding_info.analytic.name:
+    from: col.3
+  finding_info.analytic.type_id: 1     # Rule
+  message:
+    from: col.3
+  src_endpoint.ip:
+    from: col.4
+    observable: ip
+  src_endpoint.port:
+    from: col.6
+    as: int
+  dst_endpoint.ip:
+    from: col.5
+    observable: ip
+  dst_endpoint.port:
+    from: col.7
+    as: int
+  device.hostname:
+    from: col.2
+    observable: hostname
+
+fixtures:
+  - note: Real Dragon alert - SSH version probe.
+    raw: '2002-08-23|18:36:59|dralion1|SSH:VERSION-1|10.1.1.2|10.1.1.1|22|45366|I||6|tcp,dp=45366,sp=22|'
+    expect:
+      class_uid: 2004
+      finding_info.uid: SSH:VERSION-1
+      src_endpoint.ip: 10.1.1.2
+      dst_endpoint.ip: 10.1.1.1
+      src_endpoint.port: 22
+      dst_endpoint.port: 45366
+      device.hostname: dralion1
+
+  - note: Real Dragon heartbeat - sensor keepalive, no endpoints.
+    raw: '2002-08-23|12:44:04|dralion1|HEARTBEAT|0.0.0.0|0.0.0.0|0|0|I||0|IP=3,ICMP=0,TCP=3,UDP=0,EVENTS=0,DROP=0,VER=5.0.2|'
+    expect:
+      class_uid: 2004
+      finding_info.uid: HEARTBEAT
+      device.hostname: dralion1
