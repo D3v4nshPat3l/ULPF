@@ -1,0 +1,55 @@
+# Generic Linux syslog host messages.
+#
+# Written against the Honeynet SotM34 /var/log/messages and the Loghub Linux
+# corpus. Deliberately the lowest-priority pack: it is a catch-all for RFC 3164
+# lines that no device-specific pack has claimed, so a host message becomes a
+# searchable OCSF record instead of a dead letter.
+identity:
+  id: linux-syslog-host
+  vendor: Linux
+  product: syslog
+  log_format: syslog-rfc3164
+  priority: 800
+  detect:
+    # Any RFC 3164 line carrying a program tag. Listing app names by hand
+    # missed ftpd, which was 30% of the Loghub Linux corpus; the shape of the
+    # tag is the reliable signal, not a name we happened to think of.
+    - contains_any: ["(pam_unix)", "syslogd", "kernel:", "ftpd[", "sshd[", "su(",
+                     "crond[", "xinetd[", "logrotate", "cups", "gpm[", "klogd",
+                     "sshd(", "named[", "ntpd[", "dhclient", "modprobe"]
+
+extract:
+  - decoder: syslog
+
+map:
+  class_uid: 1008                      # Process Activity
+  activity_id: 99
+  severity_id:
+    from: syslog.severity
+    default: 1
+  time:
+    from: syslog.timestamp
+    format: rfc3164
+  device.hostname:
+    from: syslog.hostname
+    observable: hostname
+  message:
+    from: syslog.appname
+  actor.process.name:
+    from: syslog.appname
+  actor.process.pid:
+    from: syslog.procid
+    as: int
+
+fixtures:
+  - note: Real SotM34 messages line.
+    raw: 'Mar 13 04:10:10 combo su(pam_unix)[26013]: session opened for user news by (uid=0)'
+    expect:
+      class_uid: 1008
+      device.hostname: combo
+
+  - note: Real syslogd restart line.
+    raw: 'Mar 13 04:05:02 combo syslogd 1.4.1: restart.'
+    expect:
+      class_uid: 1008
+      device.hostname: combo
