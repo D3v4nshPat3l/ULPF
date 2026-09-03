@@ -113,9 +113,63 @@ fn load_checkpoint(path: &Path) -> anyhow::Result<Option<Checkpoint>> {
     }
 }
 
+/// Create the signing-key file such that only its owner can read it.
+///
+/// The mode is applied by `open(2)` at creation time rather than by a later
+/// `set_permissions` call, so the key bytes are never written to a file that
+/// was briefly world-readable.
+///
+/// Windows has no POSIX mode bits; there the file inherits the directory ACL,
+/// which for a per-user data directory is already owner-scoped.
+fn create_key_file(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
+
+/// Refuse to use a signing key that anyone other than its owner can read.
+///
+/// This key is the sole secret behind every signed checkpoint. Whoever can read
+/// it can forge a checkpoint for an altered chain, so a permissive mode voids
+/// the integrity guarantee rather than merely weakening it. Failing loudly is
+/// better than signing with a key the container image may have shipped
+/// world-readable.
+#[cfg(unix)]
+fn ensure_key_is_private(path: &Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mode = std::fs::metadata(path)
+        .with_context(|| format!("reading permissions of {}", path.display()))?
+        .permissions()
+        .mode()
+        & 0o777;
+
+    if mode & 0o077 != 0 {
+        bail!(
+            "signing key {} is mode {:04o}; it must not be readable by group or others. \
+             Run `chmod 600 {}` and rotate the key if the machine is shared.",
+            path.display(),
+            mode,
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn ensure_key_is_private(_path: &Path) -> anyhow::Result<()> {
+    Ok(())
+}
+
 fn load_or_create_key(path: &Path) -> anyhow::Result<SigningKey> {
     match std::fs::read_to_string(path) {
         Ok(text) => {
+            ensure_key_is_private(path)?;
             let bytes: [u8; 32] = hex::decode(text.trim())
                 .context("signing key is not hex")?
                 .try_into()
@@ -125,7 +179,7 @@ fn load_or_create_key(path: &Path) -> anyhow::Result<SigningKey> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             let key = SigningKey::generate(&mut OsRng);
             let encoded = hex::encode(key.to_bytes());
-            match OpenOptions::new().write(true).create_new(true).open(path) {
+            match create_key_file(path) {
                 Ok(mut file) => {
                     file.write_all(encoded.as_bytes())?;
                     file.sync_all()?;
@@ -163,4 +217,72 @@ fn safe_name(value: &str) -> String {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "ulpf-key-test-{}-{tag}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_new_key_round_trips() {
+        let dir = temp_dir("roundtrip");
+        let path = dir.join("signing.key");
+
+        let created = load_or_create_key(&path).unwrap();
+        let reloaded = load_or_create_key(&path).unwrap();
+
+        assert_eq!(created.to_bytes(), reloaded.to_bytes());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_key_is_created_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_dir("mode");
+        let path = dir.join("signing.key");
+        load_or_create_key(&path).unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "signing key was created mode {mode:04o}; anyone able to read it can forge checkpoints"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_group_or_world_readable_key_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_dir("loose");
+        let path = dir.join("signing.key");
+        load_or_create_key(&path).unwrap();
+
+        // Simulate a key restored from a backup or baked into an image with
+        // default permissions.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let error = load_or_create_key(&path).unwrap_err().to_string();
+        assert!(
+            error.contains("group or others"),
+            "expected a permissions refusal, got: {error}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

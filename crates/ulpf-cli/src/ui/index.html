@@ -370,8 +370,13 @@
   }
 
   function timeStr(ts) {
-    if (!ts) return "—";
-    return new Date(ts).toLocaleTimeString();
+    if (ts === null || ts === undefined) return '—';
+    // OCSF `time` is nanoseconds since the Unix epoch; JavaScript Date takes
+    // milliseconds. Passing the raw value produced "Invalid Date" on every row.
+    const ms = Number(ts) / 1e6;
+    if (!Number.isFinite(ms)) return '—';
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleTimeString();
   }
 
   function closeDrawer() {
@@ -406,38 +411,80 @@
       document.getElementById('st-seq').innerText = st.chain_sequence.toLocaleString();
       document.getElementById('st-cov').innerText = (st.coverage * 100).toFixed(2) + "% coverage";
 
-      const evRes = await fetch('/api/events');
-      const events = await evRes.json();
-      
+      // The API wraps its payloads: {"events": [...]} and {"packs": [...]}.
+      // Reading `.length` off the wrapper yields undefined, which is why the
+      // table stayed empty and the sidebar badge read "undefined".
+      const eventsPayload = await (await fetch('/api/events')).json();
+      const events = eventsPayload.events || [];
+
+      // Rows are built with createElement/textContent rather than innerHTML.
+      // Every value below originates in a log line, which is attacker
+      // controlled: a record containing <img src=x onerror=...> would execute
+      // if interpolated into markup.
+      const cell = (text, cls) => {
+        const td = document.createElement('td');
+        if (cls) td.className = cls;
+        td.textContent = text;
+        return td;
+      };
+
       const tbody = document.getElementById('events-body');
-      if (events.length > 0) {
-        tbody.innerHTML = events.map(e => {
-          let sip = e.event?.src_endpoint?.ip || '—';
-          let dip = e.event?.dst_endpoint?.ip || '—';
-          let act = e.event?.activity_name || '—';
-          let statClass = e.disposition === 'Parsed' ? 'ok' : 'alert';
-          
-          return `<tr onclick="window.openDrawer('${e.locator}')">
-            <td class="td-primary">${timeStr(e.event?.time)}</td>
-            <td class="mono">${sip}</td>
-            <td class="mono">${dip}</td>
-            <td class="td-primary">${act}</td>
-            <td><span style="color:var(--${statClass === 'ok' ? 'success' : 'high'}); font-weight:500;">${e.disposition}</span><span class="td-sub">${e.pack || 'No Pack'}</span></td>
-          </tr>`;
-        }).join('');
+      tbody.replaceChildren();
+      for (const e of events) {
+        const ev = e.event || {};
+        // The server sends lowercase dispositions ("parsed"), so comparing
+        // against "Parsed" marked every healthy row as an error.
+        const parsed = e.disposition === 'parsed';
+
+        const tr = document.createElement('tr');
+        tr.addEventListener('click', () => window.openDrawer(e.locator));
+
+        tr.append(
+          cell(timeStr(ev.time), 'td-primary'),
+          cell(ev.src_endpoint?.ip || '—', 'mono'),
+          cell(ev.dst_endpoint?.ip || '—', 'mono'),
+          cell(ev.activity_name || String(ev.activity_id ?? '—'), 'td-primary')
+        );
+
+        const status = document.createElement('td');
+        const label = document.createElement('span');
+        label.style.color = parsed ? 'var(--success)' : 'var(--high)';
+        label.style.fontWeight = '500';
+        label.textContent = e.disposition;
+        const sub = document.createElement('span');
+        sub.className = 'td-sub';
+        sub.textContent = e.pack || 'No Pack';
+        status.append(label, sub);
+        tr.append(status);
+
+        tbody.append(tr);
       }
 
       // Packs
-      const pkRes = await fetch('/api/packs');
-      const packs = await pkRes.json();
-      document.getElementById('pack-count').innerText = packs.length;
-      document.getElementById('packs-body').innerHTML = packs.map(p => {
-        return `<tr>
-          <td class="td-primary">${p.vendor} ${p.product}<span class="td-sub">${p.id}</span></td>
-          <td class="mono">${p.log_format}</td>
-          <td class="td-primary">${(p.field_accuracy * 100).toFixed(1)}%<span class="td-sub">${p.fixtures_passed}/${p.fixtures} passed</span></td>
-        </tr>`;
-      }).join('');
+      const packsPayload = await (await fetch('/api/packs')).json();
+      const packs = packsPayload.packs || [];
+      document.getElementById('pack-count').textContent = packs.length;
+
+      const packsBody = document.getElementById('packs-body');
+      packsBody.replaceChildren();
+      for (const p of packs) {
+        const tr = document.createElement('tr');
+
+        const name = cell(`${p.vendor} ${p.product}`, 'td-primary');
+        const nameSub = document.createElement('span');
+        nameSub.className = 'td-sub';
+        nameSub.textContent = p.id;
+        name.append(nameSub);
+
+        const acc = cell(`${(p.field_accuracy * 100).toFixed(1)}%`, 'td-primary');
+        const accSub = document.createElement('span');
+        accSub.className = 'td-sub';
+        accSub.textContent = `${p.fixtures_passed}/${p.fixtures} passed`;
+        acc.append(accSub);
+
+        tr.append(name, cell(p.log_format || '—', 'mono'), acc);
+        packsBody.append(tr);
+      }
 
     } catch(e) {
       console.error(e);
