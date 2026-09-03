@@ -257,13 +257,13 @@
           </div>
           <div class="chat-box" id="chat-history">
             <div class="msg assistant">
-              <div class="msg-bubble">Hello. I am the ULPF AI Generator. I can synthesize OCSF Source Packs for unknown log formats. Send me a raw log line, and I will write the parsing regex and mapping rules.</div>
+              <div class="msg-bubble">Ask me anything about this collector — what a log line means, why something is not parsing, how a decoder chain works, or what OCSF field something maps to. I can see the packs that are loaded and the formats currently going unparsed. Paste a device log and I will offer to draft a Source Pack for it.</div>
             </div>
           </div>
           <div class="card-body" style="border-top: 1px solid var(--border); background: var(--surface);">
             <div style="display:flex;gap:12px;">
-              <textarea id="copilot-input" rows="2" style="flex:1; padding:12px; border:1px solid var(--border); border-radius:var(--radius); font:12px var(--mono);" placeholder="Paste a raw log line here (e.g. from a legacy firewall)..."></textarea>
-              <button class="btn primary" onclick="generatePack()">Generate Pack</button>
+              <textarea id="copilot-input" rows="2" style="flex:1; padding:12px; border:1px solid var(--border); border-radius:var(--radius); font:12px var(--mono);" placeholder="Ask a question, or paste a log line...  (Enter to send, Shift+Enter for a new line)"></textarea>
+              <button class="btn primary" id="btn-send-chat" onclick="sendChat()">Send</button>
             </div>
           </div>
         </div>
@@ -536,12 +536,13 @@ ${data.bytes} bytes · ${proof}`;
     alert("Simulated tampering completed. Run verification to see the chain break.");
   }
 
-  // Holds the YAML of the most recent draft so Approve can send it back.
+  // Conversation state. The whole thread is sent each turn so the model keeps
+  // context, the way a chat assistant should.
+  let chatThread = [];
   let lastDraftYaml = null;
 
-  // Chat rows are built with createElement/textContent. The user pastes a raw
-  // log line here, and log text is attacker-controlled: interpolating it into
-  // innerHTML would let a crafted record run script in the analyst's browser.
+  // Chat rows are built with createElement/textContent, never innerHTML: the
+  // analyst pastes raw log lines here and log text is attacker-controlled.
   function chatRow(role, build) {
     const wrap = document.createElement('div');
     wrap.className = `msg ${role}`;
@@ -555,70 +556,153 @@ ${data.bytes} bytes · ${proof}`;
     return wrap;
   }
 
-  async function generatePack() {
+  function looksLikeALogLine(text) {
+    // Enough signal to offer pack drafting without pestering on normal questions.
+    return /(\w+=\S+.*){2,}|^<\d+>|CEF:|LEEF:|SRC=|srcip=/m.test(text);
+  }
+
+  // Offer the structured drafting path when the analyst has pasted something
+  // that looks like a device log, rather than forcing every message through it.
+  function offerDraft(bubble, text) {
+    const row = document.createElement('div');
+    row.style.cssText = 'margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+    const hint = document.createElement('span');
+    hint.style.cssText = 'font-size:11px;color:var(--text-faint)';
+    hint.textContent = 'That looks like a device log.';
+    const btn = document.createElement('button');
+    btn.className = 'btn approve sm';
+    btn.textContent = 'Draft a Source Pack from it';
+    btn.addEventListener('click', () => { btn.disabled = true; draftPack(text, btn); });
+    row.append(hint, btn);
+    bubble.append(row);
+  }
+
+  // Enter sends, Shift+Enter makes a new line - the convention people expect
+  // from a chat box.
+  document.addEventListener('DOMContentLoaded', () => {
+    const box = document.getElementById('copilot-input');
+    if (!box) return;
+    box.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChat();
+      }
+    });
+  });
+
+  async function sendChat() {
     const input = document.getElementById('copilot-input');
     const text = input.value.trim();
     if (!text) return;
 
     chatRow('user', b => { b.textContent = text; });
-    const thinking = chatRow('assistant', b => {
-      b.style.color = 'var(--text-faint)';
-      b.textContent = 'Reading the format…';
-    });
+    chatThread.push({ role: 'user', content: text });
     input.value = '';
 
+    const thinking = chatRow('assistant', b => {
+      b.style.color = 'var(--text-faint)';
+      b.textContent = 'Thinking…';
+    });
+
     try {
-      // The server takes raw_log or cluster_id; the Copilot pastes lines.
-      const res = await fetch('/api/generate', {
+      const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ raw_log: text })
+        body: JSON.stringify({ messages: chatThread })
       });
       const data = await res.json();
       thinking.remove();
 
       if (!res.ok) {
-        // Show what actually went wrong instead of always blaming the model.
         chatRow('assistant', b => {
           b.style.color = 'var(--high)';
           b.textContent = data.error || `Request failed (HTTP ${res.status})`;
         });
+        chatThread.pop();
         return;
       }
 
-      lastDraftYaml = data.pack_yaml;
-
+      chatThread.push({ role: 'assistant', content: data.reply });
       chatRow('assistant', b => {
-        const intro = document.createElement('div');
-        intro.textContent =
-          `Drafted a candidate pack using ${data.model || 'the local model'}. ` +
-          `It scored ${data.fixtures_passed}/${data.fixtures} on its own samples.`;
-
-        const pre = document.createElement('pre');
-        pre.style.cssText =
-          'margin:10px 0;padding:10px;background:var(--surface);border:1px solid var(--border);' +
-          'border-radius:var(--radius);font-size:11px;max-height:280px;overflow:auto;white-space:pre-wrap';
-        pre.textContent = data.pack_yaml;
-
-        const note = document.createElement('div');
-        note.style.cssText = 'font-size:11px;color:var(--text-faint);margin-bottom:8px';
-        note.textContent =
-          'Nothing is active until you approve it. Review the mappings first.';
-
-        const btn = document.createElement('button');
-        btn.className = 'btn approve sm';
-        btn.textContent = 'Approve and load';
-        btn.addEventListener('click', () => approvePack(btn));
-
-        b.append(intro, pre, note, btn);
+        const p = document.createElement('div');
+        p.style.whiteSpace = 'pre-wrap';
+        p.textContent = data.reply;
+        b.append(p);
+        if (looksLikeALogLine(text)) offerDraft(b, text);
       });
     } catch (e) {
       thinking.remove();
+      chatThread.pop();
       chatRow('assistant', b => {
         b.style.color = 'var(--high)';
         b.textContent = `Could not reach the console: ${e.message}`;
       });
     }
+  }
+
+  // The structured path: deterministic detectors, decoders and field mapping,
+  // with the model only naming things. Separate from chat on purpose - this
+  // one has to be reliable.
+  async function draftPack(rawLog, btn) {
+    const thinking = chatRow('assistant', b => {
+      b.style.color = 'var(--text-faint)';
+      b.textContent = 'Drafting a pack…';
+    });
+    try {
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw_log: rawLog })
+      });
+      const data = await res.json();
+      thinking.remove();
+
+      if (!res.ok) {
+        chatRow('assistant', b => {
+          b.style.color = 'var(--high)';
+          b.textContent = data.error || `Request failed (HTTP ${res.status})`;
+        });
+        if (btn) btn.disabled = false;
+        return;
+      }
+
+      lastDraftYaml = data.pack_yaml;
+      chatRow('assistant', b => {
+        const intro = document.createElement('div');
+        intro.textContent =
+          `Candidate pack drafted with ${data.model || 'the local model'}. ` +
+          `It scored ${data.fixtures_passed}/${data.fixtures} against the lines you gave me.`;
+
+        const pre = document.createElement('pre');
+        pre.style.cssText =
+          'margin:10px 0;padding:10px;background:var(--surface);border:1px solid var(--border);' +
+          'border-radius:var(--radius);font-size:11px;max-height:300px;overflow:auto;white-space:pre-wrap';
+        pre.textContent = data.pack_yaml;
+
+        const note = document.createElement('div');
+        note.style.cssText = 'font-size:11px;color:var(--text-faint);margin-bottom:8px';
+        note.textContent = 'Nothing is active until you approve it. Check the mappings first.';
+
+        const approve = document.createElement('button');
+        approve.className = 'btn approve sm';
+        approve.textContent = 'Approve and load';
+        approve.addEventListener('click', () => approvePack(approve));
+
+        b.append(intro, pre, note, approve);
+      });
+    } catch (e) {
+      thinking.remove();
+      chatRow('assistant', b => {
+        b.style.color = 'var(--high)';
+        b.textContent = `Could not draft a pack: ${e.message}`;
+      });
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // Kept for the old button id, so either entry point works.
+  async function generatePack() {
+    return sendChat();
   }
 
   async function approvePack(btn) {
@@ -634,8 +718,8 @@ ${data.bytes} bytes · ${proof}`;
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       chatRow('assistant', b => {
         b.textContent =
-          `Loaded "${data.id}". It is live now — the watcher picks up new packs ` +
-          `without a restart, so matching records will start normalising.`;
+          `Loaded "${data.id}". It is live now — packs hot-reload, so matching ` +
+          `records start normalising without a restart.`;
       });
       if (btn) btn.textContent = 'Loaded';
       refresh();
