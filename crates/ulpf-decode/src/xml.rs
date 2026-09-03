@@ -56,6 +56,11 @@ impl Decoder for XmlDecoder {
 /// shapes found in security event logs.
 fn parse_elements(input: &str, prefix: &str, fields: &mut FieldMap<'static>) {
     let mut rest = input;
+    // How many times each element name has appeared among these siblings. The
+    // index goes on the *element*, not the leaf, so a repeated element carries
+    // its whole subtree — attributes and text alike — under one consistent
+    // prefix.
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
 
     while let Some(open) = rest.find('<') {
         let after_open = &rest[open + 1..];
@@ -116,11 +121,18 @@ fn parse_elements(input: &str, prefix: &str, fields: &mut FieldMap<'static>) {
             continue;
         }
 
-        let key = if prefix.is_empty() {
+        let base = if prefix.is_empty() {
             tag_name.to_string()
         } else {
             format!("{prefix}.{tag_name}")
         };
+        let occurrence = seen.entry(base.clone()).or_insert(0);
+        let key = if *occurrence == 0 {
+            base.clone()
+        } else {
+            format!("{base}.{occurrence}")
+        };
+        *occurrence += 1;
 
         // Extract attributes
         extract_attributes(attrs_str, &key, fields);
@@ -142,7 +154,7 @@ fn parse_elements(input: &str, prefix: &str, fields: &mut FieldMap<'static>) {
             } else if !inner_trimmed.is_empty() {
                 // Text content
                 let text = decode_xml_entities(inner_trimmed);
-                fields.insert(Cow::Owned(key.clone()), Value::owned(text));
+                insert_unique(fields, key.clone(), Value::owned(text));
             }
 
             // Skip past "</tagname>"
@@ -183,7 +195,7 @@ fn extract_attributes(attrs: &str, prefix: &str, fields: &mut FieldMap<'static>)
 
         if !attr_name.is_empty() {
             let key = format!("{prefix}.@{attr_name}");
-            fields.insert(Cow::Owned(key), Value::owned(value.to_string()));
+            insert_unique(fields, key, Value::owned(decode_xml_entities(value.trim())));
         }
 
         rest = remaining;
@@ -191,25 +203,41 @@ fn extract_attributes(attrs: &str, prefix: &str, fields: &mut FieldMap<'static>)
 }
 
 /// Find the position of the closing tag, handling nested same-name elements.
+///
+/// Scanning is done over bytes rather than string slices. An earlier version
+/// advanced a `usize` by one and then sliced `input[pos..]`, which panics the
+/// moment `pos` lands inside a multi-byte character — so a single non-ASCII
+/// character anywhere in an element body aborted the process. Byte comparison
+/// cannot land mid-character, and every index returned points at an ASCII `<`,
+/// so it is always a valid boundary for the caller to slice on.
 fn find_closing_tag(input: &str, tag_name: &str) -> Option<usize> {
     let open_pat = format!("<{tag_name}");
     let close_pat = format!("</{tag_name}>");
-    let mut depth = 0;
-    let mut pos = 0;
+    let bytes = input.as_bytes();
+    let open = open_pat.as_bytes();
+    let close = close_pat.as_bytes();
 
-    while pos < input.len() {
-        if input[pos..].starts_with(&close_pat) {
+    let mut depth = 0usize;
+    let mut pos = 0usize;
+
+    while pos < bytes.len() {
+        if bytes[pos..].starts_with(close) {
             if depth == 0 {
                 return Some(pos);
             }
             depth -= 1;
-            pos += close_pat.len();
-        } else if input[pos..].starts_with(&open_pat) {
-            let after = &input[pos + open_pat.len()..];
-            if after.starts_with(|c: char| c.is_whitespace() || c == '>' || c == '/') {
+            pos += close.len();
+        } else if bytes[pos..].starts_with(open) {
+            // `<Data` must be followed by a delimiter, or `<DataSet` would be
+            // counted as a nested `<Data>`.
+            let delimited = matches!(
+                bytes.get(pos + open.len()),
+                Some(b' ' | b'\t' | b'\n' | b'\r' | b'>' | b'/')
+            );
+            if delimited {
                 depth += 1;
             }
-            pos += open_pat.len();
+            pos += open.len();
         } else {
             pos += 1;
         }
@@ -217,12 +245,40 @@ fn find_closing_tag(input: &str, tag_name: &str) -> Option<usize> {
     None
 }
 
+/// Insert a value without discarding a sibling that already claimed the key.
+///
+/// Repeated sibling elements are the normal shape of event XML — a Windows
+/// Event Log record is a run of `<Data Name="…">` children — and a plain
+/// insert kept only the last, silently losing every earlier field. The first
+/// occurrence keeps the bare key so ordinary documents read naturally; later
+/// ones carry their index.
+fn insert_unique(fields: &mut FieldMap<'static>, key: String, value: Value<'static>) {
+    if !fields.contains(&key) {
+        fields.insert(Cow::Owned(key), value);
+        return;
+    }
+    let mut n = 1usize;
+    loop {
+        let candidate = format!("{key}.{n}");
+        if !fields.contains(&candidate) {
+            fields.insert(Cow::Owned(candidate), value);
+            return;
+        }
+        n += 1;
+    }
+}
+
+/// Expand the five predefined XML entities.
+///
+/// `&amp;` is expanded last, on purpose. Replacing it first turns `&amp;lt;`
+/// into `&lt;` and then into `<`, inventing markup the document never
+/// contained — the classic double-decoding bug.
 fn decode_xml_entities(s: &str) -> String {
-    s.replace("&amp;", "&")
-        .replace("&lt;", "<")
+    s.replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&quot;", "\"")
         .replace("&apos;", "'")
+        .replace("&amp;", "&")
 }
 
 #[cfg(test)]
@@ -271,5 +327,56 @@ mod tests {
     fn non_xml_is_rejected() {
         assert!(XmlDecoder.decode("not xml at all").is_err());
         assert!(XmlDecoder.decode("").is_err());
+    }
+
+    #[test]
+    fn non_ascii_content_does_not_panic() {
+        // This aborted the collector: the scanner advanced one byte at a time
+        // and then sliced, landing inside a multi-byte character.
+        let f = decode("<Event><Msg>日本語</Msg></Event>");
+        assert_eq!(f.get_str("Event.Msg"), Some("日本語"));
+    }
+
+    #[test]
+    fn non_ascii_survives_everywhere_a_scanner_runs() {
+        let f = decode(r#"<Event><User Name="Ωmega">उपयोगकर्ता अस्वीकृत</User></Event>"#);
+        assert_eq!(f.get_str("Event.User.@Name"), Some("Ωmega"));
+        assert_eq!(f.get_str("Event.User"), Some("उपयोगकर्ता अस्वीकृत"));
+    }
+
+    #[test]
+    fn repeated_siblings_are_all_kept() {
+        // The Windows Event Log shape. Every `<Data>` used to overwrite the
+        // previous one, so a record kept exactly one of its fields.
+        let f = decode(concat!(
+            "<Event><EventData>",
+            r#"<Data Name="TargetUserName">admin</Data>"#,
+            r#"<Data Name="LogonType">3</Data>"#,
+            r#"<Data Name="IpAddress">10.0.0.9</Data>"#,
+            "</EventData></Event>"
+        ));
+        assert_eq!(
+            f.get_str("Event.EventData.Data.@Name"),
+            Some("TargetUserName")
+        );
+        assert_eq!(f.get_str("Event.EventData.Data"), Some("admin"));
+        assert_eq!(f.get_str("Event.EventData.Data.1.@Name"), Some("LogonType"));
+        assert_eq!(f.get_str("Event.EventData.Data.1"), Some("3"));
+        assert_eq!(f.get_str("Event.EventData.Data.2.@Name"), Some("IpAddress"));
+        assert_eq!(f.get_str("Event.EventData.Data.2"), Some("10.0.0.9"));
+    }
+
+    #[test]
+    fn entities_are_not_decoded_twice() {
+        // `&amp;lt;` is a literal "&lt;", not a "<". Expanding &amp; first
+        // invents markup the document never carried.
+        let f = decode("<Msg>&amp;lt;not-a-tag&amp;gt;</Msg>");
+        assert_eq!(f.get_str("Msg"), Some("&lt;not-a-tag&gt;"));
+    }
+
+    #[test]
+    fn a_similarly_named_child_does_not_close_its_parent() {
+        let f = decode("<Data><DataSet>inner</DataSet></Data>");
+        assert_eq!(f.get_str("Data.DataSet"), Some("inner"));
     }
 }
