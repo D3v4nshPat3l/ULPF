@@ -35,7 +35,7 @@ const DEV_HTML: &str = include_str!("ui/dev.html");
 /// Bounded on purpose: the console is a window onto a stream, not a store. The
 /// sinks are where events are meant to land, and an unbounded buffer here would
 /// turn a long-running demo into an out-of-memory report.
-const RECENT_CAPACITY: usize = 500;
+pub const RECENT_CAPACITY: usize = 500;
 const MAX_INGEST_LINES: usize = 2_000;
 const MAX_INGEST_BYTES: usize = 4 * 1024 * 1024;
 

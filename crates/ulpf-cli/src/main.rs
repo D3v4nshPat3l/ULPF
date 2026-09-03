@@ -573,6 +573,67 @@ fn cmd_serve(
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
+        
+    // Spawn UDP syslog listener on a dedicated thread to avoid blocking async
+    let listener_state = state.clone();
+    std::thread::spawn(move || {
+        let bind = "0.0.0.0:5514";
+        let socket = match std::net::UdpSocket::bind(bind) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("Failed to bind UDP syslog listener to {}: {}", bind, e);
+                return;
+            }
+        };
+        tracing::info!("ULPF UDP syslog receiver listening on {}", bind);
+        
+        let mut buffer = vec![0u8; 65_535];
+        loop {
+            match socket.recv_from(&mut buffer) {
+                Ok((len, peer)) => {
+                    let envelope = Envelope::new(Transport::SyslogUdp, "udp-listener")
+                        .with_peer(peer.ip())
+                        .with_origin(bind.to_string());
+                    
+                    let mut st = listener_state.lock().unwrap();
+                    let processed = match st.pipeline.process(&buffer[..len], &envelope) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            tracing::error!("Pipeline process error: {}", e);
+                            continue;
+                        }
+                    };
+                    
+                    if let Ok(Some(checkpoint)) = st.pipeline.checkpoint_now() {
+                        let _ = integrity_state::persist_checkpoint(&st.checkpoint_path, &checkpoint);
+                        st.latest_checkpoint = Some(checkpoint);
+                    }
+                    
+                    // Add to recent events for the console UI
+                    let pack_id = processed.disposition.pack_id().map(|s| s.to_string());
+                    let mut disp_label = processed.disposition.label().to_string();
+                    if let ulpf_core::Disposition::Unidentified = &processed.disposition {
+                        st.drain.process(std::str::from_utf8(&buffer[..len]).unwrap_or_default());
+                        tracing::info!("Drain clustering updated for unidentified event");
+                    } else if let ulpf_core::Disposition::ExtractFailed { reason, .. } | ulpf_core::Disposition::NormalizeFailed { reason, .. } = &processed.disposition {
+                        disp_label = format!("{} ({})", disp_label, reason);
+                    }
+                    
+                    st.recent.push(crate::server::RecentEvent {
+                        event: processed.event,
+                        disposition: disp_label,
+                        pack: pack_id,
+                        locator: processed.raw_ref.to_locator(),
+                    });
+                    if st.recent.len() > crate::server::RECENT_CAPACITY {
+                        st.recent.remove(0);
+                    }
+                }
+                Err(e) => tracing::error!("UDP receive error: {}", e),
+            }
+        }
+    });
+
     runtime.block_on(async move {
         let listener = tokio::net::TcpListener::bind((host, port)).await?;
         eprintln!();
@@ -581,6 +642,7 @@ fn cmd_serve(
             ulpf_ocsf::SCHEMA_VERSION
         );
         eprintln!("  http://{host}:{port}");
+        eprintln!("  syslog UDP   ·  0.0.0.0:5514");
         eprintln!("  trusted key  {}", public_key_path.display());
         eprintln!();
         axum::serve(listener, server::router(state)).await?;
