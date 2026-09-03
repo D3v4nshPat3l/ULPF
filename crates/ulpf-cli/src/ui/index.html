@@ -384,17 +384,39 @@
     document.getElementById('drawer-bg').classList.remove('open');
   }
 
-  window.openDrawer = async function(locator) {
+  window.openDrawer = async function(locator, event) {
+    const rawEl  = document.getElementById('drawer-raw-text');
+    const ocsfEl = document.getElementById('drawer-ocsf-text');
+
+    // The OCSF document is already in the row payload, so render it
+    // immediately instead of waiting on the network.
+    ocsfEl.textContent = event ? JSON.stringify(event, null, 2) : '(no event)';
+    rawEl.textContent = 'Retrieving original bytes from the vault…';
+
+    document.getElementById('drawer').classList.add('open');
+    document.getElementById('drawer-bg').classList.add('open');
+
     try {
-      const res = await fetch(`/api/raw/${locator}`);
+      // Locators contain ':' separators, so encode before putting one in a path.
+      const res = await fetch(`/api/raw/${encodeURIComponent(locator)}`);
+      if (!res.ok) throw new Error(`vault returned HTTP ${res.status}`);
       const data = await res.json();
-      document.getElementById('drawer-raw-text').innerText = data.raw;
-      document.getElementById('drawer-ocsf-text').innerText = JSON.stringify(data.event, null, 2);
-      
-      document.getElementById('drawer').classList.add('open');
-      document.getElementById('drawer-bg').classList.add('open');
-    } catch(e) {
-      alert("Failed to fetch event: " + e);
+
+      // This endpoint returns {locator, bytes, text, recomputed_hash}.
+      // Reading data.raw / data.event here is what left the drawer blank.
+      const recorded = event && event.raw_data_hash && event.raw_data_hash.value;
+      const matches = recorded && recorded === data.recomputed_hash;
+      const proof = recorded
+        ? (matches
+            ? '✓ retrieved bytes match the fingerprint recorded at ingest'
+            : '✗ hash mismatch — retrieved bytes differ from what was recorded')
+        : '';
+
+      rawEl.textContent = `${data.text}
+
+${data.bytes} bytes · ${proof}`;
+    } catch (e) {
+      rawEl.textContent = `Could not retrieve the original: ${e.message}`;
     }
   }
 
@@ -437,7 +459,7 @@
         const parsed = e.disposition === 'parsed';
 
         const tr = document.createElement('tr');
-        tr.addEventListener('click', () => window.openDrawer(e.locator));
+        tr.addEventListener('click', () => window.openDrawer(e.locator, e.event));
 
         tr.append(
           cell(timeStr(ev.time), 'td-primary'),

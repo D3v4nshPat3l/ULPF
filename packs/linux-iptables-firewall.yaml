@@ -25,6 +25,10 @@ identity:
 extract:
   - decoder: syslog
   - decoder: regex
+    # Optional: if no prefix shape matches, fall through to keyvalue rather
+    # than failing the record. The verdict is enrichment; the addresses are
+    # the payload.
+    optional: true
     patterns:
       # Rate-limit drops carry a variable count in the text ("Drop TCP after 13
       # attempts"), so the verdict is normalised to "Drop" and the count kept
@@ -36,6 +40,10 @@ extract:
       # Same, without the colon. Real netfilter rulesets are inconsistent about
       # it, and 45 lines in the SotM30 capture take this form.
       - '^(?P<verdict>[A-Za-z][A-Za-z0-9 ]*?)\s+IN='
+      # Stock kernel logging with printk timestamps and no verdict prefix at
+      # all: "kernel: [12345.67890] IN=eth0 OUT= MAC=... SRC=...". A default
+      # iptables LOG rule with no --log-prefix produces exactly this.
+      - '^\[(?P<kernel_uptime>[0-9.]+)\]\s+IN='
   - decoder: keyvalue
 
 map:
@@ -130,3 +138,13 @@ fixtures:
       src_endpoint.ip: 11.11.11.67
       dst_endpoint.ip: 80.116.93.36
       dst_endpoint.port: 6667
+
+  - note: Stock kernel LOG rule, printk timestamp, no verdict prefix.
+    raw: 'Mar 15 10:30:01 server1 kernel: [12345.67890] IN=eth0 OUT= MAC=00:11:22:33:44:55:66:77:88:99:aa:bb:08:00 SRC=192.168.1.10 DST=10.0.0.5 LEN=60 TOS=0x00 PREC=0x00 TTL=64 ID=54321 DF PROTO=TCP SPT=443 DPT=52341 WINDOW=64240 RES=0x00 SYN URGP=0'
+    expect:
+      class_uid: 4001
+      src_endpoint.ip: 192.168.1.10
+      dst_endpoint.ip: 10.0.0.5
+      src_endpoint.port: 443
+      dst_endpoint.port: 52341
+      connection_info.protocol_name: TCP
