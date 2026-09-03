@@ -90,11 +90,101 @@ struct OllamaRequest<'a> {
 struct OllamaOptions {
     temperature: f64,
     num_predict: u32,
+    /// Penalise tokens seen recently. Without this a small model happily
+    /// repeats one sentence until it runs out of budget.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repeat_penalty: Option<f64>,
+    /// How far back the penalty looks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repeat_last_n: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f64>,
 }
 
 #[derive(Deserialize)]
 struct OllamaResponse {
     response: String,
+}
+
+/// Cut a reply short once it starts repeating itself.
+///
+/// Sampling penalties reduce looping but do not eliminate it on a 1.5B model.
+/// If the same line comes back three times, everything from the second
+/// occurrence onward is noise, so it is dropped rather than shown.
+pub fn trim_degenerate_repetition(reply: &str) -> String {
+    let mut seen: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut kept: Vec<&str> = Vec::new();
+
+    for line in reply.lines() {
+        let key = line.trim();
+        if key.len() > 25 {
+            let count = seen.entry(key).or_insert(0);
+            *count += 1;
+            if *count >= 3 {
+                break;
+            }
+        }
+        kept.push(line);
+    }
+
+    let mut out = kept
+        .join(
+            "
+",
+        )
+        .trim_end()
+        .to_string();
+
+    // Same collapse, but within a single unbroken paragraph.
+    if let Some(trimmed) = trim_repeated_sentence(&out) {
+        out = trimmed;
+    }
+    if out.trim().is_empty() {
+        return reply.trim().chars().take(600).collect();
+    }
+    out
+}
+
+fn trim_repeated_sentence(text: &str) -> Option<String> {
+    let sentences: Vec<&str> = text.split_inclusive(". ").collect();
+    if sentences.len() < 4 {
+        return None;
+    }
+    let mut seen: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut cut = None;
+    for (i, s) in sentences.iter().enumerate() {
+        let key = s.trim();
+        if key.len() > 25 {
+            let c = seen.entry(key).or_insert(0);
+            *c += 1;
+            if *c >= 3 {
+                cut = Some(i);
+                break;
+            }
+        }
+    }
+    cut.map(|i| sentences[..i].concat().trim_end().to_string())
+}
+
+/// One turn in a conversation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    /// `system`, `user` or `assistant`.
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Serialize)]
+struct OllamaChatRequest<'a> {
+    model: &'a str,
+    messages: &'a [ChatMessage],
+    stream: bool,
+    options: OllamaOptions,
+}
+
+#[derive(Deserialize)]
+struct OllamaChatResponse {
+    message: ChatMessage,
 }
 
 #[derive(Serialize)]
@@ -167,6 +257,66 @@ impl GeneratorClient {
         Ok(())
     }
 
+    /// Free-form multi-turn conversation.
+    ///
+    /// Uses the chat endpoint rather than raw completion so the model keeps
+    /// the thread of the conversation instead of answering each message cold.
+    pub async fn chat(&self, messages: &[ChatMessage]) -> Result<String> {
+        match self.backend {
+            Backend::Ollama => {
+                let req = OllamaChatRequest {
+                    model: &self.model,
+                    messages,
+                    stream: false,
+                    options: OllamaOptions {
+                        // Higher than pack drafting: this is conversation, not
+                        // structured extraction, and 0.1 makes it wooden.
+                        temperature: 0.6,
+                        // Capped deliberately. A 1.5B model given a long budget
+                        // will pad rather than stop, and padding turns into
+                        // verbatim repetition.
+                        num_predict: 420,
+                        repeat_penalty: Some(1.18),
+                        repeat_last_n: Some(256),
+                        top_p: Some(0.9),
+                    },
+                };
+                let res = self
+                    .client
+                    .post(format!("{}/api/chat", self.endpoint))
+                    .json(&req)
+                    .timeout(std::time::Duration::from_secs(180))
+                    .send()
+                    .await
+                    .with_context(|| {
+                        format!("could not reach the model server at {}", self.endpoint)
+                    })?;
+                if !res.status().is_success() {
+                    bail!("model server returned {}", res.status());
+                }
+                let reply = res.json::<OllamaChatResponse>().await?.message.content;
+                Ok(trim_degenerate_repetition(&reply))
+            }
+            Backend::LlamaCpp => {
+                // llama.cpp's completion endpoint has no chat role handling, so
+                // flatten the thread into a transcript.
+                let transcript = messages
+                    .iter()
+                    .map(|m| format!("{}: {}", m.role, m.content))
+                    .collect::<Vec<_>>()
+                    .join(
+                        "
+",
+                    );
+                self.complete(format!(
+                    "{transcript}
+assistant:"
+                ))
+                .await
+            }
+        }
+    }
+
     async fn complete(&self, prompt: String) -> Result<String> {
         match self.backend {
             Backend::Ollama => {
@@ -178,6 +328,9 @@ impl GeneratorClient {
                     options: OllamaOptions {
                         temperature: 0.1,
                         num_predict: 700,
+                        repeat_penalty: Some(1.1),
+                        repeat_last_n: Some(64),
+                        top_p: None,
                     },
                 };
                 let res = self
@@ -750,6 +903,44 @@ fn blank_to_unknown(s: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_looping_reply_is_cut_at_the_repeat() {
+        // The exact failure seen in the console: one sentence, many times.
+        let looped = "Here is the answer.
+"
+        .to_string()
+            + &"The logs are in a format that is easy to understand and read.
+"
+            .repeat(40);
+        let out = trim_degenerate_repetition(&looped);
+        let occurrences = out.matches("easy to understand").count();
+        assert!(
+            occurrences <= 2,
+            "still repeating {occurrences} times: {out}"
+        );
+        assert!(out.starts_with("Here is the answer."));
+    }
+
+    #[test]
+    fn a_normal_reply_is_left_alone() {
+        let normal = "You have 11 packs loaded.
+Coverage is 98%.
+Four records are unparsed.";
+        assert_eq!(trim_degenerate_repetition(normal), normal);
+    }
+
+    #[test]
+    fn repetition_inside_one_paragraph_is_also_cut() {
+        let looped = "Fine. ".to_string()
+            + &"The logs are in a format that is easy to understand and read. ".repeat(30);
+        let out = trim_degenerate_repetition(&looped);
+        assert!(
+            out.len() < looped.len() / 3,
+            "not trimmed: {} chars",
+            out.len()
+        );
+    }
 
     #[test]
     fn volatile_detector_literals_are_rejected() {
