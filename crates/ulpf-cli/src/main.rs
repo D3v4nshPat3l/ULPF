@@ -5,6 +5,7 @@ mod integrity_state;
 mod pipeline;
 mod replay;
 mod server;
+mod simulator;
 mod sinks;
 mod watcher;
 
@@ -212,6 +213,12 @@ enum Command {
         /// Maximum events held by each remote sink before a request is sent.
         #[arg(long, default_value_t = 250)]
         sink_batch_size: usize,
+        /// Directory holding the public corpora the /dev simulator replays.
+        #[arg(long, default_value = "../realdata")]
+        datasets: PathBuf,
+        /// Where the /dev simulator sends its UDP traffic.
+        #[arg(long, default_value = "127.0.0.1:5514")]
+        sim_target: String,
     },
 
     /// Receive real RFC 5424/RFC 3164 syslog datagrams over UDP.
@@ -249,6 +256,9 @@ enum Command {
         /// Events per second.
         #[arg(long, default_value_t = 10)]
         eps: u64,
+        /// Stop after this many events instead of looping forever.
+        #[arg(long)]
+        count: Option<u64>,
     },
 }
 
@@ -328,21 +338,30 @@ fn main() -> anyhow::Result<()> {
             splunk_token_env,
             parquet,
             sink_batch_size,
-        } => cmd_serve(
-            packs,
-            vault,
+            datasets,
+            sim_target,
+        } => cmd_serve(ServeConfig {
+            packs_dir: packs,
+            vault_dir: vault,
             integrity_dir,
-            &chain,
-            &host,
+            chain,
+            host,
             port,
-            opensearch.as_deref(),
-            &opensearch_index,
-            splunk_hec.as_deref(),
-            &splunk_token_env,
-            parquet.as_deref(),
+            opensearch,
+            opensearch_index,
+            splunk_hec,
+            splunk_token_env,
+            parquet,
             sink_batch_size,
-        ),
-        Command::Replay { source, target, eps } => replay::cmd_replay(&source, &target, eps),
+            datasets_dir: datasets,
+            sim_target,
+        }),
+        Command::Replay {
+            source,
+            target,
+            eps,
+            count,
+        } => replay::cmd_replay(&source, &target, eps, count),
         Command::Listen {
             packs,
             vault,
@@ -577,20 +596,52 @@ fn commit_pending(
 }
 
 /// Start the console. Blocks until interrupted.
-fn cmd_serve(
-    packs_dir: PathBuf,
-    vault_dir: PathBuf,
-    integrity_dir: PathBuf,
-    chain: &str,
-    host: &str,
-    port: u16,
-    opensearch: Option<&str>,
-    opensearch_index: &str,
-    splunk_hec: Option<&str>,
-    splunk_token_env: &str,
-    parquet: Option<&Path>,
-    sink_batch_size: usize,
-) -> anyhow::Result<()> {
+/// Everything `ulpf serve` needs.
+///
+/// Grouped rather than passed positionally: most of these are strings, and a
+/// transposed pair - `opensearch_index` for `splunk_token_env`, say - would
+/// compile cleanly and fail only at runtime against a live SIEM.
+pub struct ServeConfig {
+    pub packs_dir: PathBuf,
+    pub vault_dir: PathBuf,
+    pub integrity_dir: PathBuf,
+    pub chain: String,
+    pub host: String,
+    pub port: u16,
+    pub opensearch: Option<String>,
+    pub opensearch_index: String,
+    pub splunk_hec: Option<String>,
+    pub splunk_token_env: String,
+    pub parquet: Option<PathBuf>,
+    pub sink_batch_size: usize,
+    pub datasets_dir: PathBuf,
+    pub sim_target: String,
+}
+
+fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
+    let ServeConfig {
+        packs_dir,
+        vault_dir,
+        integrity_dir,
+        chain,
+        host,
+        port,
+        opensearch,
+        opensearch_index,
+        splunk_hec,
+        splunk_token_env,
+        parquet,
+        sink_batch_size,
+        datasets_dir,
+        sim_target,
+    } = config;
+    let chain = chain.as_str();
+    let host = host.as_str();
+    let opensearch = opensearch.as_deref();
+    let opensearch_index = opensearch_index.as_str();
+    let splunk_hec = splunk_hec.as_deref();
+    let splunk_token_env = splunk_token_env.as_str();
+    let parquet = parquet.as_deref();
     let (library, errors) = PackLibrary::load_dir(&packs_dir)
         .with_context(|| format!("loading packs from {}", packs_dir.display()))?;
     for (path, err) in &errors {
@@ -626,12 +677,13 @@ fn cmd_serve(
         vault_dir,
         packs_dir: packs_dir.clone(),
         drain: ulpf_generator::drain::Drain::new(),
+        simulator: simulator::Simulator::new(datasets_dir, sim_target),
     }));
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-        
+
     let mut sinks = sinks::AsyncSinkSet::new(
         parquet,
         opensearch,
@@ -653,15 +705,21 @@ fn cmd_serve(
             }
         };
         tracing::info!("ULPF UDP syslog receiver listening on {}", bind);
-        
+
         let mut buffer = vec![0u8; 65_535];
+        // Same reasoning as `cmd_listen`: signing and fsyncing a checkpoint per
+        // datagram costs an Ed25519 signature plus a synchronous write for every
+        // record. The vault is still flushed each event so a locator shown in
+        // the console is immediately retrievable.
+        let mut since_checkpoint: u64 = 0;
+        let mut last_checkpoint = std::time::Instant::now();
         loop {
             match socket.recv_from(&mut buffer) {
                 Ok((len, peer)) => {
                     let envelope = Envelope::new(Transport::SyslogUdp, "udp-listener")
                         .with_peer(peer.ip())
                         .with_origin(bind.to_string());
-                    
+
                     let mut st = listener_state.lock().unwrap();
                     let processed = match st.pipeline.process(&buffer[..len], &envelope) {
                         Ok(p) => p,
@@ -670,32 +728,65 @@ fn cmd_serve(
                             continue;
                         }
                     };
-                    
-                    if let Ok(Some(checkpoint)) = st.pipeline.checkpoint_now() {
-                        let _ = integrity_state::persist_checkpoint(&st.checkpoint_path, &checkpoint);
-                        st.latest_checkpoint = Some(checkpoint);
+
+                    let _ = st.pipeline.flush();
+                    since_checkpoint += 1;
+                    if since_checkpoint >= CHECKPOINT_EVERY
+                        || last_checkpoint.elapsed() >= CHECKPOINT_INTERVAL
+                    {
+                        since_checkpoint = 0;
+                        last_checkpoint = std::time::Instant::now();
+                        if let Ok(Some(checkpoint)) = st.pipeline.checkpoint_now() {
+                            let path = st.checkpoint_path.clone();
+                            let _ = integrity_state::persist_checkpoint(&path, &checkpoint);
+                            st.latest_checkpoint = Some(checkpoint);
+                        }
                     }
-                    
+
                     let _ = sinks.write(&processed.event);
 
                     // Add to recent events for the console UI
                     let pack_id = processed.disposition.pack_id().map(|s| s.to_string());
                     let mut disp_label = processed.disposition.label().to_string();
                     if let ulpf_core::Disposition::Unidentified = &processed.disposition {
-                        st.drain.process(std::str::from_utf8(&buffer[..len]).unwrap_or_default());
+                        st.drain
+                            .process(std::str::from_utf8(&buffer[..len]).unwrap_or_default());
                         tracing::info!("Drain clustering updated for unidentified event");
-                    } else if let ulpf_core::Disposition::ExtractFailed { reason, .. } | ulpf_core::Disposition::NormalizeFailed { reason, .. } = &processed.disposition {
+                    } else if let ulpf_core::Disposition::ExtractFailed { reason, .. }
+                    | ulpf_core::Disposition::NormalizeFailed { reason, .. } =
+                        &processed.disposition
+                    {
                         disp_label = format!("{} ({})", disp_label, reason);
                     }
-                    
+
                     st.recent.push(crate::server::RecentEvent {
                         event: processed.event,
                         disposition: disp_label,
                         pack: pack_id,
                         locator: processed.raw_ref.to_locator(),
                     });
+                    // Dropping the oldest event without moving the anchor left
+                    // the verifier looking at a window whose first record
+                    // references a predecessor it had never seen, so a healthy
+                    // chain reported "chain broken" as soon as the console had
+                    // seen RECENT_CAPACITY events. Advance the anchor to the
+                    // event being evicted, exactly as the ingest path does.
                     if st.recent.len() > crate::server::RECENT_CAPACITY {
-                        st.recent.remove(0);
+                        let excess = st.recent.len() - crate::server::RECENT_CAPACITY;
+                        let predecessor = &st.recent[excess - 1].event;
+                        match ulpf_ocsf::verify_event(predecessor) {
+                            Ok(fingerprint) => {
+                                st.chain_anchor = Some(ulpf_ocsf::ChainLink {
+                                    uid: predecessor.uid().unwrap_or_default().to_string(),
+                                    type_uid: predecessor.type_uid(),
+                                    fingerprint,
+                                });
+                            }
+                            Err(error) => {
+                                tracing::error!("evicted event failed to verify: {}", error)
+                            }
+                        }
+                        st.recent.drain(..excess);
                     }
                 }
                 Err(e) => tracing::error!("UDP receive error: {}", e),
@@ -707,17 +798,19 @@ fn cmd_serve(
         let app = server::router(state.clone());
         let addr: std::net::SocketAddr = format!("{}:{}", host, port).parse().unwrap();
         let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-        
+
         eprintln!();
         eprintln!(
             "  ULPF console  ·  {pack_count} packs  ·  OCSF {}",
             ulpf_ocsf::SCHEMA_VERSION
         );
         eprintln!("  Listening on http://{host}:{port}");
+        // The verifier needs this path: `ulpf verify --public-key <path>`.
+        eprintln!("  trusted key   {}", public_key_path.display());
         eprintln!();
 
         axum::serve(listener, app).await.unwrap();
-            
+
         Ok::<(), anyhow::Error>(())
     })?;
 
@@ -847,6 +940,71 @@ fn cmd_verify(
     }
 }
 
+/// Signing and fsyncing a checkpoint after every datagram costs an Ed25519
+/// signature plus a synchronous file write per event, which measured 102
+/// events/sec over UDP against ~15,000/sec for the same records from a file.
+/// The chain is tamper-evident from the per-event fingerprints alone; a
+/// checkpoint only anchors it. Anchoring periodically gives the same guarantee
+/// at a fraction of the cost, which is the design the integrity module
+/// documents. Shared by both receive paths so they cannot drift apart.
+const CHECKPOINT_EVERY: u64 = 500;
+const CHECKPOINT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// 8 MB is roughly 55,000 syslog datagrams of headroom: enough to absorb a
+/// multi-second burst while the pipeline drains, without reserving memory a
+/// laptop would notice.
+const RECV_BUFFER_BYTES: usize = 8 * 1024 * 1024;
+
+/// Bind a UDP receiver with a receive buffer large enough to ride out a burst.
+///
+/// The OS default is about 64 KB, which for ~150-byte syslog records is
+/// roughly 400 datagrams: a few milliseconds of scheduling delay at any real
+/// rate and the kernel starts discarding. Measured here, a sustained 15,000
+/// EPS lost 37% of records that way, and UDP gives the sender no indication —
+/// the collector simply reports a lower count and nothing says why. Silent
+/// loss is the one failure a log collector must not have, so ask for 8 MB and
+/// report what the kernel actually granted rather than assuming it obliged.
+fn bind_receiver(bind: &str) -> anyhow::Result<std::net::UdpSocket> {
+    use socket2::{Domain, Protocol, Socket, Type};
+
+    let addr: std::net::SocketAddr = bind
+        .parse()
+        .with_context(|| format!("parsing listen address {bind}"))?;
+    let domain = if addr.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
+    let socket = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))
+        .with_context(|| format!("creating UDP socket for {bind}"))?;
+
+    // Best effort: a hardened host may cap this well below the request, which
+    // is not a reason to refuse to start.
+    if let Err(error) = socket.set_recv_buffer_size(RECV_BUFFER_BYTES) {
+        tracing::warn!("could not enlarge the UDP receive buffer: {}", error);
+    }
+
+    socket
+        .bind(&addr.into())
+        .with_context(|| format!("binding UDP syslog receiver to {bind}"))?;
+
+    match socket.recv_buffer_size() {
+        Ok(size) if size + 1 < RECV_BUFFER_BYTES => {
+            // Linux reports double the requested value; only a genuine
+            // shortfall is worth a warning.
+            tracing::warn!(
+                "UDP receive buffer is {} KB, below the {} KB requested;                  sustained bursts above a few thousand EPS may be dropped",
+                size / 1024,
+                RECV_BUFFER_BYTES / 1024
+            );
+        }
+        Ok(size) => eprintln!("UDP receive buffer: {} KB", size / 1024),
+        Err(_) => {}
+    }
+
+    Ok(socket.into())
+}
+
 fn cmd_listen(options: ListenOptions) -> anyhow::Result<()> {
     let ListenOptions {
         packs_dir,
@@ -887,8 +1045,7 @@ fn cmd_listen(options: ListenOptions) -> anyhow::Result<()> {
     }
 
     let mut writer = open_output(&output)?;
-    let socket = std::net::UdpSocket::bind(&bind)
-        .with_context(|| format!("binding UDP syslog receiver to {bind}"))?;
+    let socket = bind_receiver(&bind)?;
     eprintln!("ULPF UDP syslog receiver listening on {bind}");
     eprintln!("OCSF output: {output}");
     eprintln!("checkpoint: {}", checkpoint_path.display());
@@ -896,18 +1053,53 @@ fn cmd_listen(options: ListenOptions) -> anyhow::Result<()> {
     eprintln!("Each accepted datagram is durable before it is emitted; press Ctrl+C to stop.");
 
     let mut buffer = vec![0u8; 65_535];
+    let mut last_checkpoint = std::time::Instant::now();
+    let mut pending: u64 = 0;
+
+    let anchor = |pipeline: &mut Pipeline, writer: &mut Box<dyn Write>| -> anyhow::Result<()> {
+        writer.flush()?;
+        if let Some(checkpoint) = pipeline.checkpoint_now()? {
+            integrity_state::persist_checkpoint(&checkpoint_path, &checkpoint)?;
+        }
+        Ok(())
+    };
+
     loop {
-        let (len, peer) = socket.recv_from(&mut buffer)?;
+        // A transient socket error must not take the collector down.
+        let (len, peer) = match socket.recv_from(&mut buffer) {
+            Ok(v) => v,
+            Err(error) => {
+                tracing::warn!(%error, "recv_from failed; continuing");
+                continue;
+            }
+        };
+
         let envelope = Envelope::new(Transport::SyslogUdp, "udp-listener")
             .with_peer(peer.ip())
             .with_origin(bind.to_string());
-        let processed = pipeline.process(&buffer[..len], &envelope)?;
-        let checkpoint = pipeline.checkpoint_now()?;
-        if let Some(checkpoint) = &checkpoint {
-            integrity_state::persist_checkpoint(&checkpoint_path, checkpoint)?;
+
+        // One malformed datagram from any host must not kill the receiver.
+        match pipeline.process(&buffer[..len], &envelope) {
+            Ok(processed) => {
+                if let Err(error) = writeln!(writer, "{}", processed.event.to_json()) {
+                    tracing::error!(%error, "failed to write event");
+                }
+            }
+            Err(error) => {
+                tracing::error!(%peer, %error, "failed to process datagram; continuing");
+                continue;
+            }
         }
-        writeln!(writer, "{}", processed.event.to_json())?;
-        writer.flush()?;
+
+        pending += 1;
+        if pending >= CHECKPOINT_EVERY || last_checkpoint.elapsed() >= CHECKPOINT_INTERVAL {
+            if let Err(error) = anchor(&mut pipeline, &mut writer) {
+                tracing::error!(%error, "failed to persist checkpoint");
+            }
+            pending = 0;
+            last_checkpoint = std::time::Instant::now();
+        }
+
         if pipeline.stats.received % 1_000 == 0 {
             eprintln!(
                 "received {} · parsed {} · coverage {:.4}%",
