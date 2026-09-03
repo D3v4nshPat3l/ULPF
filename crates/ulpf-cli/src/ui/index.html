@@ -155,9 +155,9 @@
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
         Overview
       </button>
-      <button data-view="copilot">
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
-        AI Copilot
+      <button data-view="clusters">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+        Unparsed Clusters
       </button>
       <button data-view="findings">
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
@@ -248,27 +248,57 @@
         </div>
       </div>
 
-      <!-- COPILOT VIEW -->
-      <div class="view-section" id="view-copilot">
+      <!-- CLUSTERS VIEW -->
+      <div class="view-section" id="view-clusters">
         <div class="card">
           <div class="card-head">
-            <h2>AI Generator Copilot</h2>
-            <div class="sub">Generate packs from zero-day log formats automatically.</div>
+            <h2>Unparsed Clusters</h2>
+            <div class="sub">Dead-letter queue ranked by volume. Select a template to draft a parser.</div>
           </div>
-          <div class="chat-box" id="chat-history">
-            <div class="msg assistant">
-              <div class="msg-bubble">Hello. I am the ULPF AI Generator. I can synthesize OCSF Source Packs for unknown log formats. Send me a raw log line, and I will write the parsing regex and mapping rules.</div>
+          <div class="card-body flush">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width: 140px;">Cluster ID</th>
+                    <th style="width: 100px;">Volume</th>
+                    <th>Template</th>
+                    <th style="width: 120px; text-align: right;">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="clusters-body">
+                  <tr><td colspan="4" style="text-align:center;color:var(--text-faint)">No unparsed clusters found.</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
-          <div class="card-body" style="border-top: 1px solid var(--border); background: var(--surface);">
-            <div style="display:flex;gap:12px;">
-              <textarea id="copilot-input" rows="2" style="flex:1; padding:12px; border:1px solid var(--border); border-radius:var(--radius); font:12px var(--mono);" placeholder="Paste a raw log line here (e.g. from a legacy firewall)..."></textarea>
-              <button class="btn primary" onclick="generatePack()">Generate Pack</button>
+        </div>
+
+        <div class="card" id="review-pane" style="display: none;">
+          <div class="card-head">
+            <h2>Draft Parser Review</h2>
+            <div class="sub" id="review-sub">Evaluating candidate pack...</div>
+            <div class="spacer"></div>
+            <button class="btn approve sm" id="btn-approve" onclick="approvePack()" style="display:none;">Approve and Deploy</button>
+          </div>
+          <div class="card-body">
+            <div class="stat-row" style="margin-bottom: 16px;">
+               <div class="stat">
+                 <span class="label">Test Fixtures</span>
+                 <span class="value" id="rev-fixtures">0/0</span>
+               </div>
+               <div class="stat">
+                 <span class="label">Field Accuracy</span>
+                 <span class="value" id="rev-accuracy">0%</span>
+               </div>
+            </div>
+            <div class="proof-box" style="margin-bottom: 0;">
+              <strong>Drafted YAML</strong>
+              <pre id="rev-yaml" style="background:none; border:none; padding:0; margin:0; white-space: pre-wrap; font-size: 12px;"></pre>
             </div>
           </div>
         </div>
       </div>
-
       <!-- INTEGRITY VIEW -->
       <div class="view-section" id="view-integrity">
          <div class="card">
@@ -337,7 +367,7 @@
 
 <script>
   // Navigation Logic
-  const views = ['overview', 'copilot', 'findings', 'integrity'];
+  const views = ['overview', 'clusters', 'findings', 'integrity'];
   
   function switchView(viewId) {
     views.forEach(v => {
@@ -508,6 +538,40 @@ ${data.bytes} bytes · ${proof}`;
         packsBody.append(tr);
       }
 
+      // Clusters
+      const clustersPayload = await (await fetch('/api/clusters')).json();
+      const clusters = clustersPayload.clusters || [];
+      const clustersBody = document.getElementById('clusters-body');
+      
+      if (!clustersBody) return; // In case UI hasn't rendered it
+      clustersBody.replaceChildren();
+      
+      if (clusters.length === 0) {
+        clustersBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-faint)">No unparsed clusters found.</td></tr>';
+      } else {
+        for (const c of clusters) {
+          const tr = document.createElement('tr');
+          tr.append(
+            cell(c.id, 'td-primary'),
+            cell(c.count.toLocaleString(), 'mono'),
+            cell(c.template, 'mono')
+          );
+          
+          const actionTd = document.createElement('td');
+          actionTd.style.textAlign = 'right';
+          const btn = document.createElement('button');
+          btn.className = 'btn primary sm';
+          btn.id = 'btn-gen-' + c.id;
+          btn.textContent = 'Draft Pack';
+          btn.onclick = (e) => { e.stopPropagation(); generatePack(c.id); };
+          actionTd.append(btn);
+          tr.append(actionTd);
+          
+          clustersBody.append(tr);
+        }
+      }
+
+
     } catch(e) {
       console.error(e);
     }
@@ -536,50 +600,80 @@ ${data.bytes} bytes · ${proof}`;
     alert("Simulated tampering completed. Run verification to see the chain break.");
   }
 
-  async function generatePack() {
-    const text = document.getElementById('copilot-input').value;
-    if (!text) return;
+  let currentDraftYaml = null;
+
+  async function generatePack(clusterId) {
+    const btn = document.getElementById('btn-gen-' + clusterId);
+    if (btn) btn.innerHTML = 'Drafting...';
     
-    const hist = document.getElementById('chat-history');
-    hist.innerHTML += `<div class="msg user"><div class="msg-bubble">${text}</div></div>`;
-    hist.innerHTML += `<div class="msg assistant"><div class="msg-bubble" style="color:var(--text-faint)">Thinking...</div></div>`;
-    hist.scrollTop = hist.scrollHeight;
-    document.getElementById('copilot-input').value = "";
+    document.getElementById('review-pane').style.display = 'block';
+    document.getElementById('review-sub').innerText = 'Generating pack for ' + clusterId + '...';
+    document.getElementById('rev-yaml').innerText = 'Calling LLM generation sidecar...';
+    document.getElementById('rev-fixtures').innerText = '0/0';
+    document.getElementById('rev-accuracy').innerText = '0%';
+    document.getElementById('btn-approve').style.display = 'none';
 
     try {
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ raw_log: text })
+        body: JSON.stringify({ cluster_id: clusterId })
       });
+      if (!res.ok) {
+        let msg = res.statusText;
+        try { msg = (await res.json()).error; } catch(e) {}
+        throw new Error(msg);
+      }
       const data = await res.json();
       
-      // Remove thinking msg
-      hist.lastChild.remove();
+      currentDraftYaml = data.pack_yaml;
+      document.getElementById('review-sub').innerText = 'Candidate generated. Review scores before approving.';
+      document.getElementById('rev-yaml').innerText = data.pack_yaml;
+      document.getElementById('rev-fixtures').innerText = `${data.fixtures_passed}/${data.fixtures}`;
+      document.getElementById('rev-accuracy').innerText = `${(data.field_accuracy * 100).toFixed(1)}%`;
       
-      hist.innerHTML += `<div class="msg assistant"><div class="msg-bubble">
-        I have analyzed this format and created a new pack.
-        <br><br>
-        <strong>Regex:</strong><br>
-        <code style="display:block; padding:8px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); margin-top:4px; font-size:11px;">${data.pack.spec.extract[0].decoder}</code>
-        <br><br>
-        <button class="btn approve sm" onclick="approvePack()">Deploy to Production</button>
-      </div></div>`;
-      hist.scrollTop = hist.scrollHeight;
+      document.getElementById('btn-approve').style.display = 'inline-flex';
+      if (btn) btn.innerHTML = 'Draft Pack';
+      
+      // Scroll to review pane
+      document.getElementById('review-pane').scrollIntoView({ behavior: 'smooth' });
     } catch(e) {
-      hist.lastChild.remove();
-      hist.innerHTML += `<div class="msg assistant"><div class="msg-bubble" style="color:var(--high)">Error: Could not generate pack. Ensure LLM is running.</div></div>`;
+      document.getElementById('review-sub').innerText = 'Generation failed.';
+      document.getElementById('rev-yaml').innerText = e.message;
+      if (btn) btn.innerHTML = 'Draft Pack';
     }
   }
 
   async function approvePack() {
-    const hist = document.getElementById('chat-history');
-    hist.innerHTML += `<div class="msg user"><div class="msg-bubble">Approve and deploy.</div></div>`;
+    if (!currentDraftYaml) return;
+    const btn = document.getElementById('btn-approve');
+    btn.innerHTML = 'Deploying...';
     
-    await fetch('/api/approve', { method: 'POST' });
-    
-    hist.innerHTML += `<div class="msg assistant"><div class="msg-bubble" style="color:var(--success); font-weight:500;">Pack approved and instantly active in pipeline.</div></div>`;
-    hist.scrollTop = hist.scrollHeight;
+    try {
+      const res = await fetch('/api/approve', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ yaml: currentDraftYaml })
+      });
+      if (!res.ok) {
+        let msg = res.statusText;
+        try { msg = (await res.json()).error; } catch(e) {}
+        throw new Error(msg);
+      }
+      
+      btn.innerHTML = 'Deployed!';
+      btn.classList.remove('approve');
+      setTimeout(() => {
+        document.getElementById('review-pane').style.display = 'none';
+        btn.innerHTML = 'Approve and Deploy';
+        btn.classList.add('approve');
+        currentDraftYaml = null;
+        refresh();
+      }, 2000);
+    } catch(e) {
+      alert("Failed to approve: " + e.message);
+      btn.innerHTML = 'Approve and Deploy';
+    }
   }
 </script>
 </body>
