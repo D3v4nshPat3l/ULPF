@@ -551,7 +551,7 @@ fn cmd_serve(
     let checkpoint_path = integrity.checkpoint_path.clone();
     let public_key_path = integrity.public_key_path.clone();
     let mut pipeline = Pipeline::new(std::sync::Arc::new(library), vault, integrity.attestor);
-    
+
     // Start pack hot-reload watcher
     if let Err(e) = watcher::spawn_pack_watcher(packs_dir.clone(), pipeline.packs_lock()) {
         tracing::warn!("failed to start pack hot-reload watcher: {}", e);

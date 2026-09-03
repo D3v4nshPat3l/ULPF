@@ -61,7 +61,8 @@ string_list ::= string | string ", " string_list
             grammar,
         };
 
-        let res = self.client
+        let res = self
+            .client
             .post(format!("{}/completion", self.endpoint))
             .json(&req)
             .send()
@@ -73,7 +74,7 @@ string_list ::= string | string ", " string_list
 
         let resp: LlamaResponse = res.json().await?;
         let yaml = resp.content.trim().to_string();
-        
+
         // Ensure the ID matches the cluster for the UI's sake
         if yaml.contains("id: ") {
             // We just let the parser handle it, and overwrite later

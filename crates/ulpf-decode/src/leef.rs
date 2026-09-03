@@ -29,10 +29,12 @@ impl Decoder for LeefDecoder {
         }
 
         // Must start with LEEF:
-        let rest = input.strip_prefix("LEEF:").ok_or(DecodeError::NotThisFormat {
-            format: "leef",
-            detail: "input does not start with 'LEEF:'".to_string(),
-        })?;
+        let rest = input
+            .strip_prefix("LEEF:")
+            .ok_or(DecodeError::NotThisFormat {
+                format: "leef",
+                detail: "input does not start with 'LEEF:'".to_string(),
+            })?;
 
         // Split header fields by pipe: version|vendor|product|prodversion|eventID|...
         let mut pipes = Vec::new();
@@ -138,7 +140,7 @@ mod tests {
     #[test]
     fn leef_1_0_basic() {
         let f = decode(
-            "LEEF:1.0|Symantec|SEP|14.0|Malware|\tsrc=10.0.0.1\tdst=8.8.8.8\tproto=TCP\tsev=5"
+            "LEEF:1.0|Symantec|SEP|14.0|Malware|\tsrc=10.0.0.1\tdst=8.8.8.8\tproto=TCP\tsev=5",
         );
         assert_eq!(f.get_str("leef.version"), Some("1.0"));
         assert_eq!(f.get_str("leef.vendor"), Some("Symantec"));
@@ -164,7 +166,9 @@ mod tests {
 
     #[test]
     fn non_leef_is_rejected() {
-        assert!(LeefDecoder.decode("CEF:0|vendor|product|1.0|100|name|5|src=1.2.3.4").is_err());
+        assert!(LeefDecoder
+            .decode("CEF:0|vendor|product|1.0|100|name|5|src=1.2.3.4")
+            .is_err());
         assert!(LeefDecoder.decode("just plain text").is_err());
         assert!(LeefDecoder.decode("").is_err());
     }

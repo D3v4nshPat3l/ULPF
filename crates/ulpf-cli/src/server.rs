@@ -169,14 +169,17 @@ async fn events(State(state): State<Shared>) -> Json<Value> {
 async fn clusters(State(state): State<Shared>) -> Json<Value> {
     let s = lock(&state);
     let ranked = s.drain.ranked_clusters();
-    let list: Vec<Value> = ranked.into_iter().map(|c| {
-        json!({
-            "id": c.id,
-            "count": c.count,
-            "template": c.template.join(" "),
-            "samples": c.samples,
+    let list: Vec<Value> = ranked
+        .into_iter()
+        .map(|c| {
+            json!({
+                "id": c.id,
+                "count": c.count,
+                "template": c.template.join(" "),
+                "samples": c.samples,
+            })
         })
-    }).collect();
+        .collect();
     Json(json!({ "clusters": list }))
 }
 
@@ -205,9 +208,11 @@ async fn generate(
 
     // Call the LLM
     let client = ulpf_generator::llm::GeneratorClient::new("http://localhost:8080");
-    let pack = client.draft_pack(&body.cluster_id, &samples).await
+    let pack = client
+        .draft_pack(&body.cluster_id, &samples)
+        .await
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    
+
     // Score it
     let score = ulpf_generator::scorer::Scorer::score(&pack);
 
@@ -237,14 +242,18 @@ async fn approve(
     }
 
     let packs_dir = lock(&state).packs_dir.clone();
-    
+
     // Save to packs directory so hot reload picks it up
     let id = pack.identity.id.clone();
     let file_path = packs_dir.join(format!("{}.yaml", id));
-    
+
     let yaml_out = serde_yaml::to_string(&pack).unwrap();
-    std::fs::write(&file_path, yaml_out)
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write pack: {e}")))?;
+    std::fs::write(&file_path, yaml_out).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to write pack: {e}"),
+        )
+    })?;
 
     Ok(Json(json!({"ok": true, "id": id})))
 }

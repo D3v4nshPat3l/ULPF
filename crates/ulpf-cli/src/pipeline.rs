@@ -107,9 +107,7 @@ impl Pipeline {
         let event_uid = uuid::Uuid::now_v7().to_string();
         let text = String::from_utf8_lossy(raw);
 
-        let active_packs = {
-            self.packs.read().unwrap().clone()
-        };
+        let active_packs = { self.packs.read().unwrap().clone() };
 
         let (mut event, disposition) = match active_packs.identify(&text) {
             None => (

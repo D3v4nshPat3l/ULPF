@@ -53,7 +53,7 @@ impl Drain {
     pub fn process(&mut self, raw: &str) -> String {
         let tokens: Vec<String> = raw.split_whitespace().map(|s| s.to_string()).collect();
         let len = tokens.len();
-        
+
         // Match against existing
         let mut best_match: Option<(String, f64)> = None;
         for cluster in self.clusters.values() {

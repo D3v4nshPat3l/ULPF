@@ -6,40 +6,53 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   build_and_test:
     runs-on: ubuntu-latest
+    # A hung job should fail fast instead of burning the full 6-hour default.
+    timeout-minutes: 30
+
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
-    # "Air-gapped" simulation: vendoring dependencies so build happens without network
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - uses: Swatinem/rust-cache@v2
+
+    # Fetch every dependency once, while the network is still available.
+    # `cargo vendor` prints the source-replacement config on stdout.
     - name: Vendor dependencies
-      run: cargo vendor
-
-    - name: Configure Cargo for vendored sources
       run: |
         mkdir -p .cargo
-        cat <<EOF > .cargo/config.toml
-        [source.crates-io]
-        replace-with = "vendored-sources"
+        cargo vendor --locked > .cargo/config.toml
 
-        [source.vendored-sources]
-        directory = "vendor"
-        EOF
+    # From here on every Cargo command runs with `--offline`, which makes Cargo
+    # fail outright if it would need to reach the network. That proves the
+    # air-gapped build honestly.
+    #
+    # The previous version of this workflow tried to prove the same thing with
+    # `iptables -A OUTPUT ... ! --uid-owner root -j DROP`. That drops outbound
+    # traffic for every non-root user, and the GitHub Actions runner agent is
+    # itself a non-root process, so the rule severed the runner's own control
+    # connection. Every run then hung until the 45-minute timeout and reported
+    # "The hosted runner lost communication with the server" — the build was
+    # never actually reaching the compiler.
+    - name: Build (offline)
+      run: cargo build --release --locked --offline
 
-    - name: Simulate network disconnect
-      run: |
-        sudo iptables -A OUTPUT -p tcp -m owner ! --uid-owner root -j DROP
-        sudo iptables -A OUTPUT -p udp -m owner ! --uid-owner root -j DROP
+    - name: Test (offline)
+      run: cargo test --workspace --locked --offline
 
-    - name: Build
-      run: cargo build --release
+    - name: Score source-pack fixtures (offline)
+      run: cargo run --release --locked --offline --quiet -- test --packs packs
 
-    - name: Test
-      run: cargo test --workspace
-
-    - name: Check Formatting
-      run: cargo fmt -- --check
+    - name: Check formatting
+      run: cargo fmt --all -- --check
 
     - name: Clippy
-      run: cargo clippy --workspace -- -D warnings
+      run: cargo clippy --workspace --all-targets --locked --offline -- -D warnings

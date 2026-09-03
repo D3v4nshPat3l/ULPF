@@ -498,20 +498,20 @@ impl ParquetSink {
         if self.file.is_some() {
             self.finish_file()?;
         }
-        
+
         let part_dir = self.base_dir.join(new_partition);
         std::fs::create_dir_all(&part_dir)?;
-        
+
         let filename = format!("events-{}.parquet", uuid::Uuid::now_v7());
         let file_path = part_dir.join(filename);
-        
+
         let mut file = std::fs::File::create(&file_path)
             .with_context(|| format!("creating Parquet sink partition {}", file_path.display()))?;
         file.write_all(b"PAR1")?;
-        
+
         self.file = Some(file);
         self.active_partition = Some(new_partition.to_string());
-        
+
         Ok(())
     }
 
@@ -536,7 +536,7 @@ impl ParquetSink {
         if self.file.is_none() {
             return Ok(());
         }
-        
+
         let rows = self.rows.len() as i64;
         let mut columns = Vec::with_capacity(4);
         let pages = [
@@ -574,7 +574,7 @@ impl ParquetSink {
                 }),
             ),
         ];
-        
+
         let file = self.file.as_mut().unwrap();
         for (path, type_id, body) in pages {
             let header = page_header(body.len() as i32, body.len() as i32, rows as i32);
@@ -849,7 +849,8 @@ mod tests {
             for entry in entries.flatten() {
                 if let Ok(nested) = std::fs::read_dir(entry.path()) {
                     for file_entry in nested.flatten() {
-                        if file_entry.path().extension().and_then(|s| s.to_str()) == Some("parquet") {
+                        if file_entry.path().extension().and_then(|s| s.to_str()) == Some("parquet")
+                        {
                             found_file = Some(file_entry.path());
                             break;
                         }
@@ -858,7 +859,7 @@ mod tests {
             }
         }
         let parquet_file = found_file.expect("partitioned parquet file should exist");
-        
+
         let bytes = fs::read(&parquet_file).unwrap();
         assert_eq!(&bytes[..4], b"PAR1");
         assert_eq!(&bytes[bytes.len() - 4..], b"PAR1");

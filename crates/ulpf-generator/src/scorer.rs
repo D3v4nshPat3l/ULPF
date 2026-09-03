@@ -3,9 +3,9 @@
 //! Automatically runs `ulpf_pack::library::test_pack` against generated packs
 //! to ensure they pass their own fixtures before presenting them to a human analyst.
 
-use ulpf_pack::Pack;
-use ulpf_pack::library::PackTestReport;
 use ulpf_pack::compiled::CompiledPack;
+use ulpf_pack::library::PackTestReport;
+use ulpf_pack::Pack;
 
 pub struct Scorer;
 
