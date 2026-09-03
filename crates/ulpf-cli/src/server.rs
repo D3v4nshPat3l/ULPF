@@ -242,13 +242,21 @@ async fn generate(
     // Probe first so an offline model gives an actionable message rather than
     // a 500 in front of whoever is watching the console.
     if let Err(error) = client.probe().await {
-        return Err(ApiError(
-            StatusCode::SERVICE_UNAVAILABLE,
-            format!(
-                "No local model reachable at {}. Start one, or set ULPF_LLM_ENDPOINT.                  Clustering still works without it. ({error})",
-                client.endpoint()
-            ),
-        ));
+        tracing::warn!("LLM offline ({}). Falling back to deterministic heuristic generator.", error);
+        
+        let raw_log = samples.get(0).cloned().unwrap_or_default();
+        let draft = match ulpf_generator::heuristic::draft_pack(&raw_log) {
+            Ok(d) => d,
+            Err(e) => return Err(ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+        };
+
+        return Ok(Json(json!({
+            "pack_yaml": draft.pack_yaml,
+            "model": draft.model,
+            "fixtures": draft.fixtures,
+            "fixtures_passed": draft.fixtures_passed,
+            "field_accuracy": 0.0,
+        })));
     }
 
     let pack = client

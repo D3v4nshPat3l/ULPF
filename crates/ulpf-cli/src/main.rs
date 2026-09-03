@@ -3,6 +3,7 @@
 mod generator;
 mod integrity_state;
 mod pipeline;
+mod replay;
 mod server;
 mod sinks;
 mod watcher;
@@ -193,6 +194,24 @@ enum Command {
         host: String,
         #[arg(long, short, default_value_t = 8787)]
         port: u16,
+        /// OpenSearch base URL.
+        #[arg(long)]
+        opensearch: Option<String>,
+        /// OpenSearch index used by the bulk sink.
+        #[arg(long, default_value = "ulpf-events")]
+        opensearch_index: String,
+        /// Splunk HEC URL.
+        #[arg(long)]
+        splunk_hec: Option<String>,
+        /// Environment variable containing the Splunk HEC token.
+        #[arg(long, default_value = "ULPF_SPLUNK_HEC_TOKEN")]
+        splunk_token_env: String,
+        /// Write a self-contained Parquet archive.
+        #[arg(long)]
+        parquet: Option<PathBuf>,
+        /// Maximum events held by each remote sink before a request is sent.
+        #[arg(long, default_value_t = 250)]
+        sink_batch_size: usize,
     },
 
     /// Receive real RFC 5424/RFC 3164 syslog datagrams over UDP.
@@ -218,6 +237,19 @@ enum Command {
 
     /// List the built-in decoders a pack may use.
     Decoders,
+
+    /// Replay raw logs over UDP to simulate a device.
+    Replay {
+        /// Source file containing raw logs.
+        #[arg(long)]
+        source: PathBuf,
+        /// Target IP and port (e.g., 127.0.0.1:5514).
+        #[arg(long, default_value = "127.0.0.1:5514")]
+        target: String,
+        /// Events per second.
+        #[arg(long, default_value_t = 10)]
+        eps: u64,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -290,7 +322,27 @@ fn main() -> anyhow::Result<()> {
             chain,
             host,
             port,
-        } => cmd_serve(packs, vault, integrity_dir, &chain, &host, port),
+            opensearch,
+            opensearch_index,
+            splunk_hec,
+            splunk_token_env,
+            parquet,
+            sink_batch_size,
+        } => cmd_serve(
+            packs,
+            vault,
+            integrity_dir,
+            &chain,
+            &host,
+            port,
+            opensearch.as_deref(),
+            &opensearch_index,
+            splunk_hec.as_deref(),
+            &splunk_token_env,
+            parquet.as_deref(),
+            sink_batch_size,
+        ),
+        Command::Replay { source, target, eps } => replay::cmd_replay(&source, &target, eps),
         Command::Listen {
             packs,
             vault,
@@ -532,6 +584,12 @@ fn cmd_serve(
     chain: &str,
     host: &str,
     port: u16,
+    opensearch: Option<&str>,
+    opensearch_index: &str,
+    splunk_hec: Option<&str>,
+    splunk_token_env: &str,
+    parquet: Option<&Path>,
+    sink_batch_size: usize,
 ) -> anyhow::Result<()> {
     let (library, errors) = PackLibrary::load_dir(&packs_dir)
         .with_context(|| format!("loading packs from {}", packs_dir.display()))?;
@@ -574,6 +632,15 @@ fn cmd_serve(
         .enable_all()
         .build()?;
         
+    let mut sinks = sinks::AsyncSinkSet::new(
+        parquet,
+        opensearch,
+        opensearch_index,
+        splunk_hec,
+        splunk_token_env,
+        sink_batch_size,
+    )?;
+
     // Spawn UDP syslog listener on a dedicated thread to avoid blocking async
     let listener_state = state.clone();
     std::thread::spawn(move || {
@@ -609,6 +676,8 @@ fn cmd_serve(
                         st.latest_checkpoint = Some(checkpoint);
                     }
                     
+                    let _ = sinks.write(&processed.event);
+
                     // Add to recent events for the console UI
                     let pack_id = processed.disposition.pack_id().map(|s| s.to_string());
                     let mut disp_label = processed.disposition.label().to_string();
@@ -634,20 +703,25 @@ fn cmd_serve(
         }
     });
 
-    runtime.block_on(async move {
-        let listener = tokio::net::TcpListener::bind((host, port)).await?;
+    runtime.block_on(async {
+        let app = server::router(state.clone());
+        let addr: std::net::SocketAddr = format!("{}:{}", host, port).parse().unwrap();
+        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        
         eprintln!();
         eprintln!(
             "  ULPF console  ·  {pack_count} packs  ·  OCSF {}",
             ulpf_ocsf::SCHEMA_VERSION
         );
-        eprintln!("  http://{host}:{port}");
-        eprintln!("  syslog UDP   ·  0.0.0.0:5514");
-        eprintln!("  trusted key  {}", public_key_path.display());
+        eprintln!("  Listening on http://{host}:{port}");
         eprintln!();
-        axum::serve(listener, server::router(state)).await?;
-        Ok::<_, anyhow::Error>(())
-    })
+
+        axum::serve(listener, app).await.unwrap();
+            
+        Ok::<(), anyhow::Error>(())
+    })?;
+
+    Ok(())
 }
 
 fn cmd_test(packs_dir: PathBuf) -> anyhow::Result<()> {
