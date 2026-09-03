@@ -1,0 +1,99 @@
+# Apache/NCSA combined access log.
+#
+# Written against the Honeynet Project SotM34 web capture; every fixture is an
+# unmodified line from it. The same shape is emitted by nginx, HAProxy and most
+# reverse proxies, so this pack covers the web tier generally.
+#
+# Positional, quoted, no field names, so a regex does the extraction.
+identity:
+  id: apache-access-http
+  vendor: Apache
+  product: HTTP Server
+  log_format: ncsa-combined
+  priority: 30
+  detect:
+    - contains_any: ['] "GET ', '] "POST ', '] "HEAD ', '] "PUT ', '] "DELETE ', '] "OPTIONS ', '] "CONNECT ', '] "PROPFIND ', '] "SEARCH ']
+
+extract:
+  - decoder: regex
+    patterns:
+      # combined: host ident authuser [date] "method path proto" status bytes "referer" "agent"
+      - '^(?P<client>\S+)\s+(?P<ident>\S+)\s+(?P<authuser>\S+)\s+\[(?P<ts>[^\]]+)\]\s+"(?P<method>[A-Z]+)\s+(?P<path>\S*)\s+(?P<httpver>HTTP/[0-9.]+)"\s+(?P<status>\d{3})\s+(?P<bytes>\d+|-)(?:\s+"(?P<referer>[^"]*)"\s+"(?P<agent>[^"]*)")?'
+      # common: same without the referer/agent pair
+      - '^(?P<client>\S+)\s+(?P<ident>\S+)\s+(?P<authuser>\S+)\s+\[(?P<ts>[^\]]+)\]\s+"(?P<method>[A-Z]+)\s+(?P<path>\S*)\s+(?P<httpver>HTTP/[0-9.]+)"\s+(?P<status>\d{3})\s+(?P<bytes>\d+|-)'
+      # Exploit probes routinely omit the protocol entirely:
+      #   "GET /scripts/..%255c../winnt/system32/cmd.exe?/c+dir" 404 1061
+      # Dropping these would lose exactly the traffic worth seeing.
+      - '^(?P<client>\S+)\s+(?P<ident>\S+)\s+(?P<authuser>\S+)\s+\[(?P<ts>[^\]]+)\]\s+"(?P<method>[A-Z]+)\s+(?P<path>[^"]*)"\s+(?P<status>\d{3})\s+(?P<bytes>\d+|-)(?:\s+"(?P<referer>[^"]*)"\s+"(?P<agent>[^"]*)")?'
+
+map:
+  class_uid: 4002                      # HTTP Activity
+  activity_id:
+    from: method
+    enum: http_method
+    default: 99
+  severity_id:
+    from: status
+    enum: http_severity
+    default: 1
+  time:
+    from: ts
+    format: clf
+  src_endpoint.ip:
+    from: client
+    observable: ip
+  http_request.http_method:
+    from: method
+  http_request.url.path:
+    from: path
+  http_request.version:
+    from: httpver
+  http_request.referrer:
+    from: referer
+  http_request.user_agent:
+    from: agent
+  http_response.code:
+    from: status
+    as: int
+  http_response.length:
+    from: bytes
+    as: int
+  actor.user.name:
+    from: authuser
+    observable: user
+
+enums:
+  # OCSF HTTP Activity activity_id.
+  http_method:
+    GET: 1
+    POST: 2
+    PUT: 3
+    DELETE: 4
+    HEAD: 5
+    CONNECT: 6
+    OPTIONS: 7
+    TRACE: 8
+  # 4xx and 5xx are worth more attention than a 200.
+  http_severity:
+    "200": 1
+    "301": 1
+    "302": 1
+    "304": 1
+    "400": 2
+    "401": 3
+    "403": 3
+    "404": 2
+    "500": 4
+    "503": 3
+
+fixtures:
+  - note: Real SotM34 line - FrontPage exploit probe, combined format.
+    raw: '210.116.59.164 - - [13/Mar/2005:04:05:47 -0500] "POST /_vti_bin/_vti_aut/fp30reg.dll HTTP/1.1" 404 1063 "-" "-"'
+    expect:
+      class_uid: 4002
+      activity_id: 2
+      src_endpoint.ip: 210.116.59.164
+      http_request.http_method: POST
+      http_request.url.path: /_vti_bin/_vti_aut/fp30reg.dll
+      http_response.code: 404
+      http_response.length: 1063
