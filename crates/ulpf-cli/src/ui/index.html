@@ -1,1025 +1,966 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ULPF Console</title>
-    <style>
-    :root {
-      /* Light Theme (Wazuh Default) */
-      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      --page: #f5f7fa;
-      --surface: #ffffff;
-      --surface-alt: #f7f9fc;
-      --surface-sunken: #eef2f7;
-      --nav: #1a2634;
-      --nav-hover: #243346;
-      --nav-active: #0d1b2a;
-      --nav-text: #c5cfdb;
-      --nav-text-strong: #ffffff;
-      --border: #d3dae6;
-      --border-strong: #b6c0ce;
-      --text: #2f3841;
-      --text-muted: #69707d;
-      --text-faint: #98a2b3;
-      --primary: #006bb4;
-      --primary-hover: #00589a;
-      --primary-soft: #e6f1f8;
-      --critical: #8c1d18;
-      --high: #bd271e;
-      --medium: #c98a00;
-      --low: #0a7bbd;
-      --info: #69707d;
-      --success: #017d73;
-      --success-soft: #e6f2f1;
-      --danger-soft: #fbeceb;
-      --warning-soft: #fdf6e3;
-      --radius: 6px;
-      --shadow: 0 2px 4px rgba(23,35,51,.06);
+<!--
+  ULPF operator console.
+
+  Everything here is served from the binary via `include_str!` — no CDN, no web
+  font, no build step — because requirement (j) means this has to work on a host
+  with no route off the machine. Fonts fall back to the platform UI stack.
+
+  Layout follows the Wazuh/OUI convention an analyst already knows: a dark fixed
+  navigation rail, a breadcrumb bar carrying global state, and panelled content
+  with dense tables. State lives in one `refresh()` poll; every fetch checks
+  `res.ok` before it reports success.
+-->
+<title>ULPF Console</title>
+<style>
+  :root{
+    --nav:#1D1E24; --nav-hover:#2B2D35; --nav-text:#98A2B3; --nav-active:#FFFFFF;
+    --page:#F7F8FC; --panel:#FFFFFF; --sunken:#F1F4FA; --border:#D3DAE6;
+    --text:#1A1C21; --text-2:#535966; --text-3:#7E8494;
+    --primary:#006BB4; --primary-soft:#E6F0F8;
+    --success:#00786B; --success-soft:#E0F2F0;
+    --warning:#8A6100; --warning-soft:#FDF3DC;
+    --danger:#BD271E; --danger-soft:#F8E7E6;
+    --shadow:0 1px 3px rgba(29,30,36,.08);
+    --radius:4px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --nav:#111216; --nav-hover:#22242C; --nav-text:#8C93A5; --nav-active:#FFFFFF;
+      --page:#141519; --panel:#1D1E24; --sunken:#25262E; --border:#343741;
+      --text:#DFE5EF; --text-2:#AEB6C4; --text-3:#81858F;
+      --primary:#36A2EF; --primary-soft:#0E2B40;
+      --success:#7DDED4; --success-soft:#10312E;
+      --warning:#F5C452; --warning-soft:#33280C;
+      --danger:#F0837C; --danger-soft:#3A1B19;
+      --shadow:0 1px 3px rgba(0,0,0,.4);
     }
-    
-    [data-theme="dark"] {
-      --page: #0b1120;
-      --surface: #1e293b;
-      --surface-alt: #0f172a;
-      --surface-sunken: #0b1120;
-      --nav: #0f172a;
-      --nav-hover: #1e293b;
-      --nav-active: #334155;
-      --nav-text: #94a3b8;
-      --nav-text-strong: #f8fafc;
-      --border: #334155;
-      --border-strong: #475569;
-      --text: #f8fafc;
-      --text-muted: #cbd5e1;
-      --text-faint: #64748b;
-      --primary: #0ea5e9;
-      --primary-hover: #38bdf8;
-      --primary-soft: rgba(14, 165, 233, 0.15);
-      --critical: #ef4444;
-      --high: #f87171;
-      --medium: #fbbf24;
-      --low: #60a5fa;
-      --info: #94a3b8;
-      --success: #10b981;
-      --success-soft: rgba(16, 185, 129, 0.1);
-      --danger-soft: rgba(239, 68, 68, 0.1);
-      --warning-soft: rgba(251, 191, 36, 0.1);
-      --shadow: 0 4px 12px rgba(0,0,0,0.3);
-    }
+  }
+  :root[data-theme="dark"]{
+    --nav:#111216; --nav-hover:#22242C; --nav-text:#8C93A5; --nav-active:#FFFFFF;
+    --page:#141519; --panel:#1D1E24; --sunken:#25262E; --border:#343741;
+    --text:#DFE5EF; --text-2:#AEB6C4; --text-3:#81858F;
+    --primary:#36A2EF; --primary-soft:#0E2B40;
+    --success:#7DDED4; --success-soft:#10312E;
+    --warning:#F5C452; --warning-soft:#33280C;
+    --danger:#F0837C; --danger-soft:#3A1B19;
+    --shadow:0 1px 3px rgba(0,0,0,.4);
+  }
 
-    * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; background: var(--page); color: var(--text); font: 400 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
-    button, input, textarea, select { font: inherit; color: inherit; }
-    a { color: var(--primary); }
-    h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
-    code, pre, .mono { font-family: var(--mono); }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--page);color:var(--text);
+    font:400 14px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
 
-    /* Top Navigation Refactor */
-    .app { min-height: 100vh; display: flex; flex-direction: column; }
-    .top-nav { display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 60px; background: var(--nav); color: var(--nav-text); position: sticky; top: 0; z-index: 50; box-shadow: var(--shadow); }
-    
-    .top-brand { display: flex; align-items: center; gap: 12px; }
-    .top-brand .logo { width: 32px; height: 32px; display: grid; place-items: center; background: var(--primary); border-radius: var(--radius); color: #fff; font: 700 16px var(--mono); }
-    .top-brand b { color: var(--nav-text-strong); font-size: 16px; font-weight: 600; letter-spacing: .02em; }
-    
-    .top-menu { display: flex; height: 100%; align-items: center; margin-left: 32px; gap: 4px; }
-    .top-menu button { height: 100%; padding: 0 16px; border: none; background: transparent; color: var(--nav-text); font-size: 13px; font-weight: 500; cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.2s; display: flex; align-items: center; gap: 8px; }
-    .top-menu button:hover { color: var(--nav-text-strong); background: rgba(255,255,255,0.05); }
-    .top-menu button.active { color: var(--nav-text-strong); border-bottom-color: var(--primary); }
-    .top-menu .tally { min-width: 20px; padding: 2px 6px; border-radius: 12px; background: var(--high); color: #fff; font: 600 11px var(--mono); }
-    .top-menu .tally.neutral { background: rgba(255,255,255,0.2); }
-    
-    .top-controls { display: flex; align-items: center; gap: 16px; margin-left: auto; }
-    .theme-toggle { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: var(--nav-text); width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: grid; place-items: center; transition: all 0.2s; }
-    .theme-toggle:hover { background: rgba(255,255,255,0.1); color: #fff; }
-    
-    .conn { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; }
-    .conn i { width: 8px; height: 8px; border-radius: 50%; background: #6b7787; }
-    .conn.up i { background: #54b399; box-shadow: 0 0 8px #54b399; }
-    
-    .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-    .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 16px 32px; background: var(--surface); border-bottom: 1px solid var(--border); }
-    .topbar h1 { font-size: 22px; }
-    .topbar .crumb { color: var(--text-muted); font: 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
-    .topbar-actions { margin-left: auto; display: flex; gap: 8px; }
+  /* ------------------------------------------------- navigation rail */
+  .shell{display:flex;min-height:100vh}
+  nav.rail{
+    width:224px;flex:0 0 224px;background:var(--nav);color:var(--nav-text);
+    display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+  }
+  .brand{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.07)}
+  .brand .mark{
+    width:28px;height:28px;border-radius:var(--radius);background:var(--primary);
+    display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px;flex:0 0 28px;
+  }
+  .brand b{color:#fff;font-size:14px;letter-spacing:.2px}
+  .brand small{display:block;font-size:10.5px;color:var(--nav-text);letter-spacing:.06em;text-transform:uppercase}
+  .navgroup{padding:14px 0 4px}
+  .navgroup h6{
+    margin:0 0 6px;padding:0 18px;font-size:10px;letter-spacing:.13em;
+    text-transform:uppercase;color:#5F6675;font-weight:600;
+  }
+  .rail button.navitem{
+    display:flex;align-items:center;gap:11px;width:100%;padding:9px 18px;
+    background:none;border:0;border-left:3px solid transparent;color:var(--nav-text);
+    font:500 13.5px/1.3 inherit;cursor:pointer;text-align:left;
+  }
+  .rail button.navitem:hover{background:var(--nav-hover);color:#D6DBE4}
+  .rail button.navitem[aria-current="page"]{background:var(--nav-hover);color:var(--nav-active);border-left-color:var(--primary)}
+  .rail button.navitem svg{flex:0 0 16px;opacity:.85}
+  .navitem .tally{
+    margin-left:auto;font:500 11px/1 "JetBrains Mono",monospace;
+    background:rgba(255,255,255,.09);color:#C6CCD8;padding:3px 6px;border-radius:9px;
+  }
+  .rail .foot{margin-top:auto;padding:14px 18px;border-top:1px solid rgba(255,255,255,.07);font-size:11px;color:#5F6675}
 
-    .content { padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 20px; max-width: 1600px; margin: 0 auto; width: 100%; }
+  /* ------------------------------------------------- top bar + content */
+  main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{
+    display:flex;align-items:center;gap:16px;padding:0 24px;height:52px;
+    background:var(--panel);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20;
+  }
+  .crumb{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);font-weight:600}
+  .crumb b{color:var(--text-2)}
+  .topbar .spacer{flex:1}
+  .pill{
+    display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:12px;
+    font:600 11px/1.35 inherit;white-space:nowrap;
+  }
+  .pill i{width:7px;height:7px;border-radius:50%;background:currentColor;display:block}
+  .pill.ok{background:var(--success-soft);color:var(--success)}
+  .pill.warn{background:var(--warning-soft);color:var(--warning)}
+  .pill.bad{background:var(--danger-soft);color:var(--danger)}
+  .pill.neutral{background:var(--sunken);color:var(--text-2)}
+  .pill.info{background:var(--primary-soft);color:var(--primary)}
 
-    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 16px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
-    .btn:hover:not(:disabled) { background: var(--surface-sunken); border-color: var(--primary); }
-    .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
-    .btn.primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); box-shadow: 0 4px 12px var(--primary-soft); }
-    .btn.danger { border-color: var(--high); color: var(--high); }
-    .btn.danger:hover:not(:disabled) { background: var(--danger-soft); }
-    .btn.approve { background: var(--success); border-color: var(--success); color: #fff; }
-    .btn.approve:hover:not(:disabled) { background: #016b62; border-color: #016b62; }
-    .btn.sm { padding: 5px 12px; font-size: 12px; }
-    .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .content{padding:22px 24px 56px;max-width:1500px;width:100%}
+  .view{display:none}
+  .view.active{display:block}
+  .pagehead{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+  .pagehead h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-.2px}
+  .pagehead p{margin:3px 0 0;color:var(--text-2);font-size:13px;max-width:72ch}
+  .pagehead .actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
 
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
-    .card-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--surface-alt); }
-    .card-head h2 { font-size: 15px; font-weight: 600; color: var(--text); }
-    .card-head .sub { color: var(--text-muted); font-size: 13px; }
-    .card-head .spacer { margin-left: auto; }
-    .card-body { padding: 20px; }
-    .card-body.flush { padding: 0; }
-    
-    .grid-2 { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 20px; align-items: start; }
-    
-    .stat-row { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 16px; }
-    .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 6px; }
-    .stat .label { color: var(--text-muted); font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
-    .stat .value { font: 700 28px/1.2 var(--sans); color: var(--text); font-variant-numeric: tabular-nums; }
-    .stat .note { color: var(--text-faint); font-size: 12px; font-family: var(--mono); }
-    .stat.alert .value { color: var(--high); }
-    .stat.ok .value { color: var(--success); }
+  /* ------------------------------------------------- panels & controls */
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .panel-head{
+    display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);
+  }
+  .panel-head h2{margin:0;font-size:14px;font-weight:600}
+  .panel-head .sub{font-size:12px;color:var(--text-3)}
+  .panel-head .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .panel-body{padding:16px}
 
-    .table-wrap { overflow: auto; max-height: 65vh; }
-    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    th { height: 40px; padding: 0 20px; color: var(--text-muted); background: var(--surface-alt); border-bottom: 1px solid var(--border); font: 600 11px var(--mono); text-align: left; text-transform: uppercase; letter-spacing: .08em; position: sticky; top: 0; z-index: 2; }
-    td { height: 56px; padding: 10px 20px; border-bottom: 1px solid var(--border); color: var(--text); font-size: 13px; }
-    tbody tr:hover { background: var(--surface-sunken); cursor: pointer; }
-    tbody tr:last-child td { border-bottom: 0; }
-    .td-primary { font-weight: 600; color: var(--text); }
-    .td-sub { display: block; margin-top: 4px; color: var(--text-faint); font-size: 11px; font-family: var(--mono); }
-    
-    .chat-box { height: 400px; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; background: var(--surface-alt); border-radius: var(--radius); border: 1px solid var(--border); }
-    .msg { display: flex; flex-direction: column; max-width: 85%; }
-    .msg.user { align-self: flex-end; align-items: flex-end; }
-    .msg.assistant { align-self: flex-start; }
-    .msg-bubble { padding: 12px 16px; border-radius: 8px; font-size: 14px; line-height: 1.5; box-shadow: var(--shadow); }
-    .msg.user .msg-bubble { background: var(--primary); color: #fff; border-bottom-right-radius: 2px; }
-    .msg.assistant .msg-bubble { background: var(--surface); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 2px; }
-    
-    .view-section { display: none; }
-    .view-section.active { display: flex; flex-direction: column; gap: 20px; animation: fadeIn 0.3s ease; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+  .btn{
+    display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:var(--radius);
+    border:1px solid var(--border);background:var(--panel);color:var(--text);
+    font:600 12.5px/1.35 inherit;cursor:pointer;
+  }
+  .btn:hover:not(:disabled){background:var(--sunken)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+  .btn.primary:hover:not(:disabled){filter:brightness(1.08)}
+  .btn.danger{background:var(--danger);border-color:var(--danger);color:#fff}
+  .btn.danger:hover:not(:disabled){filter:brightness(1.08)}
+  .btn.sm{padding:5px 9px;font-size:11.5px}
+  .btn:focus-visible,.navitem:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{
+    outline:2px solid var(--primary);outline-offset:1px
+  }
+  input,textarea,select{
+    background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+    color:var(--text);padding:7px 9px;font:400 13px/1.4 inherit;
+  }
+  input.mono,textarea.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12.5px}
+  label.field{display:flex;flex-direction:column;gap:5px;font:600 11px/1 inherit;color:var(--text-3);text-transform:uppercase;letter-spacing:.08em}
+  label.field input,label.field select{text-transform:none;letter-spacing:0;font-weight:400}
 
-    /* Glassmorphism Drawer */
-    .drawer-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity .2s ease; z-index: 100; backdrop-filter: blur(4px); }
-    .drawer-backdrop.open { opacity: 1; pointer-events: auto; }
-    .drawer { position: fixed; right: 0; top: 0; width: min(700px, 50vw); height: 100vh; transform: translateX(100%); transition: transform .3s cubic-bezier(0.16, 1, 0.3, 1); background: var(--surface); border-left: 1px solid var(--border); box-shadow: -8px 0 32px rgba(0,0,0,.2); z-index: 101; display: flex; flex-direction: column; }
-    .drawer.open { transform: translateX(0); }
-    .drawer-head { min-height: 72px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); background: var(--surface-alt); }
-    .drawer-head h3 { margin: 0; font-size: 18px; font-weight: 600; }
-    .close { width: 36px; height: 36px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 50%; color: var(--text-muted); cursor: pointer; font-size: 18px; display: grid; place-items: center; transition: all 0.2s; }
-    .close:hover { background: var(--danger-soft); color: var(--high); border-color: var(--high); }
-    .drawer-body { flex: 1; overflow: auto; padding: 24px; }
-    
-    .proof-box { background: var(--surface-alt); border: 1px solid var(--border); padding: 20px; border-radius: var(--radius); margin-bottom: 20px; font-family: var(--mono); font-size: 12px; line-height: 1.6; word-break: break-all; }
-    .proof-box strong { color: var(--primary); display: block; margin-bottom: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; }
-  </style>
-</head>
-<body>
+  /* ------------------------------------------------- stat row */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:12px;margin-bottom:16px}
+  .stat{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow)}
+  .stat .k{font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--text-3);font-weight:600}
+  .stat .v{font:600 26px/1.15 "JetBrains Mono",monospace;font-variant-numeric:tabular-nums;margin-top:7px;letter-spacing:-.5px}
+  .stat .n{font-size:11.5px;color:var(--text-3);margin-top:3px}
+  .stat.accent .v{color:var(--primary)}
+  .stat.good .v{color:var(--success)}
+  .stat.warn .v{color:var(--warning)}
 
-<div class="app">
-  <header class="top-nav">
-    <div class="top-brand">
-      <div class="logo">U</div>
-      <b>ULPF Console</b>
+  /* ------------------------------------------------- tables */
+  .tablewrap{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  thead th{
+    position:sticky;top:0;background:var(--sunken);text-align:left;
+    font:600 10.5px/1 inherit;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);
+    padding:9px 12px;border-bottom:1px solid var(--border);white-space:nowrap;z-index:1;
+  }
+  tbody td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:middle;color:var(--text-2)}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr.clickable{cursor:pointer}
+  tbody tr.clickable:hover td{background:var(--sunken)}
+  td.mono,th.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;font-variant-numeric:tabular-nums}
+  td.num{text-align:right;font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+  th.num{text-align:right}
+  .empty{padding:34px 16px;text-align:center;color:var(--text-3);font-size:13px}
+
+  /* ------------------------------------------------- misc blocks */
+  .codebox{
+    background:var(--sunken);border:1px solid var(--border);border-radius:var(--radius);
+    padding:12px 14px;font:400 12px/1.65 "JetBrains Mono",ui-monospace,monospace;
+    color:var(--text-2);overflow:auto;max-height:340px;white-space:pre-wrap;word-break:break-word;margin:0;
+  }
+  .callout{border-left:3px solid var(--c);background:var(--cs);padding:11px 14px;border-radius:0 var(--radius) var(--radius) 0;font-size:13px;color:var(--text-2)}
+  .callout.ok{--c:var(--success);--cs:var(--success-soft)}
+  .callout.bad{--c:var(--danger);--cs:var(--danger-soft)}
+  .callout.info{--c:var(--primary);--cs:var(--primary-soft)}
+  .callout.warn{--c:var(--warning);--cs:var(--warning-soft)}
+  .callout b{color:var(--text)}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+  .rowline{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+
+  /* ------------------------------------------------- drawer */
+  .backdrop{position:fixed;inset:0;background:rgba(20,21,25,.45);display:none;z-index:40}
+  .backdrop.open{display:block}
+  .drawer{
+    position:fixed;top:0;right:0;height:100vh;width:min(680px,94vw);background:var(--panel);
+    border-left:1px solid var(--border);transform:translateX(100%);transition:transform .18s ease;
+    z-index:41;display:flex;flex-direction:column;
+  }
+  .drawer.open{transform:none}
+  .drawer-head{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border)}
+  .drawer-head h3{margin:0;font-size:15px;font-weight:600}
+  .drawer-body{padding:18px;overflow:auto;display:flex;flex-direction:column;gap:16px}
+  .drawer-body h4{margin:0 0 7px;font:600 10.5px/1 inherit;letter-spacing:.11em;text-transform:uppercase;color:var(--text-3)}
+
+  /* ------------------------------------------------- chat */
+  .chat{display:flex;flex-direction:column;gap:11px;min-height:300px;max-height:52vh;overflow:auto;padding:2px}
+  .msg{max-width:82%;padding:10px 13px;border-radius:var(--radius);font-size:13.5px;white-space:pre-wrap;word-break:break-word}
+  .msg.user{align-self:flex-end;background:var(--primary);color:#fff}
+  .msg.bot{align-self:flex-start;background:var(--sunken);border:1px solid var(--border);color:var(--text-2)}
+  .msg.err{align-self:flex-start;background:var(--danger-soft);border:1px solid var(--danger);color:var(--danger)}
+
+  @media (max-width:860px){
+    nav.rail{position:fixed;left:0;top:0;z-index:50;transform:translateX(-100%);transition:transform .18s}
+    nav.rail.open{transform:none}
+    .content{padding:16px 14px 48px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="shell">
+  <nav class="rail" id="rail">
+    <div class="brand">
+      <div class="mark">U</div>
+      <div><b>ULPF</b><small>OCSF <span id="schema-ver">1.9.0</span></small></div>
     </div>
-    
-    <nav class="top-menu" id="main-nav">
-      <button data-view="overview" class="active">
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg> Overview
-      </button>
-      <button data-view="clusters">
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg> Unparsed Clusters
-      </button>
-      <button data-view="copilot">
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg> Assistant
-      </button>
-      <button data-view="findings">
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg> Source Packs <span class="tally neutral" id="pack-count">0</span>
-      </button>
-      <button data-view="integrity">
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg> Integrity Vault
-      </button>
-    </nav>
-    
-    <div class="top-controls">
-      <button class="theme-toggle" id="theme-btn" onclick="toggleTheme()">
-        <svg id="theme-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
-      </button>
-      <div class="conn up"><i></i> <span id="status-text">Engine online</span></div>
-    </div>
-  </header>
 
-  <main class="main">
+    <div class="navgroup">
+      <h6>Monitoring</h6>
+      <button class="navitem" data-view="overview" aria-current="page">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+        Overview
+      </button>
+      <button class="navitem" data-view="events">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+        Events <span class="tally" id="tally-events">0</span>
+      </button>
+    </div>
+
+    <div class="navgroup">
+      <h6>Onboarding</h6>
+      <button class="navitem" data-view="clusters">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M8.5 7.5 11 15m4.5-7.5L13 15"/></svg>
+        Needs a pack <span class="tally" id="tally-clusters">0</span>
+      </button>
+      <button class="navitem" data-view="packs">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8l-9-5-9 5v8l9 5 9-5zM3.3 7.3 12 12l8.7-4.7M12 22V12"/></svg>
+        Source Packs <span class="tally" id="tally-packs">0</span>
+      </button>
+    </div>
+
+    <div class="navgroup">
+      <h6>Assurance</h6>
+      <button class="navitem" data-view="integrity">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+        Integrity
+      </button>
+      <button class="navitem" data-view="assistant">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Assistant
+      </button>
+    </div>
+
+    <div class="foot">
+      <a href="/dev" style="color:var(--nav-text)">Traffic simulator &rarr;</a>
+    </div>
+  </nav>
+
+  <main>
     <div class="topbar">
-      <div>
-        <div class="crumb" id="top-crumb">MAIN / OVERVIEW</div>
-        <h1 id="top-title">Overview</h1>
-      </div>
-      <div class="topbar-actions">
-        <button class="btn" onclick="clearData()">Reset Stats</button>
-      </div>
+      <div class="crumb">ULPF / <b id="crumb">OVERVIEW</b></div>
+      <div class="spacer"></div>
+      <span class="pill neutral" id="chain-pill" title="Signed checkpoint state"><i></i> chain idle</span>
+      <span class="pill ok" id="engine-pill"><i></i> Engine online</span>
+      <button class="btn sm" id="theme-btn" type="button" title="Toggle light and dark">Theme</button>
     </div>
 
     <div class="content">
-      
-      <!-- OVERVIEW VIEW -->
-      <div class="view-section active" id="view-overview">
-        <div class="stat-row">
-          <div class="stat">
-            <span class="label">Events Received</span>
-            <span class="value" id="st-recv">0</span>
-            <span class="note">total volume processed</span>
+
+      <!-- ============================================ OVERVIEW -->
+      <section class="view active" id="view-overview">
+        <div class="pagehead">
+          <div>
+            <h1>Overview</h1>
+            <p>Live normalization across every connected source. Counters are cumulative for this collector; the table is the most recent 500 events.</p>
           </div>
-          <div class="stat ok">
-            <span class="label">Normalized (OCSF)</span>
-            <span class="value" id="st-norm">0</span>
-            <span class="note" id="st-cov">0.00% coverage</span>
-          </div>
-          <div class="stat alert">
-            <span class="label">Needs a Pack</span>
-            <span class="value" id="st-unid">0</span>
-            <span class="note">retained, unidentified format</span>
-          </div>
-          <div class="stat">
-            <span class="label">Vaulted Bytes</span>
-            <span class="value" id="st-bytes">0 B</span>
-            <span class="note">tamper-evident store</span>
-          </div>
-          <div class="stat ok">
-            <span class="label">Chain Checkpoint</span>
-            <span class="value" id="st-seq">0</span>
-            <span class="note">Ed25519</span>
+          <div class="actions">
+            <button class="btn" type="button" id="btn-clear">Clear view</button>
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-head">
-            <h2>Real-time Pipeline</h2>
-            <div class="sub">Latest processed events</div>
-          </div>
-          <div class="card-body flush">
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th style="width:140px">Timestamp</th>
-                    <th>Source IPv4</th>
-                    <th>Destination IPv4</th>
-                    <th>Activity</th>
-                    <th>Format / Disposition</th>
-                  </tr>
-                </thead>
-                <tbody id="events-body">
-                  <tr><td colspan="5" style="text-align:center;color:var(--text-faint)">No events yet. Start the simulator.</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- CLUSTERS VIEW -->
-      <div class="view-section" id="view-clusters">
-        <div class="card">
-          <div class="card-head">
-            <h2>Unparsed Clusters</h2>
-            <div class="sub">Dead-letter queue ranked by volume. Select a template to draft a parser.</div>
-          </div>
-          <div class="card-body flush">
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th style="width: 140px;">Cluster ID</th>
-                    <th style="width: 100px;">Volume</th>
-                    <th>Template</th>
-                    <th style="width: 250px; text-align: right;">Action</th>
-                  </tr>
-                </thead>
-                <tbody id="clusters-body">
-                  <tr><td colspan="4" style="text-align:center;color:var(--text-faint)">No unparsed clusters found.</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
+        <div class="stats">
+          <div class="stat"><div class="k">Events received</div><div class="v" id="st-recv">0</div><div class="n" id="st-rate">awaiting traffic</div></div>
+          <div class="stat good"><div class="k">Normalized to OCSF</div><div class="v" id="st-parsed">0</div><div class="n" id="st-cov">0.0000% coverage</div></div>
+          <div class="stat warn"><div class="k">Needs a pack</div><div class="v" id="st-unid">0</div><div class="n" id="st-unid-note">no unparsed records</div></div>
+          <div class="stat"><div class="k">Vaulted</div><div class="v" id="st-bytes">0 B</div><div class="n">append-only, before parsing</div></div>
+          <div class="stat accent"><div class="k">Chain sequence</div><div class="v" id="st-seq">0</div><div class="n" id="st-chain">no checkpoint yet</div></div>
         </div>
 
-        <div class="card" id="review-pane" style="display: none;">
-          <div class="card-head">
-            <h2>Draft Parser Review</h2>
-            <div class="sub" id="review-sub">Evaluating candidate pack...</div>
-            <div class="spacer"></div>
-            <button class="btn approve sm" id="btn-approve" onclick="approvePack()" style="display:none;">Approve and Deploy</button>
-          </div>
-          <div class="card-body">
-            <div class="stat-row" style="margin-bottom: 16px;">
-               <div class="stat">
-                 <span class="label">Test Fixtures</span>
-                 <span class="value" id="rev-fixtures">0/0</span>
-               </div>
-               <div class="stat">
-                 <span class="label">Field Accuracy</span>
-                 <span class="value" id="rev-accuracy">0%</span>
-               </div>
-            </div>
-            <div class="proof-box" style="margin-bottom: 0;">
-              <strong>Drafted YAML</strong>
-              <pre id="rev-yaml" style="background:none; border:none; padding:0; margin:0; white-space: pre-wrap; font-size: 12px;"></pre>
-            </div>
-          </div>
-        </div>
-      </div>
-      <!-- INTEGRITY VIEW -->
-      <div class="view-section" id="view-integrity">
-         <div class="card">
-          <div class="card-head">
-            <h2>Cryptographic Vault</h2>
-            <div class="sub">Verify the Ed25519 hash chain of all vaulted events.</div>
-          </div>
-          <div class="card-body">
-            <button class="btn primary" onclick="verifyVault()">Run Full Attestation Verification</button>
-            <button class="btn danger" onclick="tamperVault()" style="margin-left:8px;">Simulate Database Tampering</button>
-            
-            <div id="verify-output" class="proof-box" style="margin-top:24px; min-height:100px; display:none;">
-            </div>
-          </div>
-        </div>
-      </div>
-
-       <!-- PACKS VIEW -->
-       <div class="view-section" id="view-copilot">
         <div class="panel">
           <div class="panel-head">
-            <h2>Assistant</h2>
-            <span class="panel-sub">Ask about this collector, or paste a device log.</span>
+            <h2>Live events</h2>
+            <span class="sub" id="ev-sub">newest first</span>
+            <div class="right"><span class="pill info" id="ev-count">0 shown</span></div>
           </div>
-          <div class="panel-body">
-            <div id="chat-history" style="min-height:320px; max-height:52vh; overflow:auto; display:flex; flex-direction:column; gap:12px; padding:4px 2px 12px;">
-              <div class="msg assistant">
-                <div class="msg-bubble">Ask me anything about this collector &mdash; what a log line means, why something is not parsing, or which OCSF field a value maps to. I can see the loaded packs, current coverage, the unparsed clusters and the most recent events. Paste a device log and I will offer to draft a Source Pack for it.</div>
+          <div class="tablewrap">
+            <table>
+              <thead><tr>
+                <th>Time</th><th>Vendor / product</th><th>Class</th>
+                <th>Source</th><th>Destination</th><th>Pack</th><th>Status</th>
+              </tr></thead>
+              <tbody id="events-body"><tr><td colspan="7" class="empty">No events yet. Open the traffic simulator, or point a device at the syslog receiver.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================ EVENTS -->
+      <section class="view" id="view-events">
+        <div class="pagehead">
+          <div>
+            <h1>Event inspector</h1>
+            <p>Paste raw log lines to run them through the real pipeline &mdash; the same vault, packs, mapping and attestation the collector uses. Nothing here is simulated.</p>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div class="panel">
+            <div class="panel-head"><h2>Ingest raw lines</h2><span class="sub">one record per line</span></div>
+            <div class="panel-body">
+              <textarea id="ingest-text" class="mono" rows="9" style="width:100%" placeholder="&lt;134&gt;date=2026-08-31 devname=&quot;FGT-01&quot; type=traffic srcip=10.2.4.7 dstip=8.8.8.8 action=accept"></textarea>
+              <div class="rowline" style="margin-top:10px">
+                <button class="btn primary" type="button" id="btn-ingest">Normalize</button>
+                <span class="pill neutral" id="ingest-status" hidden></span>
               </div>
             </div>
-            <div style="display:flex; gap:8px; margin-top:8px;">
-              <textarea id="copilot-input" rows="2" style="flex:1; padding:12px; border:1px solid var(--border); border-radius:var(--radius); font:12px var(--mono);" placeholder="Ask a question, or paste a log line...  (Enter to send, Shift+Enter for a new line)"></textarea>
-              <button class="btn primary" id="btn-send-chat" onclick="sendChat()">Send</button>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>Result</h2><span class="sub">pack, extracted fields, OCSF event</span></div>
+            <div class="panel-body"><pre class="codebox" id="ingest-result">Run a line to see which pack claimed it, what the decoder chain extracted, and the OCSF event that came out.</pre></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================ CLUSTERS -->
+      <section class="view" id="view-clusters">
+        <div class="pagehead">
+          <div>
+            <h1>Records needing a pack</h1>
+            <p>Unparsed records grouped into templates, highest volume first. Every one is still vaulted, fingerprinted and emitted as valid OCSF &mdash; "needs a pack" is a routing state, never data loss.</p>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head"><h2>Templates</h2><span class="sub" id="cl-overflow"></span></div>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Cluster</th><th class="num">Records</th><th>Template</th><th>Draft a pack</th></tr></thead>
+              <tbody id="clusters-body"><tr><td colspan="4" class="empty">No unparsed records. Every event so far was claimed by a pack.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel" id="review-pane" hidden>
+          <div class="panel-head">
+            <h2>Candidate pack</h2>
+            <span class="sub" id="review-sub"></span>
+            <div class="right">
+              <span class="pill neutral" id="rev-fixtures">0/0 fixtures</span>
+              <span class="pill neutral" id="rev-accuracy">0% fields</span>
+              <button class="btn primary sm" type="button" id="btn-approve" hidden>Approve and deploy</button>
+            </div>
+          </div>
+          <div class="panel-body" style="display:flex;flex-direction:column;gap:12px">
+            <div class="callout warn">
+              Scores are measured against fixtures built from these same samples, so they show the draft is self-consistent &mdash; not that it generalizes to the rest of the device's traffic. Read the detectors before approving.
+            </div>
+            <pre class="codebox" id="rev-yaml"></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================ PACKS -->
+      <section class="view" id="view-packs">
+        <div class="pagehead">
+          <div>
+            <h1>Source Packs</h1>
+            <p>Declarative YAML in the packs directory, compiled at load and hot-reloaded on change. A pack that cannot parse its own fixtures does not reach this list.</p>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Installed</h2><span class="sub" id="packs-sub"></span></div>
+          <div class="tablewrap">
+            <table>
+              <thead><tr>
+                <th>Pack</th><th>Vendor</th><th>Product</th><th>Decoder chain</th>
+                <th class="num">Priority</th><th class="num">Mapped</th><th>Fixtures</th><th class="num">Claimed</th>
+              </tr></thead>
+              <tbody id="packs-body"><tr><td colspan="8" class="empty">Loading&hellip;</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================ INTEGRITY -->
+      <section class="view" id="view-integrity">
+        <div class="pagehead">
+          <div>
+            <h1>Integrity</h1>
+            <p>Every event carries a fingerprint over its own canonical form plus a link to its predecessor, and the chain is anchored by Ed25519-signed checkpoints. Verification re-hashes the retained window and walks the links.</p>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div class="panel">
+            <div class="panel-head"><h2>Verify the chain</h2></div>
+            <div class="panel-body" style="display:flex;flex-direction:column;gap:12px">
+              <p style="margin:0;color:var(--text-2);font-size:13px">
+                Recomputes each event's fingerprint from its content and checks that every
+                <span class="mono">prev_event</span> link matches the event before it.
+              </p>
+              <div><button class="btn primary" type="button" id="btn-verify">Run verification</button></div>
+              <div id="verify-out"></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h2>Tamper test</h2><span class="sub">alters the retained copy only</span></div>
+            <div class="panel-body" style="display:flex;flex-direction:column;gap:12px">
+              <p style="margin:0;color:var(--text-2);font-size:13px">
+                Rewrites one attribute on one retained event, then verify again. The vault is
+                append-only and is not touched, so the original bytes stay retrievable and
+                provably different from the altered event.
+              </p>
+              <div class="rowline">
+                <label class="field" style="flex:0 0 92px">Event
+                  <input id="tamper-index" class="mono" type="number" min="0" value="0" title="Row number in the events table, newest first">
+                </label>
+                <label class="field" style="flex:1 1 170px">Attribute
+                  <input id="tamper-path" class="mono" value="src_endpoint.ip">
+                </label>
+                <label class="field" style="flex:1 1 150px">New value
+                  <input id="tamper-value" class="mono" value="203.0.113.66">
+                </label>
+              </div>
+              <div><button class="btn danger" type="button" id="btn-tamper">Alter this event</button></div>
+              <div id="tamper-out"></div>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div class="view-section" id="view-findings">
-        <div class="card">
-         <div class="card-head">
-           <h2>Installed Source Packs</h2>
-           <div class="sub">Active parsers mapping into OCSF.</div>
-         </div>
-         <div class="card-body flush">
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Vendor / Product</th>
-                    <th>Format</th>
-                    <th>Accuracy</th>
-                  </tr>
-                </thead>
-                <tbody id="packs-body">
-                </tbody>
-              </table>
+      <!-- ============================================ ASSISTANT -->
+      <section class="view" id="view-assistant">
+        <div class="pagehead">
+          <div>
+            <h1>Assistant</h1>
+            <p>A local model with live context: loaded packs, current coverage, unparsed clusters and recent events. Optional &mdash; the deterministic generator drafts packs without it.</p>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Conversation</h2><span class="sub" id="chat-model">local model</span></div>
+          <div class="panel-body">
+            <div class="chat" id="chat-history">
+              <div class="msg bot">Ask about coverage, a pack, or paste a device log line and I will offer to draft a pack for it.</div>
             </div>
-         </div>
-       </div>
-     </div>
-
+            <div class="rowline" style="margin-top:12px">
+              <textarea id="chat-input" rows="2" style="flex:1 1 320px" placeholder="Enter to send, Shift+Enter for a new line"></textarea>
+              <button class="btn primary" type="button" id="btn-chat">Send</button>
+            </div>
+          </div>
+        </div>
+      </section>
 
     </div>
   </main>
 </div>
 
-<!-- Drawer for viewing single event details -->
-<div class="drawer-backdrop" id="drawer-bg" onclick="closeDrawer()"></div>
-<div class="drawer" id="drawer">
+<div class="backdrop" id="backdrop"></div>
+<aside class="drawer" id="drawer" aria-label="Event detail">
   <div class="drawer-head">
-    <h3>Event Details</h3>
-    <button class="close" onclick="closeDrawer()">×</button>
+    <h3>Event detail</h3>
+    <div style="margin-left:auto"><button class="btn sm" type="button" id="btn-close-drawer">Close</button></div>
   </div>
   <div class="drawer-body">
-    <div class="proof-box" id="drawer-raw">
-      <strong>Raw Vaulted Bytes</strong>
-      <span id="drawer-raw-text"></span>
+    <div>
+      <h4>Vault locator</h4>
+      <pre class="codebox" id="d-locator"></pre>
     </div>
-    <div class="proof-box" id="drawer-ocsf">
-      <strong>OCSF Normalized Output</strong>
-      <pre id="drawer-ocsf-text" style="background:none; border:none; padding:0; margin:0;"></pre>
+    <div>
+      <h4>Original bytes, retrieved from the vault</h4>
+      <pre class="codebox" id="d-raw"></pre>
+    </div>
+    <div>
+      <h4>Normalized OCSF event</h4>
+      <pre class="codebox" id="d-ocsf"></pre>
     </div>
   </div>
-</div>
+</aside>
 
 <script>
-  // Theme Toggle Logic
-  function toggleTheme() {
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
-    localStorage.setItem('theme', isDark ? 'light' : 'dark');
-    updateThemeIcon(!isDark);
-  }
-  function updateThemeIcon(isDark) {
-    const icon = document.getElementById('theme-icon');
-    if(icon) {
-      if(isDark) {
-        icon.innerHTML = '<path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>';
-      } else {
-        icon.innerHTML = '<path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>';
-      }
-    }
-  }
-  const savedTheme = localStorage.getItem('theme');
-  if (savedTheme === 'dark') {
-    document.documentElement.setAttribute('data-theme', 'dark');
-    updateThemeIcon(true);
-  }
-  // Navigation Logic
-  const views = ['overview', 'clusters', 'copilot', 'findings', 'integrity'];
-  
-  function switchView(viewId) {
-    // An unknown id used to throw here and leave the console with every view
-    // hidden; fall back to the first one instead.
-    if (!views.includes(viewId)) viewId = views[0];
+"use strict";
 
-    views.forEach(v => {
-      const el = document.getElementById(`view-${v}`);
-      if (el) el.classList.remove('active');
-    });
-    document.querySelectorAll('.top-menu button').forEach(b => b.classList.remove('active'));
+const $ = (id) => document.getElementById(id);
 
-    const pane = document.getElementById(`view-${viewId}`);
-    if (pane) pane.classList.add('active');
-    const btn = document.querySelector(`button[data-view="${viewId}"]`);
-    if (btn) {
-      btn.classList.add('active');
-      // The nav button carries a live count badge; innerText swept that in, so
-      // the page title read "Source Packs 18" and the breadcrumb matched.
-      const name = [...btn.childNodes]
-        .filter((n) => n.nodeType === Node.TEXT_NODE)
-        .map((n) => n.textContent)
-        .join(' ')
-        .trim();
-      document.getElementById('top-title').innerText = name;
-      document.getElementById('top-crumb').innerText = `MAIN / ${name.toUpperCase()}`;
-    }
-    if (location.hash.slice(1) !== viewId) {
-      history.replaceState(null, '', '#' + viewId);
-    }
-  }
+/* ---------------------------------------------------------------- theming */
+function applyTheme(dark) {
+  document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+  try { localStorage.setItem("ulpf-theme", dark ? "dark" : "light"); } catch (e) { /* private mode */ }
+}
+(function initTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem("ulpf-theme"); } catch (e) { /* private mode */ }
+  if (saved) document.documentElement.setAttribute("data-theme", saved);
+})();
+$("theme-btn").addEventListener("click", () => {
+  const dark = document.documentElement.getAttribute("data-theme") !== "dark";
+  applyTheme(dark);
+});
 
-  document.querySelectorAll('.top-menu button').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      switchView(e.currentTarget.getAttribute('data-view'));
-    });
+/* ------------------------------------------------------------ navigation */
+function switchView(name) {
+  document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + name));
+  document.querySelectorAll(".navitem").forEach((b) => {
+    if (b.dataset.view === name) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
   });
+  $("crumb").textContent = name.toUpperCase();
+  if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
+  $("rail").classList.remove("open");
+}
+document.querySelectorAll(".navitem").forEach((b) => {
+  b.addEventListener("click", () => switchView(b.dataset.view));
+});
+if (location.hash) {
+  const wanted = location.hash.slice(1);
+  if ($("view-" + wanted)) switchView(wanted);
+}
 
-  // Views are addressable, so a refresh keeps you where you were and a link
-  // can point at one directly.
-  window.addEventListener('hashchange', () => switchView(location.hash.slice(1)));
-  if (location.hash.length > 1) switchView(location.hash.slice(1));
-
-  // Polling & Data
-  function formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+/* --------------------------------------------------------------- helpers */
+function fmtBytes(n) {
+  if (!n) return "0 B";
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0, v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return (i === 0 ? v : v.toFixed(1)) + " " + u[i];
+}
+function fmtTime(nanos) {
+  if (typeof nanos !== "number") return "—";
+  const d = new Date(nanos / 1e6);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toISOString().replace("T", " ").slice(0, 19);
+}
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined && text !== null) n.textContent = String(text);
+  return n;
+}
+function pill(kind, text) {
+  const p = el("span", "pill " + kind);
+  p.append(el("i"), document.createTextNode(text));
+  return p;
+}
+/** Every response is checked; a failed fetch must never be reported as success. */
+async function api(path, options) {
+  const res = await fetch(path, options);
+  let body = null;
+  try { body = await res.json(); } catch (e) { body = null; }
+  if (!res.ok) {
+    const detail = (body && body.error) ? body.error : (res.statusText || ("HTTP " + res.status));
+    throw new Error(detail);
   }
+  return body;
+}
+function postJson(path, payload) {
+  return api(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload === undefined ? {} : payload),
+  });
+}
 
-  function timeStr(ts) {
-    if (ts === null || ts === undefined) return '—';
-    // OCSF `time` is nanoseconds since the Unix epoch; JavaScript Date takes
-    // milliseconds. Passing the raw value produced "Invalid Date" on every row.
-    const ms = Number(ts) / 1e6;
-    if (!Number.isFinite(ms)) return '—';
-    const d = new Date(ms);
-    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleTimeString();
+/* ----------------------------------------------------------- event table */
+let latestEvents = [];
+
+function classLabel(row) {
+  const c = row.class_uid, a = row.activity_id;
+  if (c === null || c === undefined) return "—";
+  return c + (a === null || a === undefined ? "" : "/" + a);
+}
+function statusPill(row) {
+  const d = String(row.disposition || "");
+  if (d === "parsed") return pill("ok", "normalized");
+  if (d.startsWith("unidentified")) return pill("warn", "needs a pack");
+  return pill("bad", d.length > 34 ? d.slice(0, 34) + "…" : d);
+}
+function renderEvents(rows) {
+  latestEvents = rows;
+  const body = $("events-body");
+  body.replaceChildren();
+  $("ev-count").textContent = rows.length + " shown";
+  if (!rows.length) {
+    const tr = el("tr");
+    const td = el("td", "empty", "No events yet. Open the traffic simulator, or point a device at the syslog receiver.");
+    td.colSpan = 7;
+    tr.append(td);
+    body.append(tr);
+    return;
   }
+  rows.slice(0, 200).forEach((row, index) => {
+    const tr = el("tr", "clickable");
+    tr.append(el("td", "mono", fmtTime(row.time)));
+    const vendor = [row.vendor, row.product].filter(Boolean).join(" ");
+    tr.append(el("td", null, vendor || "—"));
+    tr.append(el("td", "mono", classLabel(row)));
+    tr.append(el("td", "mono", row.src_ip ? row.src_ip + (row.src_port ? ":" + row.src_port : "") : "—"));
+    tr.append(el("td", "mono", row.dst_ip ? row.dst_ip + (row.dst_port ? ":" + row.dst_port : "") : "—"));
+    tr.append(el("td", "mono", row.pack || "—"));
+    const st = el("td");
+    st.append(statusPill(row));
+    tr.append(st);
+    tr.addEventListener("click", () => openDrawer(index, row));
+    body.append(tr);
+  });
+}
 
-  function closeDrawer() {
-    document.getElementById('drawer').classList.remove('open');
-    document.getElementById('drawer-bg').classList.remove('open');
+/* --------------------------------------------------------------- drawer */
+async function openDrawer(index, row) {
+  $("backdrop").classList.add("open");
+  $("drawer").classList.add("open");
+  $("d-locator").textContent = row.locator || "—";
+  $("d-ocsf").textContent = JSON.stringify(row.event, null, 2);
+  $("d-raw").textContent = "Retrieving from the vault…";
+  if (!row.locator) { $("d-raw").textContent = "No locator on this event."; return; }
+  try {
+    const data = await api("/api/raw/" + encodeURIComponent(row.locator));
+    $("d-raw").textContent = data.text + "\n\n— " + data.bytes + " bytes, hash " + data.recomputed_hash;
+  } catch (e) {
+    $("d-raw").textContent = "Could not retrieve the original bytes: " + e.message;
   }
+}
+function closeDrawer() {
+  $("backdrop").classList.remove("open");
+  $("drawer").classList.remove("open");
+}
+$("btn-close-drawer").addEventListener("click", closeDrawer);
+$("backdrop").addEventListener("click", closeDrawer);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
 
-  window.openDrawer = async function(locator, event) {
-    const rawEl  = document.getElementById('drawer-raw-text');
-    const ocsfEl = document.getElementById('drawer-ocsf-text');
-
-    // The OCSF document is already in the row payload, so render it
-    // immediately instead of waiting on the network.
-    ocsfEl.textContent = event ? JSON.stringify(event, null, 2) : '(no event)';
-    rawEl.textContent = 'Retrieving original bytes from the vault…';
-
-    document.getElementById('drawer').classList.add('open');
-    document.getElementById('drawer-bg').classList.add('open');
-
-    try {
-      // Locators contain ':' separators, so encode before putting one in a path.
-      const res = await fetch(`/api/raw/${encodeURIComponent(locator)}`);
-      if (!res.ok) throw new Error(`vault returned HTTP ${res.status}`);
-      const data = await res.json();
-
-      // This endpoint returns {locator, bytes, text, recomputed_hash}.
-      // Reading data.raw / data.event here is what left the drawer blank.
-      const recorded = event && event.raw_data_hash && event.raw_data_hash.value;
-      const matches = recorded && recorded === data.recomputed_hash;
-      const proof = recorded
-        ? (matches
-            ? '✓ retrieved bytes match the fingerprint recorded at ingest'
-            : '✗ hash mismatch — retrieved bytes differ from what was recorded')
-        : '';
-
-      rawEl.textContent = `${data.text}
-
-${data.bytes} bytes · ${proof}`;
-    } catch (e) {
-      rawEl.textContent = `Could not retrieve the original: ${e.message}`;
-    }
+/* ---------------------------------------------------------------- packs */
+function renderPacks(list) {
+  const body = $("packs-body");
+  body.replaceChildren();
+  $("tally-packs").textContent = list.length;
+  $("packs-sub").textContent = list.length + " compiled and loaded";
+  if (!list.length) {
+    const tr = el("tr"); const td = el("td", "empty", "No packs loaded."); td.colSpan = 8;
+    tr.append(td); body.append(tr); return;
   }
+  const claimed = window.__byPack || {};
+  list.forEach((p) => {
+    const tr = el("tr");
+    tr.append(el("td", "mono", p.id));
+    tr.append(el("td", null, p.vendor));
+    tr.append(el("td", null, p.product));
+    tr.append(el("td", "mono", (p.decoders || []).join(" › ")));
+    tr.append(el("td", "num", p.priority));
+    tr.append(el("td", "num", p.mapped_attributes));
+    const fx = el("td");
+    const pass = p.fixtures_passed === p.fixtures && p.fixtures > 0;
+    fx.append(pill(pass ? "ok" : "warn", p.fixtures_passed + "/" + p.fixtures));
+    tr.append(fx);
+    tr.append(el("td", "num", (claimed[p.id] || 0).toLocaleString()));
+    body.append(tr);
+  });
+}
 
-  async function refresh() {
-    try {
-      const res = await fetch('/api/stats');
-      if (!res.ok) throw new Error();
-      const st = await res.json();
-      
-      document.getElementById('st-recv').innerText = st.received.toLocaleString();
-      document.getElementById('st-norm').innerText = st.parsed.toLocaleString();
-      document.getElementById('st-unid').innerText = st.unidentified.toLocaleString();
-      document.getElementById('st-bytes').innerText = formatBytes(st.bytes_in);
-      document.getElementById('st-seq').innerText = st.chain_sequence.toLocaleString();
-      document.getElementById('st-cov').innerText = (st.coverage * 100).toFixed(2) + "% coverage";
-
-      // The API wraps its payloads: {"events": [...]} and {"packs": [...]}.
-      // Reading `.length` off the wrapper yields undefined, which is why the
-      // table stayed empty and the sidebar badge read "undefined".
-      const eventsPayload = await (await fetch('/api/events')).json();
-      const events = eventsPayload.events || [];
-
-      // Rows are built with createElement/textContent rather than innerHTML.
-      // Every value below originates in a log line, which is attacker
-      // controlled: a record containing <img src=x onerror=...> would execute
-      // if interpolated into markup.
-      const cell = (text, cls) => {
-        const td = document.createElement('td');
-        if (cls) td.className = cls;
-        td.textContent = text;
-        return td;
-      };
-
-      const tbody = document.getElementById('events-body');
-      tbody.replaceChildren();
-      for (const e of events) {
-        const ev = e.event || {};
-        // The server sends lowercase dispositions ("parsed"), so comparing
-        // against "Parsed" marked every healthy row as an error.
-        const parsed = e.disposition === 'parsed';
-
-        const tr = document.createElement('tr');
-        tr.addEventListener('click', () => window.openDrawer(e.locator, e.event));
-
-        tr.append(
-          cell(timeStr(ev.time), 'td-primary'),
-          cell(ev.src_endpoint?.ip || '—', 'mono'),
-          cell(ev.dst_endpoint?.ip || '—', 'mono'),
-          cell(ev.activity_name || String(ev.activity_id ?? '—'), 'td-primary')
-        );
-
-        const status = document.createElement('td');
-        const label = document.createElement('span');
-        label.style.color = parsed ? 'var(--success)' : 'var(--high)';
-        label.style.fontWeight = '500';
-        label.textContent = e.disposition;
-        const sub = document.createElement('span');
-        sub.className = 'td-sub';
-        sub.textContent = e.pack || 'No Pack';
-        status.append(label, sub);
-        tr.append(status);
-
-        tbody.append(tr);
-      }
-
-      // Packs
-      const packsPayload = await (await fetch('/api/packs')).json();
-      const packs = packsPayload.packs || [];
-      document.getElementById('pack-count').textContent = packs.length;
-
-      const packsBody = document.getElementById('packs-body');
-      packsBody.replaceChildren();
-      for (const p of packs) {
-        const tr = document.createElement('tr');
-
-        const name = cell(`${p.vendor} ${p.product}`, 'td-primary');
-        const nameSub = document.createElement('span');
-        nameSub.className = 'td-sub';
-        nameSub.textContent = p.id;
-        name.append(nameSub);
-
-        const acc = cell(`${(p.field_accuracy * 100).toFixed(1)}%`, 'td-primary');
-        const accSub = document.createElement('span');
-        accSub.className = 'td-sub';
-        accSub.textContent = `${p.fixtures_passed}/${p.fixtures} passed`;
-        acc.append(accSub);
-
-        tr.append(name, cell(p.log_format || '—', 'mono'), acc);
-        packsBody.append(tr);
-      }
-
-      // Clusters
-      const clustersPayload = await (await fetch('/api/clusters')).json();
-      const clusters = clustersPayload.clusters || [];
-      const clustersBody = document.getElementById('clusters-body');
-      
-      if (!clustersBody) return; // In case UI hasn't rendered it
-      clustersBody.replaceChildren();
-      
-      if (clusters.length === 0) {
-        clustersBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-faint)">No unparsed clusters found.</td></tr>';
-      } else {
-        for (const c of clusters) {
-          const tr = document.createElement('tr');
-          tr.append(
-            cell(c.id, 'td-primary'),
-            cell(c.count.toLocaleString(), 'mono'),
-            cell(c.template, 'mono')
-          );
-          
-          // Two generators, offered side by side rather than one hidden
-          // behind a fallback: an air-gapped deployment with no GPU has to be
-          // able to reach the deterministic path deliberately.
-          const actionTd = document.createElement('td');
-          actionTd.style.textAlign = 'right';
-          actionTd.style.whiteSpace = 'nowrap';
-
-          const aiBtn = document.createElement('button');
-          aiBtn.className = 'btn primary sm';
-          aiBtn.id = 'btn-gen-ai-' + c.id;
-          aiBtn.textContent = 'AI Copilot';
-          aiBtn.title = 'Draft with the local model (Ollama)';
-          aiBtn.onclick = (e) => { e.stopPropagation(); generatePack(c.id, 'ai'); };
-
-          const heuBtn = document.createElement('button');
-          heuBtn.className = 'btn sm';
-          heuBtn.style.marginLeft = '6px';
-          heuBtn.id = 'btn-gen-heuristic-' + c.id;
-          heuBtn.textContent = 'Heuristic';
-          heuBtn.title = 'Draft with the deterministic generator: no model, no GPU, works air-gapped';
-          heuBtn.onclick = (e) => { e.stopPropagation(); generatePack(c.id, 'heuristic'); };
-
-          actionTd.append(aiBtn, heuBtn);
-          tr.append(actionTd);
-          
-          clustersBody.append(tr);
-        }
-      }
-
-
-    } catch(e) {
-      console.error(e);
-    }
+/* ------------------------------------------------------------- clusters */
+function renderClusters(list, overflow) {
+  const body = $("clusters-body");
+  body.replaceChildren();
+  $("tally-clusters").textContent = list.length;
+  $("cl-overflow").textContent = overflow
+    ? overflow.toLocaleString() + " further lines exceeded the template cap"
+    : "";
+  if (!list.length) {
+    const tr = el("tr");
+    const td = el("td", "empty", "No unparsed records. Every event so far was claimed by a pack.");
+    td.colSpan = 4;
+    tr.append(td); body.append(tr); return;
   }
+  list.forEach((c) => {
+    const tr = el("tr");
+    tr.append(el("td", "mono", c.id));
+    tr.append(el("td", "num", c.count.toLocaleString()));
+    const t = el("td", "mono", c.template.length > 110 ? c.template.slice(0, 110) + "…" : c.template);
+    t.title = c.template;
+    tr.append(t);
+    const actions = el("td");
+    const ai = el("button", "btn sm", "AI Copilot");
+    const heur = el("button", "btn sm", "Heuristic");
+    ai.addEventListener("click", () => generatePack(c.id, "ai", [ai, heur]));
+    heur.addEventListener("click", () => generatePack(c.id, "heuristic", [ai, heur]));
+    const wrap = el("div"); wrap.style.display = "flex"; wrap.style.gap = "6px";
+    wrap.append(ai, heur);
+    actions.append(wrap);
+    tr.append(actions);
+    body.append(tr);
+  });
+}
 
-  setInterval(refresh, 2000);
-  refresh();
+let draftYaml = null;
+async function generatePack(clusterId, mode, buttons) {
+  buttons.forEach((b) => { b.disabled = true; });
+  const pane = $("review-pane");
+  pane.hidden = false;
+  $("review-sub").textContent = mode === "heuristic"
+    ? "Running the deterministic generator…"
+    : "Asking the local model…";
+  $("rev-yaml").textContent = "";
+  $("btn-approve").hidden = true;
+  draftYaml = null;
 
-  // API wrappers
-  async function clearData() {
-    await fetch('/api/clear', { method: 'POST' });
+  try {
+    const data = await postJson("/api/generate", { cluster_id: clusterId, mode: mode });
+    draftYaml = data.pack_yaml;
+    const via = data.generator === "heuristic"
+      ? "deterministic heuristic generator"
+      : "model " + (data.model || "unknown");
+    const fellBack = data.reason === "llm-offline"
+      ? " The model was unreachable, so the deterministic generator ran instead."
+      : "";
+    $("review-sub").textContent = "Drafted by the " + via + "." + fellBack;
+    $("rev-fixtures").textContent = data.fixtures_passed + "/" + data.fixtures + " fixtures";
+    $("rev-accuracy").textContent = Math.round((data.field_accuracy || 0) * 100) + "% fields";
+    $("rev-yaml").textContent = data.pack_yaml;
+    $("btn-approve").hidden = false;
+  } catch (e) {
+    $("review-sub").textContent = "Could not draft a pack.";
+    $("rev-yaml").textContent = e.message;
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; });
+  }
+}
+
+$("btn-approve").addEventListener("click", async () => {
+  if (!draftYaml) return;
+  const btn = $("btn-approve");
+  btn.disabled = true;
+  try {
+    const out = await postJson("/api/approve", { yaml: draftYaml });
+    $("review-sub").textContent = "Approved and written to " + out.file + ". The pack watcher will load it.";
+    btn.hidden = true;
     refresh();
+  } catch (e) {
+    $("review-sub").textContent = "Not approved: " + e.message;
+  } finally {
+    btn.disabled = false;
   }
+});
 
-  // The endpoint returns ok / count / head_uid / head_fingerprint /
-  // checkpoint_valid, or ok:false with a detail string. It was read for
-  // `valid_checkpoints` and `errors`, which it has never returned, so a
-  // successful verification rendered "undefined" twice.
-  async function verifyVault() {
-    const out = document.getElementById('verify-output');
-    out.style.display = 'block';
-    out.replaceChildren(line('Verification started...', true));
-
-    let json;
-    try {
-      const res = await fetch('/api/verify', { method: 'POST' });
-      json = await res.json();
-    } catch (e) {
-      out.replaceChildren(line('Could not reach the console: ' + e.message, true));
-      return;
-    }
-
-    const rows = [];
-    if (json.ok) {
-      rows.push(line('Chain verified', true));
-      rows.push(line(json.count.toLocaleString() + ' events re-hashed, every link intact'));
-      rows.push(line('Checkpoint signature: ' +
-        (json.checkpoint_signature_valid ? 'valid (Ed25519)' : 'INVALID')));
-      rows.push(line('Signed anchor: ' + (json.checkpoint_at_head
-        ? 'at the current head'
-        : 'trails the head, as expected between periodic checkpoints')));
-      if (json.head_uid) rows.push(line('Head event: ' + json.head_uid));
-      if (json.head_fingerprint) rows.push(line('Head fingerprint: ' + json.head_fingerprint));
+/* ------------------------------------------------------------- integrity */
+$("btn-verify").addEventListener("click", async () => {
+  const out = $("verify-out");
+  out.replaceChildren(el("div", "callout info", "Verification running…"));
+  try {
+    const r = await postJson("/api/verify");
+    const box = el("div", "callout " + (r.ok ? "ok" : "bad"));
+    const lines = [];
+    if (r.ok) {
+      lines.push("Chain verified.");
+      lines.push(Number(r.count).toLocaleString() + " events re-hashed, every link intact.");
+      lines.push("Checkpoint signature: " + (r.checkpoint_signature_valid ? "valid (Ed25519)" : "INVALID"));
+      lines.push("Signed anchor: " + (r.checkpoint_at_head
+        ? "at the current head"
+        : "trails the head, as expected between periodic checkpoints"));
+      if (r.head_fingerprint) lines.push("Head fingerprint: " + r.head_fingerprint);
     } else {
-      rows.push(line('Chain verification FAILED', true));
-      if (typeof json.count === 'number') {
-        rows.push(line(json.count.toLocaleString() + ' events examined'));
-      }
-      rows.push(line(json.detail || 'no detail returned'));
+      lines.push("Chain verification FAILED.");
+      if (typeof r.count === "number") lines.push(Number(r.count).toLocaleString() + " events examined.");
+      lines.push(r.detail || "no detail returned");
     }
-    out.replaceChildren(...rows);
+    const strong = el("b", null, lines[0]);
+    box.append(strong);
+    lines.slice(1).forEach((t) => { box.append(el("div", null, t)); });
+    out.replaceChildren(box);
+  } catch (e) {
+    out.replaceChildren(el("div", "callout bad", "Could not reach the console: " + e.message));
+  }
+});
+
+/*
+ * The tamper control used to POST with no body at all. The endpoint requires
+ * {index, path, value}, so it answered 415, the result was never checked, and
+ * the console announced success while the chain was in fact untouched — the
+ * demo reported the opposite of the property it exists to show.
+ */
+$("btn-tamper").addEventListener("click", async () => {
+  const out = $("tamper-out");
+  const index = Number.parseInt($("tamper-index").value, 10);
+  const path = $("tamper-path").value.trim();
+  const value = $("tamper-value").value;
+
+  if (!Number.isInteger(index) || index < 0) {
+    out.replaceChildren(el("div", "callout bad", "Event row must be a number, 0 or greater."));
+    return;
+  }
+  if (!path) {
+    out.replaceChildren(el("div", "callout bad", "Name the attribute to alter, for example src_endpoint.ip."));
+    return;
+  }
+  if (!latestEvents.length) {
+    out.replaceChildren(el("div", "callout warn", "No events retained yet. Send some traffic first."));
+    return;
   }
 
-  // textContent throughout: the detail string carries event UIDs and, after a
-  // tamper test, attacker-controlled field values.
-  function line(text, strong) {
-    const div = document.createElement('div');
-    if (strong) {
-      const b = document.createElement('strong');
-      b.textContent = text;
-      div.append(b);
-    } else {
-      div.textContent = text;
+  const btn = $("btn-tamper");
+  btn.disabled = true;
+  try {
+    const r = await postJson("/api/tamper", { index: index, path: path, value: value });
+    const box = el("div", "callout warn");
+    box.append(el("b", null, "Retained event altered."));
+    box.append(el("div", null, "Event " + (r.uid || "") ));
+    box.append(el("div", null, path + ": " + JSON.stringify(r.before) + " → " + JSON.stringify(r.after)));
+    box.append(el("div", null, "Run verification now — it should report a fingerprint mismatch."));
+    out.replaceChildren(box);
+  } catch (e) {
+    out.replaceChildren(el("div", "callout bad", "Could not alter the event: " + e.message));
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("btn-clear").addEventListener("click", async () => {
+  try { await postJson("/api/clear"); await refresh(); }
+  catch (e) { console.error(e); }
+});
+
+/* ---------------------------------------------------------------- ingest */
+$("btn-ingest").addEventListener("click", async () => {
+  const text = $("ingest-text").value;
+  const status = $("ingest-status");
+  if (!text.trim()) {
+    status.hidden = false;
+    status.className = "pill warn";
+    status.textContent = "Nothing to normalize";
+    return;
+  }
+  const btn = $("btn-ingest");
+  btn.disabled = true;
+  status.hidden = false;
+  status.className = "pill neutral";
+  status.textContent = "Running…";
+  try {
+    const r = await postJson("/api/ingest", { lines: text });
+    const results = r.results || [];
+    const parsed = results.filter((x) => x.disposition === "parsed").length;
+    status.className = "pill " + (parsed === results.length ? "ok" : "warn");
+    status.textContent = parsed + "/" + results.length + " normalized";
+    $("ingest-result").textContent = JSON.stringify(results, null, 2);
+    await refresh();
+  } catch (e) {
+    status.className = "pill bad";
+    status.textContent = "Failed";
+    $("ingest-result").textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* ------------------------------------------------------------------ chat */
+const chatThread = [];
+async function sendChat() {
+  const input = $("chat-input");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  const history = $("chat-history");
+  history.append(el("div", "msg user", text));
+  history.scrollTop = history.scrollHeight;
+  chatThread.push({ role: "user", content: text });
+
+  const thinking = el("div", "msg bot", "Thinking…");
+  history.append(thinking);
+  history.scrollTop = history.scrollHeight;
+
+  const btn = $("btn-chat");
+  btn.disabled = true;
+  try {
+    const r = await postJson("/api/chat", { messages: chatThread });
+    thinking.textContent = r.reply;
+    chatThread.push({ role: "assistant", content: r.reply });
+    if (r.model) $("chat-model").textContent = r.model;
+  } catch (e) {
+    thinking.className = "msg err";
+    thinking.textContent = "The local model is unavailable: " + e.message
+      + "\nThe deterministic generator on the Needs a pack view does not require it.";
+  } finally {
+    btn.disabled = false;
+    history.scrollTop = history.scrollHeight;
+  }
+}
+$("btn-chat").addEventListener("click", sendChat);
+$("chat-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); }
+});
+
+/* --------------------------------------------------------------- polling */
+let lastReceived = 0;
+let lastAt = Date.now();
+
+async function refresh() {
+  try {
+    const [stats, events, packs, clusters] = await Promise.all([
+      api("/api/stats"), api("/api/events"), api("/api/packs"), api("/api/clusters"),
+    ]);
+
+    window.__byPack = stats.by_pack || {};
+    $("schema-ver").textContent = stats.schema_version || "1.9.0";
+    $("st-recv").textContent = Number(stats.received).toLocaleString();
+    $("st-parsed").textContent = Number(stats.parsed).toLocaleString();
+    $("st-cov").textContent = ((stats.coverage || 0) * 100).toFixed(4) + "% coverage";
+    $("st-unid").textContent = Number(stats.unidentified).toLocaleString();
+    $("st-bytes").textContent = fmtBytes(stats.bytes_in);
+    $("st-seq").textContent = Number(stats.chain_sequence).toLocaleString();
+
+    const failed = (stats.extract_failed || 0) + (stats.normalize_failed || 0);
+    $("st-unid-note").textContent = failed
+      ? failed.toLocaleString() + " also failed extraction or mapping"
+      : (stats.unidentified ? "no pack detector matched" : "no unparsed records");
+
+    const now = Date.now();
+    const dt = (now - lastAt) / 1000;
+    if (dt > 0.5 && stats.received > lastReceived) {
+      $("st-rate").textContent = Math.round((stats.received - lastReceived) / dt).toLocaleString() + " events/sec";
+    } else if (stats.received === 0) {
+      $("st-rate").textContent = "awaiting traffic";
     }
-    return div;
+    if (dt > 0.5) { lastReceived = stats.received; lastAt = now; }
+
+    const chain = $("chain-pill");
+    chain.className = "pill " + (stats.checkpoint_signed ? "ok" : "neutral");
+    chain.replaceChildren(el("i"), document.createTextNode(
+      stats.checkpoint_signed ? "chain signed · seq " + stats.chain_sequence : "chain idle"));
+    $("st-chain").textContent = stats.chain_uid ? "chain " + stats.chain_uid : "no checkpoint yet";
+
+    renderEvents(events.events || []);
+    $("tally-events").textContent = (events.events || []).length;
+    renderPacks(packs.packs || []);
+    renderClusters(clusters.clusters || [], clusters.overflow || 0);
+
+    const engine = $("engine-pill");
+    engine.className = "pill ok";
+    engine.replaceChildren(el("i"), document.createTextNode("Engine online"));
+  } catch (e) {
+    const engine = $("engine-pill");
+    engine.className = "pill bad";
+    engine.replaceChildren(el("i"), document.createTextNode("Engine unreachable"));
   }
+}
 
-  async function tamperVault() {
-    await fetch('/api/tamper', { method: 'POST' });
-    alert("Simulated tampering completed. Run verification to see the chain break.");
-  }
-
-  let currentDraftYaml = null;
-
-  async function generatePack(clusterId, mode) {
-    mode = mode || 'auto';
-    const label = mode === 'heuristic' ? 'Heuristic' : 'AI Copilot';
-    const btn = document.getElementById('btn-gen-' + mode + '-' + clusterId);
-    const buttons = [
-      document.getElementById('btn-gen-ai-' + clusterId),
-      document.getElementById('btn-gen-heuristic-' + clusterId)
-    ].filter(Boolean);
-    buttons.forEach(b => { b.disabled = true; });
-    if (btn) btn.textContent = 'Drafting...';
-
-    document.getElementById('review-pane').style.display = 'block';
-    document.getElementById('review-sub').innerText = 'Generating pack for ' + clusterId + '...';
-    document.getElementById('rev-yaml').innerText = mode === 'heuristic'
-      ? 'Running the deterministic generator...'
-      : 'Asking the local model...';
-    document.getElementById('rev-fixtures').innerText = '0/0';
-    document.getElementById('rev-accuracy').innerText = '0%';
-    document.getElementById('btn-approve').style.display = 'none';
-
-    try {
-      const res = await fetch('/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cluster_id: clusterId, mode: mode })
-      });
-      if (!res.ok) {
-        let msg = res.statusText;
-        try { msg = (await res.json()).error; } catch(e) {}
-        throw new Error(msg);
-      }
-      const data = await res.json();
-      
-      currentDraftYaml = data.pack_yaml;
-      // Name the generator that actually produced this. In auto mode the
-      // server may have fallen back, and a reviewer needs to know which of the
-      // two paths they are reading before they approve it.
-      const via = data.generator === 'heuristic'
-        ? 'deterministic heuristic generator'
-        : 'model ' + (data.model || 'unknown');
-      const fellBack = data.reason === 'llm-offline'
-        ? ' The model was unreachable, so the deterministic generator ran instead.'
-        : '';
-      document.getElementById('review-sub').innerText =
-        'Candidate generated by the ' + via + '. Review scores before approving.' + fellBack;
-      document.getElementById('rev-yaml').innerText = data.pack_yaml;
-      document.getElementById('rev-fixtures').innerText = `${data.fixtures_passed}/${data.fixtures}`;
-      document.getElementById('rev-accuracy').innerText = `${(data.field_accuracy * 100).toFixed(1)}%`;
-
-      document.getElementById('btn-approve').style.display = 'inline-flex';
-
-      // Scroll to review pane
-      document.getElementById('review-pane').scrollIntoView({ behavior: 'smooth' });
-    } catch(e) {
-      document.getElementById('review-sub').innerText = 'Generation failed.';
-      document.getElementById('rev-yaml').innerText = e.message;
-    } finally {
-      buttons.forEach(b => { b.disabled = false; });
-      if (btn) btn.textContent = label;
-    }
-  }
-
-  // Shared by the cluster review pane and the assistant, so a pack approved
-  // from either place travels the same path.
-  async function deployPack(yaml) {
-    const res = await fetch('/api/approve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ yaml })
-    });
-    if (!res.ok) {
-      let msg = res.statusText;
-      try { msg = (await res.json()).error; } catch(e) {}
-      throw new Error(msg);
-    }
-    return res.json();
-  }
-
-  async function approvePack() {
-    if (!currentDraftYaml) return;
-    const btn = document.getElementById('btn-approve');
-    btn.innerHTML = 'Deploying...';
-    
-    try {
-      await deployPack(currentDraftYaml);
-      
-      btn.innerHTML = 'Deployed!';
-      btn.classList.remove('approve');
-      setTimeout(() => {
-        document.getElementById('review-pane').style.display = 'none';
-        btn.innerHTML = 'Approve and Deploy';
-        btn.classList.add('approve');
-        currentDraftYaml = null;
-        refresh();
-      }, 2000);
-    } catch(e) {
-      alert("Failed to approve: " + e.message);
-      btn.innerHTML = 'Approve and Deploy';
-    }
-  }
-
-  /* ---------- Assistant ------------------------------------------------ */
-
-  // The whole thread is sent each turn so the model keeps context.
-  let chatThread = [];
-  let chatDraftYaml = null;
-
-  // Rows are built with createElement/textContent, never innerHTML: the
-  // analyst pastes raw log lines here and log text is attacker-controlled.
-  function chatRow(role, build) {
-    const wrap = document.createElement('div');
-    wrap.className = 'msg ' + role;
-    const bubble = document.createElement('div');
-    bubble.className = 'msg-bubble';
-    build(bubble);
-    wrap.append(bubble);
-    const hist = document.getElementById('chat-history');
-    hist.append(wrap);
-    hist.scrollTop = hist.scrollHeight;
-    return wrap;
-  }
-
-  function looksLikeALogLine(text) {
-    return /(\w+=\S+.*){2,}|^<\d+>|CEF:|LEEF:|SRC=|srcip=/m.test(text);
-  }
-
-  async function sendChat() {
-    const input = document.getElementById('copilot-input');
-    const text = input.value.trim();
-    if (!text) return;
-
-    chatRow('user', b => { b.textContent = text; });
-    chatThread.push({ role: 'user', content: text });
-    input.value = '';
-
-    const thinking = chatRow('assistant', b => {
-      b.style.color = 'var(--text-faint)';
-      b.textContent = 'Thinking…';
-    });
-
-    try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: chatThread })
-      });
-      const data = await res.json();
-      thinking.remove();
-
-      if (!res.ok) {
-        chatThread.pop();
-        chatRow('assistant', b => {
-          b.style.color = 'var(--high)';
-          b.textContent = data.error || ('Request failed (HTTP ' + res.status + ')');
-        });
-        return;
-      }
-
-      chatThread.push({ role: 'assistant', content: data.reply });
-      chatRow('assistant', b => {
-        const p = document.createElement('div');
-        p.style.whiteSpace = 'pre-wrap';
-        p.textContent = data.reply;
-        b.append(p);
-        if (looksLikeALogLine(text)) {
-          const row = document.createElement('div');
-          row.style.cssText = 'margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap';
-          const hint = document.createElement('span');
-          hint.style.cssText = 'font-size:11px;color:var(--text-faint)';
-          hint.textContent = 'That looks like a device log.';
-          const btn = document.createElement('button');
-          btn.className = 'btn primary sm';
-          btn.textContent = 'Draft a Source Pack from it';
-          btn.addEventListener('click', () => { btn.disabled = true; draftFromText(text); });
-          row.append(hint, btn);
-          b.append(row);
-        }
-      });
-    } catch (e) {
-      thinking.remove();
-      chatThread.pop();
-      chatRow('assistant', b => {
-        b.style.color = 'var(--high)';
-        b.textContent = 'Could not reach the console: ' + e.message;
-      });
-    }
-  }
-
-  // Drafting from pasted text. The cluster table uses generatePack(clusterId)
-  // and its review pane; this is the same endpoint driven from a conversation.
-  async function draftFromText(rawLog) {
-    const thinking = chatRow('assistant', b => {
-      b.style.color = 'var(--text-faint)';
-      b.textContent = 'Drafting a pack…';
-    });
-    try {
-      const res = await fetch('/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ raw_log: rawLog })
-      });
-      const data = await res.json();
-      thinking.remove();
-      if (!res.ok) {
-        chatRow('assistant', b => {
-          b.style.color = 'var(--high)';
-          b.textContent = data.error || ('Request failed (HTTP ' + res.status + ')');
-        });
-        return;
-      }
-
-      chatDraftYaml = data.pack_yaml;
-      chatRow('assistant', b => {
-        const intro = document.createElement('div');
-        intro.textContent = 'Candidate drafted with ' + (data.model || 'the local model') +
-          '. It scored ' + data.fixtures_passed + '/' + data.fixtures + ' on the lines you gave me.';
-
-        const pre = document.createElement('pre');
-        pre.style.cssText = 'margin:10px 0;padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);font-size:11px;max-height:300px;overflow:auto;white-space:pre-wrap';
-        pre.textContent = data.pack_yaml;
-
-        const note = document.createElement('div');
-        note.style.cssText = 'font-size:11px;color:var(--text-faint);margin-bottom:8px';
-        note.textContent = 'Nothing is active until you approve it. Check the mappings first.';
-
-        const btn = document.createElement('button');
-        btn.className = 'btn approve sm';
-        btn.textContent = 'Approve and deploy';
-        btn.addEventListener('click', async () => {
-          btn.disabled = true;
-          btn.textContent = 'Deploying…';
-          try {
-            const out = await deployPack(chatDraftYaml);
-            btn.textContent = 'Deployed';
-            chatRow('assistant', c => {
-              c.textContent = 'Loaded "' + out.id + '". Packs hot-reload, so matching ' +
-                'records start normalising without a restart.';
-            });
-            refresh();
-          } catch (err) {
-            btn.disabled = false;
-            btn.textContent = 'Approve and deploy';
-            chatRow('assistant', c => {
-              c.style.color = 'var(--high)';
-              c.textContent = 'Could not deploy: ' + err.message;
-            });
-          }
-        });
-
-        b.append(intro, pre, note, btn);
-      });
-    } catch (e) {
-      thinking.remove();
-      chatRow('assistant', b => {
-        b.style.color = 'var(--high)';
-        b.textContent = 'Could not draft a pack: ' + e.message;
-      });
-    }
-  }
-
-  // Enter sends, Shift+Enter makes a new line.
-  document.addEventListener('DOMContentLoaded', () => {
-    const box = document.getElementById('copilot-input');
-    if (!box) return;
-    box.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
-    });
-  });
+refresh();
+setInterval(refresh, 2000);
 </script>
-</body>
-</html>
