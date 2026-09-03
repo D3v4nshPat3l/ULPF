@@ -1,0 +1,55 @@
+# Apache httpd error log.
+#
+# Written against the Loghub Apache corpus. Distinct from the access log: a
+# bracketed timestamp, a severity word, and free text.
+identity:
+  id: apache-error
+  vendor: Apache
+  product: HTTP Server
+  log_format: apache-error
+  priority: 35
+  detect:
+    - starts_with: "["
+      contains_any: ["] [error]", "] [notice]", "] [warn]", "] [crit]", "] [info]"]
+
+extract:
+  - decoder: regex
+    patterns:
+      - '^\[(?P<ts>[^\]]+)\]\s+\[(?P<level>[a-z]+)\]\s+(?:\[client (?P<client>[\d.]+)\]\s+)?(?P<msg>.*)$'
+
+map:
+  class_uid: 6003                      # Application Activity
+  activity_id: 99
+  severity_id:
+    from: level
+    enum: apache_level
+    default: 1
+  message:
+    from: msg
+  src_endpoint.ip:
+    from: client
+    observable: ip
+
+enums:
+  apache_level:
+    emerg: 6
+    alert: 5
+    crit: 5
+    error: 4
+    warn: 3
+    notice: 1
+    info: 1
+    debug: 1
+
+fixtures:
+  - note: Real Loghub Apache error line.
+    raw: '[Sun Dec 04 04:47:44 2005] [error] mod_jk child workerEnv in error state 6'
+    expect:
+      class_uid: 6003
+      severity_id: 4
+      message: mod_jk child workerEnv in error state 6
+
+  - note: Real Loghub Apache notice line.
+    raw: '[Sun Dec 04 04:47:44 2005] [notice] workerEnv.init() ok /etc/httpd/conf/workers2.properties'
+    expect:
+      severity_id: 1
