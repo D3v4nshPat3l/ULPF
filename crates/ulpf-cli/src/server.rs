@@ -545,13 +545,59 @@ async fn approve(
         prov.approved_by = Some("Console User".to_string());
     }
 
-    let packs_dir = lock(&state).packs_dir.clone();
-
-    // Save to packs directory so hot reload picks it up
+    // The id becomes a filename, so it has to be constrained to something that
+    // cannot escape the packs directory. An id of `../evil` previously wrote
+    // outside it, which turns an approve request into an arbitrary file write.
     let id = pack.identity.id.clone();
-    let file_path = packs_dir.join(format!("{}.yaml", id));
+    if id.is_empty()
+        || id.len() > 100
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+        || id.starts_with('.')
+        || id.contains("..")
+    {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "pack id '{id}' is not a valid filename: use letters, digits, '-', '_' and '.'"
+            ),
+        ));
+    }
 
-    let yaml_out = serde_yaml::to_string(&pack).unwrap();
+    // Approving activates the pack for live traffic, so it has to earn that by
+    // passing its own fixtures first. Writing an unvalidated pack straight into
+    // the watched directory meant a draft scoring 0/1 went live on the next
+    // hot reload.
+    let report = ulpf_generator::scorer::Scorer::score(&pack);
+    if report.total == 0 {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "pack has no fixtures, so it cannot be validated before activation".into(),
+        ));
+    }
+    if report.passed != report.total {
+        let detail = report
+            .failures
+            .iter()
+            .take(3)
+            .map(|f| format!("fixture {}: {} — {}", f.fixture, f.path, f.detail))
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "pack fails its own fixtures ({}/{} passed) and was not activated. {detail}",
+                report.passed, report.total
+            ),
+        ));
+    }
+
+    let yaml_out = serde_yaml::to_string(&pack)
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let packs_dir = lock(&state).packs_dir.clone();
+    let file_path = packs_dir.join(format!("{id}.yaml"));
     std::fs::write(&file_path, yaml_out).map_err(|e| {
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -559,7 +605,12 @@ async fn approve(
         )
     })?;
 
-    Ok(Json(json!({"ok": true, "id": id})))
+    Ok(Json(json!({
+        "ok": true,
+        "id": id,
+        "fixtures": report.total,
+        "fixtures_passed": report.passed,
+    })))
 }
 
 /// Condense an event into the columns the console table shows.
