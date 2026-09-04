@@ -51,6 +51,15 @@ jobs:
     - name: Score source-pack fixtures (offline)
       run: cargo run --release --locked --offline --quiet -- test --packs packs
 
+    # Reads only the vendored schema and the packs, so it needs no network and
+    # belongs in the offline job. Fixture scoring cannot catch what this does:
+    # a pack that maps a vendor's name to the wrong OCSF enum value compiles,
+    # passes its own fixtures, and emits a schema-shaped event that is simply
+    # wrong in meaning. Two packs numbered HTTP methods in listing order rather
+    # than the order OCSF defines, so every GET was recorded as Connect.
+    - name: Audit pack enums against the vendored OCSF schema
+      run: python3 tools/audit_pack_enums.py
+
     - name: Check formatting
       run: cargo fmt --all -- --check
 
