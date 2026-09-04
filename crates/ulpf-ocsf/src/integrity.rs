@@ -97,6 +97,16 @@ pub struct Checkpoint {
     pub head_type_uid: Option<i64>,
     /// Fingerprint of the head event.
     pub head: Fingerprint,
+    /// Merkle tree head over every event fingerprint in this chain, hex.
+    ///
+    /// Signed alongside the chain head so an inclusion proof has something
+    /// authenticated to verify against. Without this the tree would only prove
+    /// internal consistency: anyone able to rebuild it could also forge a root
+    /// to match whatever they wanted to claim.
+    pub merkle_root: String,
+    /// Number of leaves the root covers. A proof carries its own tree size, and
+    /// it has to equal this one.
+    pub tree_size: u64,
     /// Nanoseconds since the Unix epoch, on the attesting host's clock.
     pub created_time: i64,
     /// Ed25519 signature, hex-encoded, over the signing input.
@@ -111,23 +121,21 @@ impl Checkpoint {
     /// Built by canonicalizing the checkpoint's own fields with the signature
     /// omitted, so the input is unambiguous and reproducible by a third party
     /// holding nothing but this struct's JSON.
-    pub fn signing_input(
-        chain_uid: &str,
-        authority_uid: &str,
-        sequence: u64,
-        head_uid: &str,
-        head_type_uid: Option<i64>,
-        head: &Fingerprint,
-        created_time: i64,
-    ) -> std::result::Result<Vec<u8>, jcs::JcsError> {
+    ///
+    /// Taking `&self` rather than the fields one by one keeps signing and
+    /// verification reading from the same place: adding a field to the struct
+    /// and forgetting to add it here would silently leave it unsigned.
+    pub fn signing_input(&self) -> std::result::Result<Vec<u8>, jcs::JcsError> {
         let doc = serde_json::json!({
-            "chain_uid": chain_uid,
-            "authority_uid": authority_uid,
-            "sequence": sequence,
-            "head_uid": head_uid,
-            "head_type_uid": head_type_uid,
-            "head": head,
-            "created_time": created_time,
+            "chain_uid": self.chain_uid,
+            "authority_uid": self.authority_uid,
+            "sequence": self.sequence,
+            "head_uid": self.head_uid,
+            "head_type_uid": self.head_type_uid,
+            "head": self.head,
+            "merkle_root": self.merkle_root,
+            "tree_size": self.tree_size,
+            "created_time": self.created_time,
         });
         jcs::canonicalize_bytes(&doc)
     }
@@ -146,15 +154,7 @@ impl Checkpoint {
     /// deployment does — trusting the key inside the checkpoint proves only
     /// internal consistency.
     pub fn verify_with(&self, key: &VerifyingKey) -> Result<()> {
-        let input = Self::signing_input(
-            &self.chain_uid,
-            &self.authority_uid,
-            self.sequence,
-            &self.head_uid,
-            self.head_type_uid,
-            &self.head,
-            self.created_time,
-        )?;
+        let input = self.signing_input()?;
         let sig_bytes: [u8; 64] = hex::decode(&self.signature)
             .ok()
             .and_then(|b| b.try_into().ok())
@@ -173,6 +173,7 @@ pub struct Attestor {
     signing_key: Option<SigningKey>,
     prev: Option<ChainLink>,
     sequence: u64,
+    merkle: crate::merkle::MerkleLog,
 }
 
 impl Attestor {
@@ -184,12 +185,42 @@ impl Attestor {
             signing_key: None,
             prev: None,
             sequence: 0,
+            merkle: crate::merkle::MerkleLog::new(HashAlgorithm::default()),
         }
     }
 
     pub fn with_hash(mut self, hash: HashAlgorithm) -> Self {
         self.hash = hash;
+        // The tree hashes with the same algorithm as the fingerprints it
+        // covers; mixing the two would make a proof unverifiable by anyone who
+        // only knows which algorithm the events declare.
+        self.merkle = crate::merkle::MerkleLog::from_leaves(hash, self.merkle.leaves().to_vec());
         self
+    }
+
+    /// Restore the Merkle log after a restart, so the tree spans the whole
+    /// chain rather than restarting at the first event of this run.
+    pub fn resume_merkle(mut self, leaves: Vec<[u8; 32]>) -> Self {
+        self.merkle = crate::merkle::MerkleLog::from_leaves(self.hash, leaves);
+        self
+    }
+
+    pub fn merkle_root(&self) -> String {
+        self.merkle.root_hex()
+    }
+
+    pub fn merkle_size(&self) -> u64 {
+        self.merkle.len()
+    }
+
+    /// The leaf hashes, for callers that persist the tree across restarts.
+    pub fn merkle_leaves(&self) -> &[[u8; 32]] {
+        self.merkle.leaves()
+    }
+
+    /// Sibling path proving the event at `index` is in the tree.
+    pub fn inclusion_proof(&self, index: u64) -> Option<crate::merkle::InclusionProof> {
+        self.merkle.inclusion_proof(index)
     }
 
     pub fn with_signing_key(mut self, key: SigningKey) -> Self {
@@ -257,6 +288,14 @@ impl Attestor {
         };
         set_attestation(event, &attested)?;
 
+        // The leaf is the fingerprint, not a second canonicalization of the
+        // whole event: the fingerprint is already computed here, so the tree
+        // costs nothing extra per event. A third party verifies in two steps
+        // that each mean something on their own — recompute the fingerprint
+        // from the event to prove the content is unaltered, then verify that
+        // fingerprint's inclusion to prove it was actually logged.
+        self.merkle.append(fingerprint.value.as_bytes());
+
         self.prev = Some(ChainLink {
             uid,
             type_uid,
@@ -274,27 +313,25 @@ impl Attestor {
         let (Some(key), Some(head)) = (&self.signing_key, &self.prev) else {
             return Ok(None);
         };
-        let input = Checkpoint::signing_input(
-            &self.chain_uid,
-            &self.authority_uid,
-            self.sequence,
-            &head.uid,
-            head.type_uid,
-            &head.fingerprint,
-            created_time,
-        )?;
-        let sig = key.sign(&input);
-        Ok(Some(Checkpoint {
+        // Build the checkpoint first with an empty signature, then sign what it
+        // actually says. Assembling the signing input separately invited the
+        // two to disagree.
+        let mut checkpoint = Checkpoint {
             chain_uid: self.chain_uid.clone(),
             authority_uid: self.authority_uid.clone(),
             sequence: self.sequence,
             head_uid: head.uid.clone(),
             head_type_uid: head.type_uid,
             head: head.fingerprint.clone(),
+            merkle_root: self.merkle.root_hex(),
+            tree_size: self.merkle.len(),
             created_time,
-            signature: hex::encode(sig.to_bytes()),
+            signature: String::new(),
             public_key: hex::encode(key.verifying_key().to_bytes()),
-        }))
+        };
+        let input = checkpoint.signing_input()?;
+        checkpoint.signature = hex::encode(key.sign(&input).to_bytes());
+        Ok(Some(checkpoint))
     }
 }
 
@@ -584,6 +621,91 @@ mod tests {
             .unwrap()
             .build()
             .unwrap()
+    }
+
+    #[test]
+    fn an_event_proves_inclusion_against_the_signed_checkpoint() {
+        // The property the whole feature exists for: hand someone one event and
+        // a short proof, and they can confirm it was logged — without seeing
+        // any other event in the chain.
+        use crate::merkle::verify_inclusion;
+        use rand::rngs::OsRng;
+
+        let key = SigningKey::generate(&mut OsRng);
+        let public = key.verifying_key();
+        let mut attestor = Attestor::new("ulpf-test", "chain-a").with_signing_key(key);
+
+        let mut fingerprints = Vec::new();
+        for i in 0..50 {
+            let mut ev = event(&format!("uid-{i}"), &format!("10.0.0.{i}"));
+            fingerprints.push(attestor.attest(&mut ev).unwrap());
+        }
+
+        let checkpoint = attestor
+            .checkpoint(1_756_636_800_000_000_000)
+            .unwrap()
+            .unwrap();
+        // The root has to be signed, or a tamperer could simply publish a root
+        // that matches whatever they wanted to claim.
+        checkpoint.verify_with(&public).unwrap();
+        assert_eq!(checkpoint.tree_size, 50);
+
+        // Every event proves inclusion against that signed root.
+        for (i, fp) in fingerprints.iter().enumerate() {
+            let proof = attestor.inclusion_proof(i as u64).expect("proof exists");
+            assert_eq!(proof.tree_size, checkpoint.tree_size);
+            assert!(
+                verify_inclusion(
+                    HashAlgorithm::default(),
+                    fp.value.as_bytes(),
+                    &proof,
+                    &checkpoint.merkle_root,
+                ),
+                "event {i} failed to prove inclusion"
+            );
+        }
+    }
+
+    #[test]
+    fn a_fingerprint_that_was_never_attested_has_no_valid_proof() {
+        use crate::merkle::verify_inclusion;
+        use rand::rngs::OsRng;
+
+        let key = SigningKey::generate(&mut OsRng);
+        let mut attestor = Attestor::new("ulpf-test", "chain-a").with_signing_key(key);
+        for i in 0..16 {
+            let mut ev = event(&format!("uid-{i}"), &format!("10.0.0.{i}"));
+            attestor.attest(&mut ev).unwrap();
+        }
+        let checkpoint = attestor.checkpoint(1).unwrap().unwrap();
+        let proof = attestor.inclusion_proof(3).unwrap();
+
+        // A fingerprint the log never saw cannot borrow another event's proof.
+        assert!(!verify_inclusion(
+            HashAlgorithm::default(),
+            b"0000000000000000000000000000000000000000000000000000000000000000",
+            &proof,
+            &checkpoint.merkle_root,
+        ));
+    }
+
+    #[test]
+    fn altering_the_signed_root_breaks_the_checkpoint_signature() {
+        use rand::rngs::OsRng;
+
+        let key = SigningKey::generate(&mut OsRng);
+        let public = key.verifying_key();
+        let mut attestor = Attestor::new("ulpf-test", "chain-a").with_signing_key(key);
+        let mut ev = event("uid-0", "10.0.0.1");
+        attestor.attest(&mut ev).unwrap();
+
+        let mut checkpoint = attestor.checkpoint(1).unwrap().unwrap();
+        checkpoint.verify_with(&public).unwrap();
+
+        // Swapping in a root for a different set of events must not verify:
+        // the root is inside the signed input, not beside it.
+        checkpoint.merkle_root = "aa".repeat(32);
+        assert!(checkpoint.verify_with(&public).is_err());
     }
 
     fn key() -> SigningKey {
