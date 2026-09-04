@@ -50,17 +50,19 @@ documentation-derived tests:
 Until those eight see real traffic they are unproven. This is the largest
 credibility gap in the project and it is not a technical problem.
 
-### 3. `docs/gap_analysis.md` over-claims
+### 3. Self-assessment documents — resolved
 
-It marks every requirement "Fully Addressed", including (h), which
-`README.md` correctly marks *Partial*. A reader who opens both finds the
-repository contradicting itself.
+`docs/gap_analysis.md` marked every requirement "Fully Addressed", including
+(h), which `README.md` correctly marks *Partial*; a reader who opened both
+found the repository contradicting itself. It also described "5 Source Packs
+and 7 decoders" against the current 18 and 10.
 
-It also describes "5 Source Packs and 7 decoders" against the current 18 and
-10, and asserts "JMESPath-style mapping" which should be checked against what
-`ulpf-pack` actually implements.
+It was deleted, along with `docs/codebase_analysis.md` and `docs/strategy/`.
+The README requirement table is now the single self-assessment, which is the
+right outcome: one place to keep honest rather than four to keep in sync.
 
-Fix it or delete it. A stale self-assessment is worse than none.
+Nothing further to do here — it is recorded because it was a real problem, not
+because it is still open.
 
 ### 4. Throughput to one billion events per day
 
