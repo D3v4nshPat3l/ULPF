@@ -1,0 +1,48 @@
+# ULPF collector, containerised. Requirement (k).
+#
+#   docker compose -f deploy/ulpf-compose.yaml up -d --build
+#
+# The console is published on loopback only. It has no authentication, so
+# exposing it on 0.0.0.0 would put an unauthenticated control surface — one
+# that can write Source Packs — on the network. Put a reverse proxy in front
+# if it needs to be reachable from another host.
+#
+# The syslog receiver is published on all interfaces, because devices have to
+# reach it. That is a receive-only UDP socket; every datagram is vaulted before
+# it is interpreted.
+
+services:
+  ulpf:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: ulpf:local
+    container_name: ulpf
+    command:
+      - serve
+      - --packs=/app/packs
+      - --vault=/app/data/vault
+      - --integrity-dir=/app/data/integrity
+      - --chain=production
+      - --host=0.0.0.0
+      - --port=8787
+      - --syslog-bind=0.0.0.0:5514
+    ports:
+      - "127.0.0.1:8787:8787"
+      - "5514:5514/udp"
+    volumes:
+      - ulpf-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    # The vault is append-only and the chain resumes from its last signed
+    # checkpoint, so an unclean stop costs the tail block, not the archive.
+    stop_grace_period: 30s
+
+volumes:
+  ulpf-data:

@@ -22,13 +22,20 @@ analysis research. <https://github.com/logpai/loghub>
 
 ## Corpus and measured coverage
 
-Measured 3 September 2026 with 18 source packs.
+Measured 4 September 2026 with 18 source packs, reproducible with
+`python tools/measure_coverage.py`.
+
+> An earlier revision of this table recorded the Dragon corpus at 29,925
+> records against a total of 292,608. That count predated a re-fetch and
+> understated the corpus: `tools/fetch_datasets.py` produces 42,899 Dragon
+> records, all of which parse. The corrected total is larger and the
+> weighted coverage marginally higher.
 
 | Category | Source file | Origin | Records | Coverage |
 |---|---|---|---:|---:|
 | Firewall | `SotM34/iptables/iptablesyslog` | Honeynet SotM34 | 179,752 | 100.0000% |
 | IDS | `SotM34/snort/snortsyslog` | Honeynet SotM34 | 69,039 | 99.9986% |
-| IDS | `dragon-nids.log` | Honeynet Dragon capture | 29,925 | 100.0000% |
+| IDS | `dragon-nids.log` | Honeynet Dragon capture | 42,899 | 100.0000% |
 | Web | `SotM34/http/access_log*` | Honeynet SotM34 | 3,554 | 99.9719% |
 | Web | `Apache_2k.log` | Loghub Apache | 2,000 | 100.0000% |
 | Auth | `OpenSSH_2k.log` | Loghub OpenSSH | 2,000 | 100.0000% |
@@ -36,7 +43,7 @@ Measured 3 September 2026 with 18 source packs.
 | Host | `Linux_2k.log` | Loghub Linux | 2,000 | 96.4500% |
 | Mail | `SotM34/syslog/maillog*` | Honeynet SotM34 | 1,172 | 98.7201% |
 | Proxy | `Proxifier_2k.log` | Loghub Proxifier | 2,000 | 81.1000% |
-| **Total** | | | **292,608** | **99.8178%** |
+| **Total** | | | **305,582** | **99.8256%** |
 
 A separate 307,524-record iptables capture (`SotM30-anton.log`) is used for
 pack development. The SotM34 iptables figure above is therefore genuine

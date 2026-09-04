@@ -1,8 +1,9 @@
 # Measured throughput
 
-`docs/strategy/codebase_analysis.md` asks for the 11,600 EPS target to be
-proven rather than asserted. This is that measurement, with the method and the
-losses stated plainly.
+The problem statement asks for a framework that scales to billions of events
+per day. That is 11,574 EPS sustained, and this document measures what one
+collector actually reaches — with the method and the losses stated plainly,
+rather than the target asserted.
 
 ## Method
 

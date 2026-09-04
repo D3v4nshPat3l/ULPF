@@ -22,7 +22,7 @@ The ordering is a correctness property. The vault append precedes parsing, and a
 | Crate | Responsibility |
 |---|---|
 | `ulpf-core` | Receipt envelope, transport, borrowed field map, raw locator, disposition |
-| `ulpf-decode` | RFC 3164/5424 syslog, CEF, JSON, CSV, key-value, and regex decoding |
+| `ulpf-decode` | Ten decoders: RFC 3164/5424 syslog, CEF, LEEF, JSON, XML, CSV, key-value, regex |
 | `ulpf-pack` | Declarative Source Pack schema, validation, compilation, fixtures, scoring |
 | `ulpf-ocsf` | OCSF event construction, RFC 8785 canonicalization, hash chain, checkpoints |
 | `ulpf-vault` | Append-only block-compressed byte archive and indexed retrieval |
@@ -44,7 +44,10 @@ This provides tamper evidence plus a trusted anchor. A hash chain alone cannot a
 
 ## Source Packs
 
-A Source Pack is YAML with identity detectors, a decoder chain, OCSF mappings, enum translations, provenance, and golden fixtures. Packs are compiled once at startup. Unknown fields, empty detectors, missing base mappings, invalid enum references, unsafe framework-owned paths, invalid ranges, and malformed mapping objects fail during load.
+A Source Pack is YAML with identity detectors, a decoder chain, OCSF mappings, enum translations, provenance, and golden fixtures. Packs are compiled once at load. A filesystem watcher recompiles the library
+when a file in the packs directory changes, so a new source is onboarded by
+dropping in a YAML file — no restart. A pack that fails to compile is logged
+and skipped; the previously loaded library stays in service. Unknown fields, empty detectors, missing base mappings, invalid enum references, unsafe framework-owned paths, invalid ranges, and malformed mapping objects fail during load.
 
 The hot path is deterministic: no network or model call executes per event. The
 offline `ulpf draft` assistant clusters dead letters and drafts YAML candidates;
@@ -56,7 +59,11 @@ can enter the runtime library.
 - `ulpf run`: file or stdin to NDJSON, raw vault, checkpoint, optional dead-letter output, and bounded Parquet/OpenSearch/Splunk fan-out.
 - `ulpf draft`: dead-letter clustering and fixture-tested candidate Source Packs.
 - `ulpf listen`: UDP syslog receiver on an operator-selected socket.
-- `ulpf serve`: local REST API and embedded console with no CDN or external runtime dependency.
+- `ulpf replay`: replay a capture over UDP at a fixed rate, for load testing.
+- `ulpf decoders`: list the built-in decoders a pack may name.
+- `ulpf serve`: local REST API, operator console and traffic simulator, with no
+  CDN or external runtime dependency. Binds a UDP syslog receiver on
+  `--syslog-bind`, which is configurable so two collectors can share a host.
 - `ulpf raw`: exact byte retrieval by locator.
 - `ulpf verify`: event-chain verification with optional checkpoint and trusted public key.
 - `ulpf test`: Source Pack fixture quality gate.
@@ -69,7 +76,6 @@ The server bounds JSON bodies to 4 MiB, accepts at most 2,000 non-empty records 
 
 ## Current limitations
 
-- Source Packs are loaded at startup; hot reload is not implemented.
 - UDP syslog is implemented; TCP/TLS and Kafka remain roadmap work.
 - Parquet, OpenSearch Bulk, and Splunk HEC adapters use plain HTTP to a trusted
   local endpoint. TLS termination and destination-specific authentication are

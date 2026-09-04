@@ -25,29 +25,12 @@
     --shadow:0 1px 3px rgba(29,30,36,.08);
     --radius:4px;
   }
-  @media (prefers-color-scheme:dark){
-    :root:not([data-theme="light"]){
-      --nav:#111216; --nav-text:#8C93A5;
-      --page:#141519; --panel:#1D1E24; --sunken:#25262E; --border:#343741;
-      --text:#DFE5EF; --text-2:#AEB6C4; --text-3:#81858F;
-      --primary:#36A2EF; --primary-soft:#0E2B40;
-      --success:#7DDED4; --success-soft:#10312E;
-      --warning:#F5C452; --warning-soft:#33280C;
-      --danger:#F0837C; --danger-soft:#3A1B19;
-      --shadow:0 1px 3px rgba(0,0,0,.4);
-    }
-  }
-  :root[data-theme="dark"]{
-    --nav:#111216; --nav-text:#8C93A5;
-    --page:#141519; --panel:#1D1E24; --sunken:#25262E; --border:#343741;
-    --text:#DFE5EF; --text-2:#AEB6C4; --text-3:#81858F;
-    --primary:#36A2EF; --primary-soft:#0E2B40;
-    --success:#7DDED4; --success-soft:#10312E;
-    --warning:#F5C452; --warning-soft:#33280C;
-    --danger:#F0837C; --danger-soft:#3A1B19;
-    --shadow:0 1px 3px rgba(0,0,0,.4);
-  }
 
+  /* Light only, deliberately: this is an operator console that has to look
+     the same on every machine in the room, and match the SIEM beside it.
+     color-scheme pins the native controls so a dark OS cannot repaint
+     inputs, selects and scrollbars underneath the palette. */
+  :root{color-scheme:light}
   *{box-sizing:border-box}
   body{
     margin:0;background:var(--page);color:var(--text);
@@ -154,7 +137,6 @@
   <span class="where">Traffic source simulator</span>
   <div class="spacer"></div>
   <a href="/">&larr; Operator console</a>
-  <button class="btn sm" type="button" id="theme-btn">Theme</button>
 </div>
 
 <div class="wrap">
@@ -208,18 +190,6 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-
-/* ---------------------------------------------------------------- theming */
-(function initTheme() {
-  let saved = null;
-  try { saved = localStorage.getItem("ulpf-theme"); } catch (e) { /* private mode */ }
-  if (saved) document.documentElement.setAttribute("data-theme", saved);
-})();
-$("theme-btn").addEventListener("click", () => {
-  const dark = document.documentElement.getAttribute("data-theme") !== "dark";
-  document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
-  try { localStorage.setItem("ulpf-theme", dark ? "dark" : "light"); } catch (e) { /* private mode */ }
-});
 
 /* --------------------------------------------------------------- helpers */
 function el(tag, cls, text) {

@@ -164,8 +164,10 @@ Re-hashes every event in the window and walks the chain links.
 
 ![Tamper detected](docs/screenshots/console-tamper.png)
 
-"Simulate Database Tampering" rewrites a single field on one vaulted event —
-here one source IP. Verification immediately reports
+The tamper test rewrites one attribute on one *retained* event — here a source
+IP. The vault is append-only and is not touched, which is the point: the
+original bytes stay retrievable and provably different from the altered
+record. Verification immediately reports
 `fingerprint mismatch: event content has been altered`. This is the core claim
 of the project, and it is a live test, not a slide.
 
@@ -274,13 +276,13 @@ point at it directly.
 ### Verify a stream independently
 
 ```bash
-./target/release/ulpf verify --input events.ndjson --public-key data/integrity/ed25519-signing.pub
+./target/release/ulpf verify events.ndjson --checkpoint data/integrity/default.checkpoint.json --public-key data/integrity/ed25519-signing.pub
 ```
 
 ### Retrieve the original bytes of one event
 
 ```bash
-./target/release/ulpf raw --vault data/vault --locator 0:1024:512
+./target/release/ulpf raw --vault data/vault ulpf:raw:0000000000000000:0000000000000000:0000008b
 ```
 
 ### Receive real syslog
@@ -299,16 +301,16 @@ point at it directly.
 
 ## Measured results
 
-### Coverage — 292,608 real records
+### Coverage — 305,582 real records
 
-Measured 3 September 2026 against unmodified public captures, reproducible with
+Measured 4 September 2026 against unmodified public captures, reproducible with
 `python tools/measure_coverage.py`.
 
 | Category | Source | Origin | Records | Coverage |
 |---|---|---|---:|---:|
 | Firewall | `iptables.log` | Honeynet SotM34 | 179,752 | 100.0000% |
 | IDS | `snort.log` | Honeynet SotM34 | 69,039 | 99.9986% |
-| IDS | `dragon-nids.log` | Honeynet Dragon | 29,925 | 100.0000% |
+| IDS | `dragon-nids.log` | Honeynet Dragon | 42,899 | 100.0000% |
 | Web | `apache-access.log` | Honeynet SotM34 | 3,554 | 99.9719% |
 | Web | `Apache_2k.log` | Loghub | 2,000 | 100.0000% |
 | Auth | `OpenSSH_2k.log` | Loghub | 2,000 | 100.0000% |
@@ -316,7 +318,7 @@ Measured 3 September 2026 against unmodified public captures, reproducible with
 | Host | `Linux_2k.log` | Loghub | 2,000 | 96.4500% |
 | Mail | `sendmail.log` | Honeynet SotM34 | 1,172 | 98.7201% |
 | Proxy | `Proxifier_2k.log` | Loghub | 2,000 | 81.1000% |
-| **Total** | | | **292,608** | **99.8178%** |
+| **Total** | | | **305,582** | **99.8256%** |
 
 The iptables figure is genuine cross-validation: that pack was written against
 a *different* 307,524-record capture (SotM30) and never tuned on SotM34.
@@ -377,7 +379,8 @@ crates/
 packs/             18 Source Packs
 schema/ocsf/       vendored OCSF 1.9.0
 tools/             corpus fetch and coverage measurement scripts
-docs/              architecture, datasets, throughput, testing, roadmap
+deploy/            container compose files: the collector, and an OpenSearch receiver
+docs/              architecture, datasets, throughput, deployment, testing, roadmap
 ```
 
 ---
@@ -401,7 +404,7 @@ review-and-approve gate; provenance recorded on generated packs.
 vault, assistant, deep-linkable views, and a simulator that drives ten real
 corpora.
 
-**Evidence.** 292,608 real records at 99.8178% coverage; throughput measured
+**Evidence.** 305,582 real records at 99.8256% coverage; throughput measured
 and published with its losses; scripts to reproduce both.
 
 ---
@@ -429,9 +432,9 @@ The three named gaps are Proxifier's non-connection lines (18.9%), the daemon
 long tail in Linux syslog, and mail. Each needs packs written against the
 capture rather than against a vendor manual.
 
-Cisco ASA, FortiGate, Palo Alto, Check Point, Juniper, Suricata, ModSecurity
-and Squid packs exist and pass their fixtures, but those fixtures come from
-documentation — there is no public corpus for them. Finding or lawfully
+Cisco ASA, FortiGate, Palo Alto, Check Point, Juniper, Suricata, ModSecurity,
+Squid and the generic CEF fallback exist and pass their fixtures, but those
+fixtures come from documentation — there is no public corpus for them. Finding or lawfully
 capturing real traffic for those vendors would materially strengthen the
 coverage claim.
 
@@ -464,9 +467,9 @@ Stated plainly, because a reviewer will find them anyway.
 - **Coverage is 99.82%, not 100%.** The remainder is enumerated in
   `docs/DATASETS.md`. Unparsed records are still vaulted, fingerprinted and
   emitted.
-- **Eight of the 18 packs have no real-corpus evidence.** They pass fixtures
+- **Nine of the 18 packs have no real-corpus evidence.** They pass fixtures
   written from vendor documentation. Real data has repeatedly broken packs that
-  passed documentation-derived tests, so treat those eight as unproven.
+  passed documentation-derived tests, so treat those nine as unproven.
 - **The Assistant's answer quality is limited by a 1.5B model.** It reads live
   context correctly but reasons loosely. The screenshot above is a real,
   unedited exchange, including its hedging.
@@ -520,7 +523,7 @@ traffic, let the console draft a candidate for you and edit from there —
 | [PACK_GENERATOR.md](docs/PACK_GENERATOR.md) | Clustering, generators, scoring |
 | [SINKS.md](docs/SINKS.md) | Parquet, OpenSearch, Splunk HEC |
 | [TESTING.md](docs/TESTING.md) | Test strategy |
-| [3-LAPTOP-DEMO.md](docs/3-LAPTOP-DEMO.md) | Multi-machine demo setup |
+| [3-LAPTOP-DEMO.md](docs/3-LAPTOP-DEMO.md) | Verified step-by-step multi-machine demonstration |
 | [ROADMAP.md](docs/ROADMAP.md) | Longer-range plan |
 
 ---
