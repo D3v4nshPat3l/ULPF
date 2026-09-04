@@ -55,14 +55,17 @@ map:
     as: int
 
 enums:
+  # OCSF HTTP Activity activity_id, from
+  # schema/ocsf/events/network/http_activity.json. Previously numbered in
+  # listing order rather than the order OCSF defines.
   http_method:
-    GET: 1
-    HEAD: 2
-    POST: 3
-    PUT: 4
-    DELETE: 5
-    CONNECT: 6
-    OPTIONS: 7
+    CONNECT: 1
+    DELETE: 2
+    GET: 3
+    HEAD: 4
+    OPTIONS: 5
+    POST: 6
+    PUT: 7
     TRACE: 8
     PATCH: 9
 
@@ -71,7 +74,7 @@ fixtures:
     raw: '1756636800.123    152 10.0.0.50 TCP_MISS/200 12345 GET http://example.com/page user1 DIRECT/93.184.216.34 text/html'
     expect:
       class_uid: 4002
-      activity_id: 1
+      activity_id: 3
       src_endpoint.ip: 10.0.0.50
       http_request.http_method: GET
       http_request.url.url_string: http://example.com/page
@@ -83,7 +86,7 @@ fixtures:
     raw: '1756636801.456    5032 10.0.0.51 TCP_TUNNEL/200 8192 CONNECT secure.example.com:443 user2 DIRECT/93.184.216.34 -'
     expect:
       class_uid: 4002
-      activity_id: 6
+      activity_id: 1
       src_endpoint.ip: 10.0.0.51
       http_request.http_method: CONNECT
       http_response.code: 200
