@@ -116,7 +116,7 @@ pub fn open(
 ///
 /// A trailing partial record means the process died mid-append; it is dropped
 /// rather than treated as a leaf, since a half-written hash is not one.
-fn load_leaves(path: &Path, limit: usize) -> anyhow::Result<Vec<[u8; 32]>> {
+pub fn load_leaves(path: &Path, limit: usize) -> anyhow::Result<Vec<[u8; 32]>> {
     if limit == 0 || !path.exists() {
         return Ok(Vec::new());
     }
@@ -293,7 +293,9 @@ fn write_synced(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn safe_name(value: &str) -> String {
+/// Public so callers that need to find a chain's files use the same rule
+/// that wrote them, rather than a second copy that can drift.
+pub fn safe_name(value: &str) -> String {
     value
         .chars()
         .map(|c| {
