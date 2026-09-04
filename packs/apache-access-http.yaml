@@ -63,16 +63,21 @@ map:
     observable: user
 
 enums:
-  # OCSF HTTP Activity activity_id.
+  # OCSF HTTP Activity activity_id, from
+  # schema/ocsf/events/network/http_activity.json. These were previously
+  # numbered in the order the methods were written down rather than the
+  # order OCSF defines, so every GET was recorded as Connect and every
+  # POST as Delete.
   http_method:
-    GET: 1
-    POST: 2
-    PUT: 3
-    DELETE: 4
-    HEAD: 5
-    CONNECT: 6
-    OPTIONS: 7
+    CONNECT: 1
+    DELETE: 2
+    GET: 3
+    HEAD: 4
+    OPTIONS: 5
+    POST: 6
+    PUT: 7
     TRACE: 8
+    PATCH: 9
   # 4xx and 5xx are worth more attention than a 200.
   http_severity:
     "200": 1
@@ -91,7 +96,7 @@ fixtures:
     raw: '210.116.59.164 - - [13/Mar/2005:04:05:47 -0500] "POST /_vti_bin/_vti_aut/fp30reg.dll HTTP/1.1" 404 1063 "-" "-"'
     expect:
       class_uid: 4002
-      activity_id: 2
+      activity_id: 6
       src_endpoint.ip: 210.116.59.164
       http_request.http_method: POST
       http_request.url.path: /_vti_bin/_vti_aut/fp30reg.dll
