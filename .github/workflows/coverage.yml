@@ -1,0 +1,81 @@
+name: Coverage regression
+
+# Deliberately separate from the air-gapped CI job.
+#
+# That job proves ULPF builds and tests with no network at all, and it does so
+# by running every Cargo command with `--offline`. This one has to download
+# ~150 MB of public capture data from the Honeynet Project and Loghub, so
+# putting it in the same job would either break the offline proof or make the
+# offline proof a lie. Keeping them apart lets each say something true.
+#
+# It is also why this does not run on every push: it depends on external hosts
+# that can be down, and a red build caused by someone else's mirror teaches a
+# team to ignore red builds.
+
+on:
+  schedule:
+    # Weekly, early Monday UTC.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+  push:
+    # Pack or engine changes are the only things that can move coverage.
+    branches: [ main ]
+    paths:
+      - "packs/**"
+      - "crates/ulpf-pack/**"
+      - "crates/ulpf-decode/**"
+      - "tools/measure_coverage.py"
+      - "tools/coverage_baseline.json"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: dtolnay/rust-toolchain@stable
+
+    - uses: Swatinem/rust-cache@v2
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    # The corpora are not committed: they total ~150 MB, they are
+    # independently available, and vendoring them would silently relicense
+    # third-party research data. Cache them so the upstream mirrors are hit
+    # once rather than on every run.
+    - name: Cache public corpora
+      id: corpora
+      uses: actions/cache@v4
+      with:
+        path: realdata
+        key: ulpf-corpora-v1-${{ hashFiles('tools/fetch_datasets.py') }}
+
+    - name: Fetch corpora
+      if: steps.corpora.outputs.cache-hit != 'true'
+      run: python tools/fetch_datasets.py --dir realdata
+
+    - name: Build
+      run: cargo build --release --locked
+
+    # Fails when any corpus, or the total, drops below the recorded figure.
+    # Fixture scoring cannot catch this: a pack can pass its own fixtures and
+    # still stop claiming most of the traffic it used to.
+    - name: Check coverage against the baseline
+      run: python tools/measure_coverage.py --data realdata --check
+
+    - name: Upload the measured table
+      if: always()
+      run: python tools/measure_coverage.py --data realdata | tee coverage.txt
+
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: coverage-table
+        path: coverage.txt
