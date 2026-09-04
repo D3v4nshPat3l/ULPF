@@ -11,5 +11,10 @@
 .DS_Store
 Thumbs.db
 
+# The tools/ scripts are run directly and imported by their own checks, so
+# CPython leaves bytecode behind next to them.
+__pycache__/
+*.pyc
+
 # Documentation evidence is intentionally versioned.
 !/docs/images/*.png
