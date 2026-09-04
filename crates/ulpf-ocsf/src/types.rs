@@ -66,6 +66,21 @@ pub enum HashAlgorithm {
 }
 
 impl HashAlgorithm {
+    /// Raw digest bytes. Both algorithms produce 32 bytes, which is what the
+    /// Merkle log stores and concatenates; `digest` hex-encodes this for the
+    /// places that carry a fingerprint as a string.
+    pub fn digest_bytes(&self, bytes: &[u8]) -> [u8; 32] {
+        match self {
+            HashAlgorithm::Sha256 => {
+                use sha2::{Digest, Sha256};
+                let mut h = Sha256::new();
+                h.update(bytes);
+                h.finalize().into()
+            }
+            HashAlgorithm::Blake3 => *blake3::hash(bytes).as_bytes(),
+        }
+    }
+
     pub fn digest(&self, bytes: &[u8]) -> String {
         match self {
             HashAlgorithm::Sha256 => {

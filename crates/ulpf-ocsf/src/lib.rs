@@ -17,6 +17,7 @@
 pub mod event;
 pub mod integrity;
 pub mod jcs;
+pub mod merkle;
 pub mod types;
 
 pub use event::{EventBuilder, OcsfEvent, SCHEMA_VERSION};
