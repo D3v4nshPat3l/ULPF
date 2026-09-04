@@ -199,6 +199,9 @@ struct LlamaCppResponse {
     content: String,
 }
 
+/// How long to wait for the model server to answer a liveness check.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
 impl GeneratorClient {
     pub fn new(endpoint: &str, model: &str, backend: Backend) -> Self {
         Self {
@@ -240,13 +243,29 @@ impl GeneratorClient {
             Backend::Ollama => format!("{}/api/tags", self.endpoint),
             Backend::LlamaCpp => format!("{}/health", self.endpoint),
         };
+        // Three seconds was too tight: Ollama answers /api/tags in milliseconds
+        // when idle, but a request arriving while it is loading a model into
+        // memory would time out and the console would report the server as
+        // unreachable when it was merely busy.
         let res = self
             .client
             .get(&url)
-            .timeout(std::time::Duration::from_secs(3))
+            .timeout(PROBE_TIMEOUT)
             .send()
             .await
-            .with_context(|| format!("no model server reachable at {}", self.endpoint))?;
+            .map_err(|error| {
+                // "Unreachable" and "too slow to answer" need different fixes,
+                // so they get different messages.
+                if error.is_timeout() {
+                    anyhow::anyhow!(
+                        "the model server at {} did not respond within {}s; it may be loading a model",
+                        self.endpoint,
+                        PROBE_TIMEOUT.as_secs()
+                    )
+                } else {
+                    anyhow::anyhow!("no model server reachable at {}: {error}", self.endpoint)
+                }
+            })?;
         if !res.status().is_success() {
             bail!(
                 "model server at {} returned {}",
