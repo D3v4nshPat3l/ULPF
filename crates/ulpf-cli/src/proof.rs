@@ -133,7 +133,14 @@ pub fn cmd_prove(
         .iter()
         .position(|leaf| leaf == &wanted)
         .with_context(|| {
-            format!("fingerprint {target} is not in chain `{chain}`, so no proof can be made")
+            // Only leaves the last checkpoint committed to are loaded, so a
+            // freshly received event is legitimately absent for a few seconds.
+            // Saying "not in this chain" for that case reads as an integrity
+            // failure when nothing is wrong.
+            format!(
+                "fingerprint {target} is not among the {} leaves the last signed checkpoint of chain `{chain}` commits to. If this event arrived recently, wait for the next checkpoint; otherwise it was never in this log",
+                checkpoint.tree_size
+            )
         })? as u64;
 
     let proof = log
