@@ -14,8 +14,13 @@ pub struct IntegrityRuntime {
     pub attestor: Attestor,
     pub checkpoint_path: PathBuf,
     pub public_key_path: PathBuf,
+    /// Append-only file of Merkle leaf hashes, 32 bytes each.
+    pub merkle_leaves_path: PathBuf,
     pub resume_anchor: Option<ChainLink>,
 }
+
+/// One leaf hash on disk. Both hash algorithms produce 32 bytes.
+const LEAF_BYTES: usize = 32;
 
 pub fn open(
     dir: &Path,
@@ -29,6 +34,7 @@ pub fn open(
     let key_path = dir.join("ed25519-signing.key");
     let public_key_path = dir.join("ed25519-signing.pub");
     let checkpoint_path = dir.join(format!("{}.checkpoint.json", safe_name(chain_uid)));
+    let merkle_leaves_path = dir.join(format!("{}.merkle-leaves.bin", safe_name(chain_uid)));
     let key = load_or_create_key(&key_path)?;
     write_synced(
         &public_key_path,
@@ -36,7 +42,7 @@ pub fn open(
     )?;
 
     let stored = load_checkpoint(&checkpoint_path)?;
-    let (resume_anchor, sequence) = match stored {
+    let (resume_anchor, sequence, tree_size, signed_root) = match stored {
         Some(checkpoint) => {
             checkpoint
                 .verify_with(&key.verifying_key())
@@ -56,19 +62,43 @@ pub fn open(
                 );
             }
             let sequence = checkpoint.sequence;
+            let tree_size = checkpoint.tree_size;
+            let signed_root = checkpoint.merkle_root.clone();
             let anchor = ChainLink {
                 uid: checkpoint.head_uid,
                 type_uid: checkpoint.head_type_uid,
                 fingerprint: checkpoint.head,
             };
-            (Some(anchor), sequence)
+            (Some(anchor), sequence, tree_size, signed_root)
         }
-        None => (None, 0),
+        None => (None, 0, 0, String::new()),
     };
+
+    // Restore the Merkle log so the tree spans the whole chain rather than
+    // restarting at this run's first event, which would silently invalidate
+    // every proof issued before the restart.
+    //
+    // Only the leaves the last checkpoint committed to are trusted. Anything
+    // written past that point was never signed, so it is dropped rather than
+    // resumed — the alternative is a root nobody ever attested to.
+    let leaves = load_leaves(&merkle_leaves_path, tree_size as usize)?;
 
     let mut attestor = Attestor::new(authority_uid, chain_uid)
         .with_hash(hash)
         .with_signing_key(key);
+    if !leaves.is_empty() {
+        attestor = attestor.resume_merkle(leaves);
+        // The signed checkpoint is the authority on what the root was. If the
+        // leaves file disagrees, it has been altered or truncated, and
+        // continuing would issue proofs against a root that was never signed.
+        let rebuilt = attestor.merkle_root();
+        if rebuilt != signed_root {
+            bail!(
+                "the Merkle leaf file at {} does not reproduce the signed root (rebuilt {rebuilt}, checkpoint says {signed_root}); the file has been altered",
+                merkle_leaves_path.display()
+            );
+        }
+    }
     if let Some(anchor) = resume_anchor.clone() {
         attestor = attestor.resume_from(anchor, sequence);
     }
@@ -77,8 +107,65 @@ pub fn open(
         attestor,
         checkpoint_path,
         public_key_path,
+        merkle_leaves_path,
         resume_anchor,
     })
+}
+
+/// Read up to `limit` leaf hashes.
+///
+/// A trailing partial record means the process died mid-append; it is dropped
+/// rather than treated as a leaf, since a half-written hash is not one.
+fn load_leaves(path: &Path, limit: usize) -> anyhow::Result<Vec<[u8; 32]>> {
+    if limit == 0 || !path.exists() {
+        return Ok(Vec::new());
+    }
+    let bytes = std::fs::read(path)
+        .with_context(|| format!("reading Merkle leaves from {}", path.display()))?;
+
+    let available = bytes.len() / LEAF_BYTES;
+    let take = available.min(limit);
+    if available < limit {
+        bail!(
+            "{} holds {available} leaves but the signed checkpoint commits to {limit}; the file has been truncated",
+            path.display()
+        );
+    }
+
+    let mut leaves = Vec::with_capacity(take);
+    for chunk in bytes.chunks_exact(LEAF_BYTES).take(take) {
+        let mut leaf = [0u8; LEAF_BYTES];
+        leaf.copy_from_slice(chunk);
+        leaves.push(leaf);
+    }
+    Ok(leaves)
+}
+
+/// Append any leaves not yet on disk.
+///
+/// Called when a checkpoint is written, so the leaf file and the signed root it
+/// reproduces always advance together. The file length says how many are
+/// already stored, which needs no separate bookkeeping to go stale.
+pub fn persist_leaves(path: &Path, leaves: &[[u8; 32]]) -> anyhow::Result<()> {
+    let on_disk = match std::fs::metadata(path) {
+        Ok(meta) => (meta.len() as usize) / LEAF_BYTES,
+        Err(_) => 0,
+    };
+    if leaves.len() <= on_disk {
+        return Ok(());
+    }
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .with_context(|| format!("opening Merkle leaf file {}", path.display()))?;
+    for leaf in &leaves[on_disk..] {
+        file.write_all(leaf)?;
+    }
+    file.sync_all()
+        .with_context(|| format!("flushing Merkle leaf file {}", path.display()))?;
+    Ok(())
 }
 
 pub fn persist_checkpoint(path: &Path, checkpoint: &Checkpoint) -> anyhow::Result<()> {

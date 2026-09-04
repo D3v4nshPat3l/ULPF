@@ -439,6 +439,7 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
     };
     let integrity = integrity_state::open(&integrity_dir, "ulpf-local", &chain, hash)?;
     let checkpoint_path = integrity.checkpoint_path.clone();
+    let merkle_leaves_path = integrity.merkle_leaves_path.clone();
     let public_key_path = integrity.public_key_path.clone();
     let mut pipeline = Pipeline::new(std::sync::Arc::new(library), vault, integrity.attestor)
         .with_hash(hash)
@@ -497,6 +498,7 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
                 writer.as_mut(),
                 &mut dead_letter_writer,
                 &checkpoint_path,
+                &merkle_leaves_path,
                 &mut sinks,
             )?;
         }
@@ -507,6 +509,7 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
         writer.as_mut(),
         &mut dead_letter_writer,
         &checkpoint_path,
+        &merkle_leaves_path,
         &mut sinks,
     )?;
     writer.flush()?;
@@ -515,9 +518,12 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
     }
 
     let elapsed = started.elapsed();
+    // `finish` consumes the pipeline, so take the leaves while it still exists.
+    let merkle_leaves = pipeline.merkle_leaves().to_vec();
     let (stats, checkpoint) = pipeline.finish()?;
     sinks.finish()?;
     if let Some(checkpoint) = &checkpoint {
+        integrity_state::persist_leaves(&merkle_leaves_path, &merkle_leaves)?;
         integrity_state::persist_checkpoint(&checkpoint_path, checkpoint)?;
     }
 
@@ -566,6 +572,7 @@ fn commit_pending(
     writer: &mut dyn Write,
     dead_letter: &mut Option<Box<dyn Write>>,
     checkpoint_path: &Path,
+    merkle_leaves_path: &Path,
     sinks: &mut sinks::AsyncSinkSet,
 ) -> anyhow::Result<()> {
     if pending.is_empty() {
@@ -577,6 +584,9 @@ fn commit_pending(
     // row to point at evidence that only exists in process memory.
     let checkpoint = pipeline.checkpoint_now()?;
     if let Some(checkpoint) = &checkpoint {
+        // Leaves first: a checkpoint naming a tree size the leaf file cannot
+        // reach would refuse to load on the next start.
+        integrity_state::persist_leaves(merkle_leaves_path, pipeline.merkle_leaves())?;
         integrity_state::persist_checkpoint(checkpoint_path, checkpoint)?;
     }
 
@@ -667,6 +677,7 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         integrity_state::open(&integrity_dir, "ulpf-console", chain, HashAlgorithm::Sha256)?;
     let resume_anchor = integrity.resume_anchor.clone();
     let checkpoint_path = integrity.checkpoint_path.clone();
+    let merkle_leaves_path = integrity.merkle_leaves_path.clone();
     let public_key_path = integrity.public_key_path.clone();
     let mut pipeline = Pipeline::new(std::sync::Arc::new(library), vault, integrity.attestor);
 
@@ -683,6 +694,7 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         chain_anchor: resume_anchor,
         latest_checkpoint,
         checkpoint_path,
+        merkle_leaves_path: merkle_leaves_path.clone(),
         vault_dir,
         packs_dir: packs_dir.clone(),
         drain: ulpf_generator::drain::Drain::new(),
@@ -753,6 +765,9 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
                         last_checkpoint = std::time::Instant::now();
                         if let Ok(Some(checkpoint)) = st.pipeline.checkpoint_now() {
                             let path = st.checkpoint_path.clone();
+                            let leaves_path = st.merkle_leaves_path.clone();
+                            let leaves = st.pipeline.merkle_leaves().to_vec();
+                            let _ = integrity_state::persist_leaves(&leaves_path, &leaves);
                             let _ = integrity_state::persist_checkpoint(&path, &checkpoint);
                             st.latest_checkpoint = Some(checkpoint);
                         }
@@ -1065,6 +1080,7 @@ fn cmd_listen(options: ListenOptions) -> anyhow::Result<()> {
     };
     let integrity = integrity_state::open(&integrity_dir, "ulpf-syslog", &chain, hash)?;
     let checkpoint_path = integrity.checkpoint_path.clone();
+    let merkle_leaves_path = integrity.merkle_leaves_path.clone();
     let public_key_path = integrity.public_key_path.clone();
     let vault = VaultWriter::open(&vault_dir)
         .with_context(|| format!("opening vault at {}", vault_dir.display()))?;
@@ -1092,6 +1108,7 @@ fn cmd_listen(options: ListenOptions) -> anyhow::Result<()> {
     let anchor = |pipeline: &mut Pipeline, writer: &mut Box<dyn Write>| -> anyhow::Result<()> {
         writer.flush()?;
         if let Some(checkpoint) = pipeline.checkpoint_now()? {
+            integrity_state::persist_leaves(&merkle_leaves_path, pipeline.merkle_leaves())?;
             integrity_state::persist_checkpoint(&checkpoint_path, &checkpoint)?;
         }
         Ok(())

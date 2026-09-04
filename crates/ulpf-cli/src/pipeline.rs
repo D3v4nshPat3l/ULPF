@@ -221,6 +221,11 @@ impl Pipeline {
         self.packs.clone()
     }
 
+    /// Merkle leaf hashes, for persisting the tree across restarts.
+    pub fn merkle_leaves(&self) -> &[[u8; 32]] {
+        self.attestor.merkle_leaves()
+    }
+
     pub fn chain_head(&self) -> Option<&ulpf_ocsf::ChainLink> {
         self.attestor.head()
     }

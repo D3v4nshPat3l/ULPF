@@ -45,6 +45,7 @@ pub struct AppState {
     pub chain_anchor: Option<ulpf_ocsf::ChainLink>,
     pub latest_checkpoint: Option<ulpf_ocsf::Checkpoint>,
     pub checkpoint_path: std::path::PathBuf,
+    pub merkle_leaves_path: std::path::PathBuf,
     pub vault_dir: std::path::PathBuf,
     pub packs_dir: std::path::PathBuf,
     pub drain: ulpf_generator::drain::Drain,
