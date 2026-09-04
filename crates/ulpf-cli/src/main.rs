@@ -3,6 +3,7 @@
 mod generator;
 mod integrity_state;
 mod pipeline;
+mod proof;
 mod replay;
 mod server;
 mod simulator;
@@ -179,6 +180,41 @@ enum Command {
         public_key: Option<PathBuf>,
     },
 
+    /// Prove one event is in the chain's Merkle tree.
+    Prove {
+        #[arg(long, default_value = "data/integrity")]
+        integrity_dir: PathBuf,
+        /// Chain the event belongs to.
+        #[arg(long, default_value = "default")]
+        chain: String,
+        /// JSON file holding the single OCSF event to prove.
+        #[arg(long)]
+        event: Option<PathBuf>,
+        /// Alternatively, the event's attestation fingerprint.
+        #[arg(long)]
+        fingerprint: Option<String>,
+        /// The chain was written with BLAKE3 rather than SHA-256.
+        #[arg(long)]
+        blake3: bool,
+    },
+
+    /// Check an inclusion proof against a signed checkpoint.
+    ///
+    /// Reads only the files given: no vault, no chain, no other event.
+    VerifyProof {
+        #[arg(long)]
+        proof: PathBuf,
+        #[arg(long)]
+        checkpoint: PathBuf,
+        /// Trusted Ed25519 public key. Without it the checkpoint is only
+        /// checked against the key it carries, which proves far less.
+        #[arg(long)]
+        public_key: Option<PathBuf>,
+        /// Also confirm this event is the one the proof is about.
+        #[arg(long)]
+        event: Option<PathBuf>,
+    },
+
     /// Serve the operator console on http://127.0.0.1:PORT.
     Serve {
         #[arg(long, default_value = "packs")]
@@ -330,6 +366,30 @@ fn main() -> anyhow::Result<()> {
             checkpoint,
             public_key,
         } => cmd_verify(&input, checkpoint.as_deref(), public_key.as_deref()),
+        Command::Prove {
+            integrity_dir,
+            chain,
+            event,
+            fingerprint,
+            blake3,
+        } => proof::cmd_prove(
+            &integrity_dir,
+            &chain,
+            event.as_deref(),
+            fingerprint.as_deref(),
+            blake3,
+        ),
+        Command::VerifyProof {
+            proof: proof_path,
+            checkpoint,
+            public_key,
+            event,
+        } => proof::cmd_verify_proof(
+            &proof_path,
+            &checkpoint,
+            public_key.as_deref(),
+            event.as_deref(),
+        ),
         Command::Serve {
             packs,
             vault,
