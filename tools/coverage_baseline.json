@@ -1,0 +1,16 @@
+{
+  "note": "Regenerate with: python tools/measure_coverage.py --write-baseline",
+  "total": 99.8178,
+  "per_corpus": {
+    "Apache_2k.log": 100.0,
+    "Linux_2k.log": 96.45,
+    "OpenSSH_2k.log": 100.0,
+    "Proxifier_2k.log": 81.1,
+    "apache-access.log": 99.9719,
+    "dragon-nids.log": 100.0,
+    "iptables.log": 100.0,
+    "linux-messages.log": 94.2539,
+    "sendmail.log": 98.7201,
+    "snort.log": 99.9986
+  }
+}
