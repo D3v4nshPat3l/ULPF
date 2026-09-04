@@ -186,6 +186,60 @@
   .drawer-head h3{margin:0;font-size:15px;font-weight:600}
   .drawer-body{padding:18px;overflow:auto;display:flex;flex-direction:column;gap:16px}
   .drawer-body h4{margin:0 0 7px;font:600 10.5px/1 inherit;letter-spacing:.11em;text-transform:uppercase;color:var(--text-3)}
+  .drawer{width:min(820px,96vw)}
+
+  /* Event detail: a definition grid rather than a JSON dump. Values keep the
+     mono face so hashes and addresses stay scannable; labels do not. */
+  .kv{display:grid;grid-template-columns:minmax(130px,auto) minmax(0,1fr);gap:6px 16px;align-items:baseline}
+  .kv dt{font-size:12.5px;color:var(--text-3)}
+  .kv dd{margin:0;font-family:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;word-break:break-all}
+  .kv dd .muted{font-family:inherit}
+  .kv dd em{font-style:normal;color:var(--text-3);font-family:inherit;font-size:12px}
+
+  /* drawer-body is a flex column, so its children shrink to fit unless told
+     otherwise — which silently clipped every section to a few pixels. */
+  .drawer-body > *{flex:0 0 auto}
+  .sect{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+  .sect > summary{
+    padding:10px 14px;background:var(--sunken);cursor:pointer;list-style:none;
+    font:600 11px/1 inherit;letter-spacing:.1em;text-transform:uppercase;color:var(--text-2);
+    display:flex;align-items:center;gap:8px;
+  }
+  .sect > summary::-webkit-details-marker{display:none}
+  .sect > summary::before{
+    content:"";width:0;height:0;flex:none;
+    border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;
+    transition:transform .12s
+  }
+  .sect[open] > summary::before{transform:rotate(90deg)}
+  .sect > summary:hover{background:var(--border)}
+  .sect .sect-body{padding:14px}
+
+  .headline{
+    padding:13px 15px;border-radius:var(--radius);background:var(--primary-soft);
+    border:1px solid #bcd9ee;font-size:13.5px;line-height:1.55;color:var(--text)
+  }
+  .headline b{font-weight:600}
+
+  .explain{font-size:13px;line-height:1.62;color:var(--text-2)}
+  .explain p{margin:0 0 10px}
+  .explain p:last-child{margin-bottom:0}
+  .explain b{color:var(--text);font-weight:600}
+  .explain code{
+    font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;
+    background:var(--sunken);padding:1px 5px;border-radius:3px
+  }
+
+  .ask-row{display:flex;gap:8px;margin-top:10px}
+  .ask-row input{
+    flex:1;padding:9px 11px;border:1px solid var(--border);border-radius:var(--radius);
+    font:13px inherit;background:var(--panel);color:var(--text)
+  }
+  .ask-log{display:flex;flex-direction:column;gap:9px;margin-top:12px}
+  .ask-log:empty{display:none}
+  .ask-q{align-self:flex-end;max-width:88%;background:var(--primary);color:#fff;padding:8px 12px;border-radius:var(--radius);font-size:13px}
+  .ask-a{align-self:flex-start;max-width:95%;background:var(--sunken);padding:10px 12px;border-radius:var(--radius);font-size:13px;line-height:1.55;white-space:pre-wrap}
+  .chip-sm{display:inline-block;padding:1px 7px;border-radius:10px;font:600 10.5px/1.7 inherit;background:var(--sunken);color:var(--text-2)}
 
   /* ------------------------------------------------- chat */
   .chat{display:flex;flex-direction:column;gap:11px;min-height:300px;max-height:52vh;overflow:auto;padding:2px}
@@ -466,18 +520,60 @@
     <div style="margin-left:auto"><button class="btn sm" type="button" id="btn-close-drawer">Close</button></div>
   </div>
   <div class="drawer-body">
-    <div>
-      <h4>Vault locator</h4>
-      <pre class="codebox" id="d-locator"></pre>
-    </div>
-    <div>
-      <h4>Original bytes, retrieved from the vault</h4>
-      <pre class="codebox" id="d-raw"></pre>
-    </div>
-    <div>
-      <h4>Normalized OCSF event</h4>
-      <pre class="codebox" id="d-ocsf"></pre>
-    </div>
+    <div class="headline" id="d-headline"></div>
+
+    <details class="sect" open>
+      <summary>What this event says</summary>
+      <div class="sect-body"><dl class="kv" id="d-summary"></dl></div>
+    </details>
+
+    <details class="sect" open>
+      <summary>Where it came from</summary>
+      <div class="sect-body"><dl class="kv" id="d-source"></dl></div>
+    </details>
+
+    <details class="sect" id="d-sect-extra">
+      <summary>Fields with no OCSF home</summary>
+      <div class="sect-body"><dl class="kv" id="d-extra"></dl></div>
+    </details>
+
+    <details class="sect" open>
+      <summary>Original evidence</summary>
+      <div class="sect-body">
+        <dl class="kv" id="d-evidence"></dl>
+        <h4 style="margin-top:14px">Bytes retrieved from the vault</h4>
+        <pre class="codebox" id="d-raw"></pre>
+      </div>
+    </details>
+
+    <details class="sect" open>
+      <summary>Chain of custody</summary>
+      <div class="sect-body"><dl class="kv" id="d-chain"></dl></div>
+    </details>
+
+    <details class="sect">
+      <summary>Full OCSF event</summary>
+      <div class="sect-body"><pre class="codebox" id="d-ocsf"></pre></div>
+    </details>
+
+    <details class="sect" open>
+      <summary>What all this means</summary>
+      <div class="sect-body"><div class="explain" id="d-explain"></div></div>
+    </details>
+
+    <details class="sect" open>
+      <summary>Ask the AI Copilot about this event</summary>
+      <div class="sect-body">
+        <div class="muted" style="font-size:12.5px">
+          The local model is given this event and answers questions about it.
+        </div>
+        <div class="ask-row">
+          <input id="d-ask" type="text" placeholder="e.g. why is this severity Medium?" autocomplete="off">
+          <button class="btn" type="button" id="btn-ask">Ask</button>
+        </div>
+        <div class="ask-log" id="d-ask-log"></div>
+      </div>
+    </details>
   </div>
 </aside>
 
@@ -594,24 +690,395 @@ function renderEvents(rows) {
 }
 
 /* --------------------------------------------------------------- drawer */
+/* Enum captions below are taken from the OCSF 1.9.0 schema vendored in
+   schema/ocsf, not from memory:
+     severity_id                  schema/ocsf/dictionary.json
+     fingerprint.algorithm_id     schema/ocsf/objects/fingerprint.json
+     fingerprint.encoding_id      schema/ocsf/objects/fingerprint.json
+     fingerprint.serialization_id schema/ocsf/objects/fingerprint.json
+     network_activity.activity_id schema/ocsf/events/network/network_activity.json
+     finding.activity_id          schema/ocsf/events/findings/finding.json
+     categories                   schema/ocsf/categories.json
+   Observable type ids come from ObservableType in crates/ulpf-ocsf/src/types.rs,
+   which is what this collector actually emits.
+   Anything not listed is rendered as the bare number rather than guessed at. */
+const SEVERITY = {0:"Unknown",1:"Informational",2:"Low",3:"Medium",4:"High",5:"Critical",6:"Fatal",99:"Other"};
+const HASH_ALG = {0:"Unknown",1:"MD5",2:"SHA-1",3:"SHA-256",4:"SHA-512",5:"CTPH",6:"TLSH",8:"SHA-224",9:"SHA-384",99:"Other"};
+const ENCODING = {0:"Unknown",1:"Hex",2:"Base64",3:"Base64URL",99:"Other"};
+const SERIALIZATION = {0:"Unknown",1:"Flat",2:"JCS",3:"JWS",4:"COSE",5:"DSSE",99:"Other"};
+const CATEGORY = {1:"System Activity",2:"Findings",3:"Identity & Access Management",4:"Network Activity",
+                  5:"Discovery",6:"Application Activity",7:"Remediation",8:"Unmanned Systems"};
+const CLASS_NAME = {1008:"Event Log Activity",2001:"Security Finding",2004:"Detection Finding",
+                   3002:"Authentication",4001:"Network Activity",4002:"HTTP Activity",
+                   4009:"Email Activity",6003:"API Activity"};
+/* activity_id is class-specific. Every table below is copied from the class's
+   own file under schema/ocsf/events/; 2001 and 2004 inherit theirs from
+   findings/finding.json. A class absent from this table renders its bare
+   activity number rather than a guessed caption. */
+const ACTIVITY = {
+  1008:{1:"Clear",2:"Delete",3:"Export",4:"Archive",5:"Rotate",6:"Start",7:"Stop",8:"Restart",
+        9:"Enable",10:"Disable"},
+  2001:{1:"Create",2:"Update",3:"Close"},
+  2004:{1:"Create",2:"Update",3:"Close"},
+  3002:{1:"Logon",2:"Logoff",3:"Authentication Ticket",4:"Service Ticket Request",
+        5:"Service Ticket Renew",6:"Preauth",7:"Account Switch"},
+  4001:{1:"Open",2:"Close",3:"Reset",4:"Fail",5:"Refuse",6:"Traffic",7:"Listen"},
+  4002:{1:"Connect",2:"Delete",3:"Get",4:"Head",5:"Options",6:"Post",7:"Put",8:"Trace",9:"Patch"},
+  4009:{1:"Send",2:"Receive",3:"Scan",4:"Trace",5:"MTA Relay"},
+  6003:{1:"Create",2:"Read",3:"Update",4:"Delete"}
+};
+const OBSERVABLE = {1:"Hostname",2:"IP address",3:"MAC address",4:"User name",5:"Email",
+                    6:"URL",8:"Domain name",11:"Port",30:"Fingerprint"};
+
+let drawerEvent = null;
+
+const label = (table, id) => (table[id] !== undefined ? table[id] : null);
+
+/* `caption (id)` when the schema names the value, otherwise the bare id. Never
+   invents a caption for a value the schema does not define. */
+function idWithName(table, id) {
+  if (id === undefined || id === null) return null;
+  const name = label(table, id);
+  return name ? name + " (" + id + ")" : String(id);
+}
+
+function row(dl, term, value, note) {
+  if (value === null || value === undefined || value === "") return;
+  const dt = document.createElement("dt");
+  dt.textContent = term;
+  const dd = document.createElement("dd");
+  dd.textContent = value;
+  if (note) {
+    const em = document.createElement("em");
+    em.textContent = "  " + note;
+    dd.appendChild(em);
+  }
+  dl.append(dt, dd);
+}
+
+function get(obj, path) {
+  return path.split(".").reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), obj);
+}
+
+function fmtTime(nanos) {
+  if (typeof nanos !== "number") return null;
+  /* OCSF `time` is carried here in nanoseconds; Date takes milliseconds. */
+  const d = new Date(nanos / 1e6);
+  return isNaN(d.getTime()) ? null : d.toISOString().replace("T", " ").replace("Z", " UTC");
+}
+
+/* One plain sentence, built only from fields this event actually has. */
+function headlineFor(ev) {
+  const cls = ev.class_uid;
+  const className = label(CLASS_NAME, cls) || ("class " + cls);
+  const act = ACTIVITY[cls] ? label(ACTIVITY[cls], ev.activity_id) : null;
+  const src = get(ev, "src_endpoint.ip");
+  const dst = get(ev, "dst_endpoint.ip");
+  const sev = label(SEVERITY, ev.severity_id);
+  const vendor = get(ev, "metadata.product.vendor_name");
+  const product = get(ev, "metadata.product.name");
+
+  const bits = [];
+  bits.push(vendor && product ? vendor + " " + product : "A device");
+  bits.push("reported");
+  bits.push(act ? "a " + className.toLowerCase() + " (" + act.toLowerCase() + ")"
+                : "a " + className.toLowerCase());
+  if (src && dst) bits.push("from " + src + " to " + dst);
+  else if (src) bits.push("from " + src);
+  else if (dst) bits.push("to " + dst);
+  if (sev) bits.push("— severity " + sev.toLowerCase());
+  return bits.join(" ") + ".";
+}
+
+function fillSummary(ev) {
+  const dl = $("d-summary");
+  dl.replaceChildren();
+  row(dl, "Event class", idWithName(CLASS_NAME, ev.class_uid), "what kind of thing this is");
+  row(dl, "Category", idWithName(CATEGORY, ev.category_uid));
+  const acts = ACTIVITY[ev.class_uid];
+  row(dl, "Activity", acts ? idWithName(acts, ev.activity_id)
+                           : (ev.activity_id !== undefined ? String(ev.activity_id) : null));
+  row(dl, "Type", ev.type_uid, "class x 100 + activity");
+  row(dl, "Severity", idWithName(SEVERITY, ev.severity_id));
+  row(dl, "Time", fmtTime(ev.time));
+  if (ev.message) row(dl, "Message", ev.message);
+  if (get(ev, "finding_info.title")) row(dl, "Finding", get(ev, "finding_info.title"));
+  if (get(ev, "finding_info.uid")) row(dl, "Rule id", get(ev, "finding_info.uid"));
+  if (ev.is_alert !== undefined) row(dl, "Is alert", String(ev.is_alert));
+  row(dl, "Source IP", get(ev, "src_endpoint.ip"));
+  row(dl, "Source port", get(ev, "src_endpoint.port"));
+  row(dl, "Destination IP", get(ev, "dst_endpoint.ip"));
+  row(dl, "Destination port", get(ev, "dst_endpoint.port"));
+  row(dl, "Protocol", get(ev, "connection_info.protocol_name"));
+  row(dl, "Device", get(ev, "device.hostname"));
+
+  if (Array.isArray(ev.observables) && ev.observables.length) {
+    const dt = document.createElement("dt");
+    dt.textContent = "Observables";
+    const dd = document.createElement("dd");
+    dd.textContent = ev.observables
+      .map((o) => (label(OBSERVABLE, o.type_id) || ("type " + o.type_id)) + ": " + o.value)
+      .join("\n");
+    dl.append(dt, dd);
+  }
+}
+
+function fillSource(ev) {
+  const dl = $("d-source");
+  dl.replaceChildren();
+  row(dl, "Vendor", get(ev, "metadata.product.vendor_name"));
+  row(dl, "Product", get(ev, "metadata.product.name"));
+  row(dl, "Source pack", get(ev, "metadata.log_provider"), "the parser that claimed it");
+  row(dl, "Log format", get(ev, "metadata.log_format"));
+  row(dl, "OCSF version", get(ev, "metadata.version"));
+  row(dl, "Event id", get(ev, "metadata.uid"));
+  row(dl, "Received", fmtTime(get(ev, "metadata.logged_time")));
+  row(dl, "Normalized", fmtTime(get(ev, "metadata.processed_time")));
+  const rc = get(ev, "unmapped.ulpf_receipt");
+  if (rc) {
+    row(dl, "Transport", rc.transport);
+    row(dl, "Peer", rc.peer);
+    row(dl, "Receiver", rc.receiver_id);
+  }
+  const profiles = get(ev, "metadata.profiles");
+  if (Array.isArray(profiles) && profiles.length) row(dl, "Profiles", profiles.join(", "));
+}
+
+/* Everything under `unmapped` except ULPF's own bookkeeping, which appears in
+   the evidence and custody sections instead. */
+function fillExtra(ev) {
+  const dl = $("d-extra");
+  dl.replaceChildren();
+  const um = ev.unmapped || {};
+  const keys = Object.keys(um).filter((k) => k !== "ulpf_raw_locator" && k !== "ulpf_receipt");
+  for (const k of keys.sort()) {
+    const v = um[k];
+    row(dl, k, typeof v === "object" ? JSON.stringify(v) : String(v));
+  }
+  $("d-sect-extra").style.display = keys.length ? "" : "none";
+  const sum = $("d-sect-extra").querySelector("summary");
+  if (sum) sum.textContent = "Fields with no OCSF home (" + keys.length + ")";
+}
+
+function fillEvidence(ev, locator) {
+  const dl = $("d-evidence");
+  dl.replaceChildren();
+  row(dl, "Vault locator", locator || get(ev, "unmapped.ulpf_raw_locator"));
+  row(dl, "Original size", ev.raw_data_size !== undefined ? ev.raw_data_size + " bytes" : null);
+  const h = ev.raw_data_hash;
+  if (h) {
+    row(dl, "Hash of the bytes", h.value);
+    row(dl, "Hash algorithm", idWithName(HASH_ALG, h.algorithm_id));
+    row(dl, "Encoding", idWithName(ENCODING, h.encoding_id));
+    row(dl, "Serialization", idWithName(SERIALIZATION, h.serialization_id),
+        h.serialization_id === 1 ? "hashed as raw bytes" : null);
+  }
+}
+
+function fillChain(ev) {
+  const dl = $("d-chain");
+  dl.replaceChildren();
+  const att = Array.isArray(ev.attestation_list) ? ev.attestation_list[0] : null;
+  if (!att) { row(dl, "Attestation", "none on this event"); return; }
+  row(dl, "Authority", att.authority_uid);
+  row(dl, "Chain", att.chain_uid);
+  if (att.fingerprint) {
+    row(dl, "Fingerprint", att.fingerprint.value);
+    row(dl, "Algorithm", idWithName(HASH_ALG, att.fingerprint.algorithm_id));
+    row(dl, "Serialization", idWithName(SERIALIZATION, att.fingerprint.serialization_id),
+        att.fingerprint.serialization_id === 2 ? "canonical JSON, RFC 8785" : null);
+  }
+  if (att.prev_event) {
+    row(dl, "Previous event", att.prev_event.uid);
+    if (att.prev_event.fingerprint) row(dl, "Its fingerprint", att.prev_event.fingerprint.value);
+  } else {
+    row(dl, "Previous event", "none — first event in this chain");
+  }
+}
+
+/* The explanation. Every claim is either a fact about OCSF taken from the
+   vendored schema, or a fact about this specific event read off the object. */
+function fillExplain(ev) {
+  const box = $("d-explain");
+  box.replaceChildren();
+
+  const add = (html) => {
+    const p = document.createElement("p");
+    p.innerHTML = html;
+    box.appendChild(p);
+  };
+  const esc = (v) => String(v).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  const cls = ev.class_uid;
+  const className = label(CLASS_NAME, cls);
+  const cat = label(CATEGORY, ev.category_uid);
+  const acts = ACTIVITY[cls];
+  const actName = acts ? label(acts, ev.activity_id) : null;
+  const sev = label(SEVERITY, ev.severity_id);
+  const pack = get(ev, "metadata.log_provider");
+  const fmt = get(ev, "metadata.log_format");
+
+  add("This device sent a line of text in its own format. ULPF stored those exact bytes, worked out "
+    + "which device it came from, translated the fields into one shared vocabulary called <b>OCSF</b>, "
+    + "and attached a tamper-evident seal. The panels above are that result.");
+
+  if (pack) {
+    add("<b>Which parser claimed it.</b> The <code>" + esc(pack) + "</code> source pack recognised the line"
+      + (fmt ? " and read it as <code>" + esc(fmt) + "</code>" : "")
+      + ". A pack is a YAML file describing how to spot that vendor's format and where each field belongs, "
+      + "so adding a new device means writing one of those rather than changing the program.");
+  }
+
+  if (className && cat) {
+    add("<b>What it is.</b> <code>class_uid " + cls + "</code> is <b>" + esc(className) + "</b>, inside the "
+      + "<b>" + esc(cat) + "</b> category (<code>category_uid " + ev.category_uid + "</code>). That "
+      + "classification is what lets one query cross vendors: a Snort alert and a FortiGate record answer "
+      + "the same search even though the original text looks nothing alike.");
+  }
+
+  if (actName) {
+    add("<b>What happened.</b> <code>activity_id " + ev.activity_id + "</code> means <b>" + esc(actName)
+      + "</b> for this class. <code>type_uid " + ev.type_uid + "</code> is the class and the activity "
+      + "combined into one number (" + cls + " x 100 + " + ev.activity_id + "), so a query can match one "
+      + "field instead of two.");
+  }
+
+  if (sev) {
+    add("<b>How serious.</b> <code>severity_id " + ev.severity_id + "</code> is <b>" + esc(sev)
+      + "</b> on the OCSF scale: 0 Unknown, 1 Informational, 2 Low, 3 Medium, 4 High, 5 Critical, 6 Fatal. "
+      + "It is derived from what the device itself reported, mapped onto that scale by the source pack "
+      + "— ULPF does not invent a severity of its own.");
+  }
+
+  const um = ev.unmapped || {};
+  const extras = Object.keys(um).filter((k) => k !== "ulpf_raw_locator" && k !== "ulpf_receipt");
+  if (extras.length) {
+    add("<b>Nothing is thrown away.</b> " + extras.length + " field"
+      + (extras.length === 1 ? "" : "s") + " on this line "
+      + (extras.length === 1 ? "has" : "have") + " no standard OCSF home — "
+      + esc(extras.slice(0, 6).join(", ")) + (extras.length > 6 ? ", and others" : "")
+      + ". Most tools discard whatever they have no slot for; these are kept under <code>unmapped</code> "
+      + "so the record stays complete.");
+  }
+
+  const h = ev.raw_data_hash;
+  if (h) {
+    const alg = label(HASH_ALG, h.algorithm_id);
+    add("<b>Proof the original text is unchanged.</b> <code>raw_data_hash</code> is "
+      + (alg ? "a <b>" + esc(alg) + "</b> hash" : "a hash")
+      + " of the original bytes, which are held in the vault at the locator above. Re-read those bytes, "
+      + "hash them again, and the value must match. Change one character and the hash changes completely, "
+      + "so any edit to the stored evidence is detectable.");
+  }
+
+  const att = Array.isArray(ev.attestation_list) ? ev.attestation_list[0] : null;
+  if (att && att.fingerprint) {
+    const ser = label(SERIALIZATION, att.fingerprint.serialization_id);
+    add("<b>Proof this record is unchanged, and in order.</b> The attestation <code>fingerprint</code> "
+      + "covers the whole normalized event"
+      + (ser === "JCS"
+          ? ", written in the canonical JSON form defined by RFC 8785 so the same event always produces "
+            + "the same bytes to hash"
+          : "")
+      + ". "
+      + (att.prev_event
+          ? "It also carries <code>prev_event</code>, the fingerprint of the record before it, so each "
+            + "event seals the one before. Removing or reordering any record breaks the links from that "
+            + "point onward."
+          : "This is the first event in its chain, so there is no predecessor to point at yet.")
+      + " Periodically the collector signs the current head of the chain with an Ed25519 key, so rewriting "
+      + "history would mean forging a signature rather than just recomputing hashes.");
+  }
+
+  add("<b>Why this matters.</b> A normalized record is only useful in an investigation if you can still "
+    + "show what the device originally said. The locator leads back to the untouched bytes, the hash proves "
+    + "they have not been edited, and the chain proves this record has not been swapped out or removed. "
+    + "That is the difference between a tidy log and evidence.");
+}
+
 async function openDrawer(index, row) {
+  drawerEvent = row.event || null;
   $("backdrop").classList.add("open");
   $("drawer").classList.add("open");
-  $("d-locator").textContent = row.locator || "—";
-  $("d-ocsf").textContent = JSON.stringify(row.event, null, 2);
+  $("d-ask-log").replaceChildren();
+  $("d-ask").value = "";
+
+  const ev = row.event || {};
+  $("d-headline").textContent = headlineFor(ev);
+  fillSummary(ev);
+  fillSource(ev);
+  fillExtra(ev);
+  fillEvidence(ev, row.locator);
+  fillChain(ev);
+  fillExplain(ev);
+  $("d-ocsf").textContent = JSON.stringify(ev, null, 2);
+
   $("d-raw").textContent = "Retrieving from the vault…";
   if (!row.locator) { $("d-raw").textContent = "No locator on this event."; return; }
   try {
     const data = await api("/api/raw/" + encodeURIComponent(row.locator));
-    $("d-raw").textContent = data.text + "\n\n— " + data.bytes + " bytes, hash " + data.recomputed_hash;
+    $("d-raw").textContent = data.text + "\n\n— " + data.bytes + " bytes, recomputed hash "
+      + data.recomputed_hash;
   } catch (e) {
     $("d-raw").textContent = "Could not retrieve the original bytes: " + e.message;
   }
 }
+
+/* Ask the local model about the event on screen. The event travels with the
+   question, so the answer is about this record rather than the stream at large. */
+async function askAboutEvent() {
+  const q = $("d-ask").value.trim();
+  if (!q || !drawerEvent) return;
+  $("d-ask").value = "";
+  const log = $("d-ask-log");
+
+  const qEl = document.createElement("div");
+  qEl.className = "ask-q";
+  qEl.textContent = q;
+  log.appendChild(qEl);
+
+  const aEl = document.createElement("div");
+  aEl.className = "ask-a";
+  aEl.textContent = "Thinking…";
+  log.appendChild(aEl);
+  aEl.scrollIntoView({ block: "nearest" });
+
+  $("btn-ask").disabled = true;
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [{
+          role: "user",
+          content:
+            "Here is one normalized OCSF event from the collector:\n\n"
+            + JSON.stringify(drawerEvent, null, 2)
+            + "\n\nAnswer this question about that event. If the event does not contain the "
+            + "information needed, say so rather than guessing.\n\nQuestion: " + q
+        }]
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    aEl.textContent = res.ok
+      ? (data.reply || "The model returned an empty answer.")
+      : (data.error || "Request failed (HTTP " + res.status + ")");
+  } catch (e) {
+    aEl.textContent = "Could not reach the console: " + e.message;
+  } finally {
+    $("btn-ask").disabled = false;
+    aEl.scrollIntoView({ block: "nearest" });
+  }
+}
+
 function closeDrawer() {
   $("backdrop").classList.remove("open");
   $("drawer").classList.remove("open");
 }
+
+$("btn-ask").addEventListener("click", askAboutEvent);
+$("d-ask").addEventListener("keydown", (e) => { if (e.key === "Enter") askAboutEvent(); });
 $("btn-close-drawer").addEventListener("click", closeDrawer);
 $("backdrop").addEventListener("click", closeDrawer);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
