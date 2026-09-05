@@ -39,6 +39,17 @@ pub struct ProofBundle {
     /// What the path should reproduce. Informational.
     pub claimed_root: String,
     pub hash_algorithm: String,
+    /// The signed checkpoint this proof was made against.
+    ///
+    /// Carried inside the bundle because the collector overwrites its
+    /// checkpoint file every few seconds, and a proof is worthless once the
+    /// checkpoint it names is gone. Embedding it costs under a kilobyte and
+    /// makes the bundle genuinely self-contained: a verifier needs this file
+    /// and a trusted public key, nothing else.
+    ///
+    /// It is not trusted on its own. The signature is checked against a key
+    /// supplied out of band, exactly as it would be if read from disk.
+    pub checkpoint: Checkpoint,
 }
 
 impl ProofBundle {
@@ -75,12 +86,186 @@ fn read_event(path: &Path) -> anyhow::Result<OcsfEvent> {
     Ok(OcsfEvent::from_map(map))
 }
 
-/// Build a proof that `--event` (or `--fingerprint`) is in the chain's tree.
+/// Where a chain's two state files live.
+pub struct ChainFiles {
+    pub checkpoint: std::path::PathBuf,
+    pub leaves: std::path::PathBuf,
+}
+
+pub fn chain_files(integrity_dir: &Path, chain: &str) -> ChainFiles {
+    let stem = integrity_state::safe_name(chain);
+    ChainFiles {
+        checkpoint: integrity_dir.join(format!("{stem}.checkpoint.json")),
+        leaves: integrity_dir.join(format!("{stem}.merkle-leaves.bin")),
+    }
+}
+
+/// Build a proof that `fingerprint` is in the tree the checkpoint signed.
 ///
 /// The leaf index is found by hashing rather than stored on the event: a leaf
 /// is `H(0x00 || fingerprint)`, so the fingerprint alone identifies its
-/// position. That keeps the proof addressable by something the event already
-/// carries, with no extra field to keep in step.
+/// position. That keeps a proof addressable by something the event already
+/// carries, with no extra field to keep in step with the tree.
+///
+/// Pure so the CLI and the console share one implementation; a second copy is
+/// how the two would come to disagree about what a valid proof is.
+pub fn build_bundle(
+    hash: HashAlgorithm,
+    checkpoint: &Checkpoint,
+    leaves: Vec<[u8; 32]>,
+    fingerprint: &str,
+    event_uid: Option<String>,
+) -> anyhow::Result<ProofBundle> {
+    let log = MerkleLog::from_leaves(hash, leaves);
+    if log.root_hex() != checkpoint.merkle_root {
+        bail!(
+            "the leaf file does not reproduce the signed root; refusing to issue a proof from it"
+        );
+    }
+
+    let wanted = log.leaf_hash(fingerprint.as_bytes());
+    let index = log
+        .leaves()
+        .iter()
+        .position(|leaf| leaf == &wanted)
+        .with_context(|| {
+            // Only leaves the last checkpoint committed to are loaded, so an
+            // event received seconds ago is legitimately absent. Reporting that
+            // as "not in this chain" reads as an integrity failure when nothing
+            // is wrong.
+            format!(
+                "fingerprint {fingerprint} is not among the {} leaves the last signed checkpoint of chain `{}` commits to. If this event arrived recently, wait for the next checkpoint; otherwise it was never in this log",
+                checkpoint.tree_size, checkpoint.chain_uid
+            )
+        })? as u64;
+
+    let proof = log
+        .inclusion_proof(index)
+        .context("the leaf index is inside the tree but produced no path")?;
+
+    Ok(ProofBundle {
+        chain_uid: checkpoint.chain_uid.clone(),
+        event_uid,
+        leaf_record: fingerprint.to_string(),
+        leaf_index: proof.leaf_index,
+        tree_size: proof.tree_size,
+        path: proof.path,
+        claimed_root: checkpoint.merkle_root.clone(),
+        hash_algorithm: algorithm_name(hash).to_string(),
+        checkpoint: checkpoint.clone(),
+    })
+}
+
+/// What a successful check established, so callers can render it themselves.
+#[derive(Debug, Clone, Serialize)]
+pub struct VerifyOutcome {
+    pub chain_uid: String,
+    pub event_uid: Option<String>,
+    pub leaf_index: u64,
+    pub tree_size: u64,
+    pub path_len: usize,
+    pub signed_root: String,
+    /// How far the checkpoint signature was actually trusted.
+    pub key_source: String,
+    pub trusted_key: bool,
+}
+
+/// Check a bundle against a signed checkpoint.
+///
+/// Every step that can fail is reported separately: "the signature is bad" and
+/// "this record was not in the log" are very different findings and a caller
+/// should not have to guess which happened.
+pub fn check_bundle(
+    bundle: &ProofBundle,
+    checkpoint: &Checkpoint,
+    trusted_key: Option<&ed25519_dalek::VerifyingKey>,
+    key_label: Option<&str>,
+) -> anyhow::Result<VerifyOutcome> {
+    let hash = algorithm_from_name(&bundle.hash_algorithm)?;
+
+    // 1. The checkpoint has to be signed by a key the verifier already trusts.
+    //    Falling back to the key inside the checkpoint proves only that the
+    //    file agrees with itself, so that is reported as the weaker result.
+    let (key_source, trusted) = match trusted_key {
+        Some(key) => {
+            checkpoint
+                .verify_with(key)
+                .context("the checkpoint is not signed by the supplied public key")?;
+            (
+                format!(
+                    "verified against {}",
+                    key_label.unwrap_or("the supplied key")
+                ),
+                true,
+            )
+        }
+        None => {
+            checkpoint
+                .verify_self_signed()
+                .context("the checkpoint signature does not match its own embedded key")?;
+            (
+                "self-signed only - supply a trusted public key for a real check".to_string(),
+                false,
+            )
+        }
+    };
+
+    // 2. The proof must be about the tree this checkpoint signed. Without this
+    //    a proof from a smaller, earlier tree would pass against a root it was
+    //    never part of.
+    if bundle.tree_size != checkpoint.tree_size {
+        bail!(
+            "proof is for a tree of {} leaves but the checkpoint signs {}",
+            bundle.tree_size,
+            checkpoint.tree_size
+        );
+    }
+    if bundle.chain_uid != checkpoint.chain_uid {
+        bail!(
+            "proof is for chain `{}` but the checkpoint is for `{}`",
+            bundle.chain_uid,
+            checkpoint.chain_uid
+        );
+    }
+
+    // 3. The path must rebuild the signed root from this leaf.
+    if !verify_inclusion(
+        hash,
+        bundle.leaf_record.as_bytes(),
+        &bundle.inclusion(),
+        &checkpoint.merkle_root,
+    ) {
+        bail!(
+            "the proof does not reproduce the signed root: this record is not in the log the checkpoint describes"
+        );
+    }
+
+    Ok(VerifyOutcome {
+        chain_uid: checkpoint.chain_uid.clone(),
+        event_uid: bundle.event_uid.clone(),
+        leaf_index: bundle.leaf_index,
+        tree_size: bundle.tree_size,
+        path_len: bundle.path.len(),
+        signed_root: checkpoint.merkle_root.clone(),
+        key_source,
+        trusted_key: trusted,
+    })
+}
+
+/// Confirm an event is the one a bundle proves.
+pub fn event_matches_bundle(event: &OcsfEvent, bundle: &ProofBundle) -> anyhow::Result<()> {
+    let fp =
+        ulpf_ocsf::verify_event(event).context("the event failed its own fingerprint check")?;
+    if fp.value != bundle.leaf_record {
+        bail!(
+            "the event fingerprints to {} but the proof is for {}",
+            fp.value,
+            bundle.leaf_record
+        );
+    }
+    Ok(())
+}
+
 pub fn cmd_prove(
     integrity_dir: &Path,
     chain: &str,
@@ -109,54 +294,10 @@ pub fn cmd_prove(
         (None, None) => bail!("supply either --event or --fingerprint"),
     };
 
-    let checkpoint_path = integrity_dir.join(format!(
-        "{}.checkpoint.json",
-        integrity_state::safe_name(chain)
-    ));
-    let leaves_path = integrity_dir.join(format!(
-        "{}.merkle-leaves.bin",
-        integrity_state::safe_name(chain)
-    ));
-    let checkpoint = integrity_state::read_checkpoint(&checkpoint_path)?;
-    let leaves = integrity_state::load_leaves(&leaves_path, checkpoint.tree_size as usize)?;
-
-    let log = MerkleLog::from_leaves(hash, leaves);
-    if log.root_hex() != checkpoint.merkle_root {
-        bail!(
-            "the leaf file does not reproduce the signed root; refusing to issue a proof from it"
-        );
-    }
-
-    let wanted = log.leaf_hash(target.as_bytes());
-    let index = log
-        .leaves()
-        .iter()
-        .position(|leaf| leaf == &wanted)
-        .with_context(|| {
-            // Only leaves the last checkpoint committed to are loaded, so a
-            // freshly received event is legitimately absent for a few seconds.
-            // Saying "not in this chain" for that case reads as an integrity
-            // failure when nothing is wrong.
-            format!(
-                "fingerprint {target} is not among the {} leaves the last signed checkpoint of chain `{chain}` commits to. If this event arrived recently, wait for the next checkpoint; otherwise it was never in this log",
-                checkpoint.tree_size
-            )
-        })? as u64;
-
-    let proof = log
-        .inclusion_proof(index)
-        .context("the leaf index is inside the tree but produced no path")?;
-
-    let bundle = ProofBundle {
-        chain_uid: checkpoint.chain_uid.clone(),
-        event_uid,
-        leaf_record: target,
-        leaf_index: proof.leaf_index,
-        tree_size: proof.tree_size,
-        path: proof.path,
-        claimed_root: checkpoint.merkle_root.clone(),
-        hash_algorithm: algorithm_name(hash).to_string(),
-    };
+    let files = chain_files(integrity_dir, chain);
+    let checkpoint = integrity_state::read_checkpoint(&files.checkpoint)?;
+    let leaves = integrity_state::load_leaves(&files.leaves, checkpoint.tree_size as usize)?;
+    let bundle = build_bundle(hash, &checkpoint, leaves, &target, event_uid)?;
 
     println!("{}", serde_json::to_string_pretty(&bundle)?);
     eprintln!(
@@ -169,14 +310,9 @@ pub fn cmd_prove(
     Ok(())
 }
 
-/// Check a proof against a signed checkpoint.
-///
-/// Reads nothing but the three files it is given. Every step that could fail
-/// is reported separately, because "the signature is bad" and "the event was
-/// not in this log" are very different findings.
 pub fn cmd_verify_proof(
     proof_path: &Path,
-    checkpoint_path: &Path,
+    checkpoint_path: Option<&Path>,
     public_key_path: Option<&Path>,
     event_path: Option<&Path>,
 ) -> anyhow::Result<()> {
@@ -184,77 +320,28 @@ pub fn cmd_verify_proof(
         .with_context(|| format!("reading proof from {}", proof_path.display()))?;
     let bundle: ProofBundle = serde_json::from_str(&text)
         .with_context(|| format!("{} is not a proof bundle", proof_path.display()))?;
-    let checkpoint: Checkpoint = integrity_state::read_checkpoint(checkpoint_path)?;
-    let hash = algorithm_from_name(&bundle.hash_algorithm)?;
-
-    // 1. The checkpoint has to be signed by a key the verifier already trusts.
-    //    Falling back to the key inside the checkpoint proves only that the
-    //    file is internally consistent, so it is reported as the weaker result
-    //    it is.
-    let key_source = match public_key_path {
-        Some(path) => {
-            let key = integrity_state::read_public_key(path)?;
-            checkpoint
-                .verify_with(&key)
-                .context("the checkpoint is not signed by the supplied public key")?;
-            format!("verified against {}", path.display())
-        }
-        None => {
-            checkpoint
-                .verify_self_signed()
-                .context("the checkpoint signature does not match its own embedded key")?;
-            "self-signed only - supply --public-key for a real check".to_string()
-        }
+    // Prefer a checkpoint the verifier supplies; fall back to the one carried
+    // in the bundle. Either way its signature is checked against the trusted
+    // key, so the embedded copy is a convenience, not a shortcut.
+    let checkpoint: Checkpoint = match checkpoint_path {
+        Some(path) => integrity_state::read_checkpoint(path)?,
+        None => bundle.checkpoint.clone(),
     };
 
-    // 2. The proof must be about the same tree the checkpoint signed. Without
-    //    this a proof from a smaller, earlier tree would verify against a root
-    //    it was never part of.
-    if bundle.tree_size != checkpoint.tree_size {
-        bail!(
-            "proof is for a tree of {} leaves but the checkpoint signs {}",
-            bundle.tree_size,
-            checkpoint.tree_size
-        );
-    }
-    if bundle.chain_uid != checkpoint.chain_uid {
-        bail!(
-            "proof is for chain `{}` but the checkpoint is for `{}`",
-            bundle.chain_uid,
-            checkpoint.chain_uid
-        );
-    }
+    let key = match public_key_path {
+        Some(path) => Some(integrity_state::read_public_key(path)?),
+        None => None,
+    };
+    let label = public_key_path.map(|p| p.display().to_string());
+    let outcome = check_bundle(&bundle, &checkpoint, key.as_ref(), label.as_deref())?;
 
-    // 3. The path must rebuild the signed root from this leaf.
-    let included = verify_inclusion(
-        hash,
-        bundle.leaf_record.as_bytes(),
-        &bundle.inclusion(),
-        &checkpoint.merkle_root,
-    );
-    if !included {
-        bail!(
-            "the proof does not reproduce the signed root: this record is not \
-             in the log the checkpoint describes"
-        );
-    }
-
-    // 4. Optionally, that the event supplied is the one the leaf stands for.
     let event_line = match event_path {
         Some(path) => {
             let event = read_event(path)?;
-            let fp = ulpf_ocsf::verify_event(&event)
-                .with_context(|| format!("{} failed its own fingerprint check", path.display()))?;
-            if fp.value != bundle.leaf_record {
-                bail!(
-                    "the event in {} fingerprints to {} but the proof is for {}",
-                    path.display(),
-                    fp.value,
-                    bundle.leaf_record
-                );
-            }
+            event_matches_bundle(&event, &bundle)
+                .with_context(|| format!("checking {}", path.display()))?;
             Some(format!(
-                "event matches:      {} fingerprints to the proved leaf",
+                "{} fingerprints to the proved leaf",
                 path.display()
             ))
         }
@@ -262,20 +349,20 @@ pub fn cmd_verify_proof(
     };
 
     println!("PROOF VALID");
-    println!("  chain:            {}", checkpoint.chain_uid);
-    if let Some(uid) = &bundle.event_uid {
+    println!("  chain:            {}", outcome.chain_uid);
+    if let Some(uid) = &outcome.event_uid {
         println!("  event uid:        {uid}");
     }
     println!(
         "  position:         {} of {}",
-        bundle.leaf_index + 1,
-        bundle.tree_size
+        outcome.leaf_index + 1,
+        outcome.tree_size
     );
-    println!("  proof size:       {} hashes", bundle.path.len());
-    println!("  signed root:      {}", checkpoint.merkle_root);
-    println!("  checkpoint:       {key_source}");
+    println!("  proof size:       {} hashes", outcome.path_len);
+    println!("  signed root:      {}", outcome.signed_root);
+    println!("  checkpoint:       {}", outcome.key_source);
     if let Some(line) = event_line {
-        println!("  {line}");
+        println!("  event matches:    {line}");
     }
     println!();
     println!("This record was in the log when the checkpoint was signed.");
@@ -330,6 +417,7 @@ mod tests {
             path: proof.path,
             claimed_root: checkpoint.merkle_root.clone(),
             hash_algorithm: "sha256".into(),
+            checkpoint: checkpoint.clone(),
         }
     }
 

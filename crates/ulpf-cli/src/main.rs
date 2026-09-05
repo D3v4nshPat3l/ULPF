@@ -204,8 +204,10 @@ enum Command {
     VerifyProof {
         #[arg(long)]
         proof: PathBuf,
+        /// Signed checkpoint to check against. Optional: the proof carries the
+        /// one it was made against, which is what makes it self-contained.
         #[arg(long)]
-        checkpoint: PathBuf,
+        checkpoint: Option<PathBuf>,
         /// Trusted Ed25519 public key. Without it the checkpoint is only
         /// checked against the key it carries, which proves far less.
         #[arg(long)]
@@ -386,7 +388,7 @@ fn main() -> anyhow::Result<()> {
             event,
         } => proof::cmd_verify_proof(
             &proof_path,
-            &checkpoint,
+            checkpoint.as_deref(),
             public_key.as_deref(),
             event.as_deref(),
         ),
@@ -755,6 +757,7 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         latest_checkpoint,
         checkpoint_path,
         merkle_leaves_path: merkle_leaves_path.clone(),
+        public_key_path: public_key_path.clone(),
         vault_dir,
         packs_dir: packs_dir.clone(),
         drain: ulpf_generator::drain::Drain::new(),
