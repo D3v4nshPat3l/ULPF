@@ -108,6 +108,7 @@
   .panel-head .right{margin-left:auto;display:flex;gap:8px;align-items:center}
   .panel-body{padding:16px}
 
+  [hidden]{display:none!important}
   .btn{
     display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:var(--radius);
     border:1px solid var(--border);background:var(--panel);color:var(--text);
@@ -116,9 +117,13 @@
   .btn:hover:not(:disabled){background:var(--sunken)}
   .btn:disabled{opacity:.5;cursor:not-allowed}
   .btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
-  .btn.primary:hover:not(:disabled){filter:brightness(1.08)}
+  /* The base hover rule is `.btn:hover:not(:disabled)` — specificity (0,3,0) —
+     while `.btn.primary` is only (0,2,0), so hovering a primary button replaced
+     its background with the light `--sunken` and left the text white on it.
+     Restating the background here, at (0,4,0), keeps it. */
+  .btn.primary:hover:not(:disabled){background:var(--primary);filter:brightness(1.08)}
   .btn.danger{background:var(--danger);border-color:var(--danger);color:#fff}
-  .btn.danger:hover:not(:disabled){filter:brightness(1.08)}
+  .btn.danger:hover:not(:disabled){background:var(--danger);filter:brightness(1.08)}
   .btn.sm{padding:5px 9px;font-size:11.5px}
   .btn:focus-visible,.navitem:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{
     outline:2px solid var(--primary);outline-offset:1px
@@ -485,6 +490,22 @@
             </div>
           </div>
         </div>
+
+        <div class="panel" style="margin-top:16px">
+          <div class="panel-head"><h2>Check a proof</h2><span class="sub">paste one issued anywhere</span></div>
+          <div class="panel-body" style="display:flex;flex-direction:column;gap:12px">
+            <p style="margin:0;color:var(--text-2);font-size:13px">
+              A proof carries the signed checkpoint it was made against, so it can be
+              checked long after the log has moved on. The signature is verified against
+              this collector's public key; altering the proof or the checkpoint inside it
+              fails here.
+            </p>
+            <textarea id="proof-input" class="mono" rows="6" style="width:100%"
+              placeholder="Paste a proof bundle (the JSON from Generate proof, or from ulpf prove)"></textarea>
+            <div><button class="btn primary" type="button" id="btn-check-pasted">Check this proof</button></div>
+            <div id="proof-check-out"></div>
+          </div>
+        </div>
       </section>
 
       <!-- ============================================ ASSISTANT -->
@@ -549,6 +570,24 @@
     <details class="sect" open>
       <summary>Chain of custody</summary>
       <div class="sect-body"><dl class="kv" id="d-chain"></dl></div>
+    </details>
+
+    <details class="sect" open>
+      <summary>Prove this event was logged</summary>
+      <div class="sect-body">
+        <p style="margin:0 0 10px;color:var(--text-2);font-size:13px">
+          Produces a short proof that this one record is in the signed log. Anyone
+          holding the proof and the public key can check it &mdash; without the vault,
+          the chain, or any other event.
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn primary" type="button" id="btn-prove">Generate proof</button>
+          <button class="btn" type="button" id="btn-copy-proof" hidden>Copy proof</button>
+          <button class="btn" type="button" id="btn-check-proof" hidden>Check it</button>
+        </div>
+        <div id="d-proof-out" style="margin-top:11px"></div>
+        <pre class="codebox" id="d-proof-json" style="margin-top:10px;max-height:220px;overflow:auto" hidden></pre>
+      </div>
     </details>
 
     <details class="sect">
@@ -1003,6 +1042,12 @@ async function openDrawer(index, row) {
   $("drawer").classList.add("open");
   $("d-ask-log").replaceChildren();
   $("d-ask").value = "";
+  currentProof = null;
+  currentProofText = null;
+  $("d-proof-out").replaceChildren();
+  $("d-proof-json").hidden = true;
+  $("btn-copy-proof").hidden = true;
+  $("btn-check-proof").hidden = true;
 
   const ev = row.event || {};
   $("d-headline").textContent = headlineFor(ev);
@@ -1076,6 +1121,170 @@ function closeDrawer() {
   $("backdrop").classList.remove("open");
   $("drawer").classList.remove("open");
 }
+
+/* ----------------------------------------------------------- proofs */
+/* A proof says "this one record was in the signed log" in a few hundred bytes,
+   and can be checked by someone holding nothing but the proof and a public
+   key. The bundle carries the checkpoint it was made against, because the
+   collector overwrites its checkpoint every few seconds and a proof naming a
+   checkpoint that no longer exists would be worthless. */
+let currentProof = null;
+let currentProofText = null;
+
+function proofNote(kind, lines) {
+  const box = document.createElement("div");
+  box.className = "callout " + kind;
+  for (const line of lines) {
+    const row = document.createElement("div");
+    row.textContent = line;
+    box.appendChild(row);
+  }
+  return box;
+}
+
+function currentFingerprint() {
+  const att = drawerEvent && Array.isArray(drawerEvent.attestation_list)
+    ? drawerEvent.attestation_list[0]
+    : null;
+  return att && att.fingerprint ? att.fingerprint.value : null;
+}
+
+async function generateProof() {
+  const fingerprint = currentFingerprint();
+  const out = $("d-proof-out");
+  if (!fingerprint) {
+    out.replaceChildren(proofNote("bad", ["This event carries no attestation, so it cannot be proved."]));
+    return;
+  }
+
+  $("btn-prove").disabled = true;
+  out.replaceChildren(proofNote("info", ["Signing a checkpoint and building the proof..."]));
+  try {
+    const res = await fetch("/api/proof", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fingerprint: fingerprint,
+        event_uid: (drawerEvent.metadata || {}).uid || null,
+      }),
+    });
+    // The body IS the bundle, kept as text. A checkpoint's created_time is
+    // nanoseconds, past the 2^53 a JavaScript number holds exactly, so any
+    // parse-and-re-serialize rounds it and the signature stops matching. The
+    // text is what gets shown, copied and posted back; the parsed copy is used
+    // only for small fields that are safe to read.
+    const text = await res.text();
+    if (!res.ok) {
+      let msg = "Request failed (HTTP " + res.status + ")";
+      try { msg = JSON.parse(text).error || msg; } catch (e) { /* not JSON */ }
+      out.replaceChildren(proofNote("bad", [msg]));
+      return;
+    }
+
+    currentProofText = text;
+    currentProof = JSON.parse(text);
+    const keyPath = res.headers.get("x-ulpf-public-key") || "the collector's public key";
+    out.replaceChildren(proofNote("info", [
+      "Proof for event " + (currentProof.leaf_index + 1) + " of " + currentProof.tree_size + ".",
+      currentProof.path.length + " sibling hashes, " + currentProof.path.length * 32 + " bytes of path.",
+      "Verify elsewhere with: ulpf verify-proof --proof proof.json --public-key " + keyPath,
+    ]));
+    const pre = $("d-proof-json");
+    pre.textContent = text;
+    pre.hidden = false;
+    $("btn-copy-proof").hidden = false;
+    $("btn-check-proof").hidden = false;
+  } catch (e) {
+    out.replaceChildren(proofNote("bad", ["Could not reach the console: " + e.message]));
+  } finally {
+    $("btn-prove").disabled = false;
+  }
+}
+
+async function copyProof() {
+  if (!currentProofText) return;
+  // The server's exact bytes, never a re-serialized copy.
+  const text = currentProofText;
+  try {
+    await navigator.clipboard.writeText(text);
+    $("btn-copy-proof").textContent = "Copied";
+    setTimeout(() => { $("btn-copy-proof").textContent = "Copy proof"; }, 1500);
+  } catch (e) {
+    // Clipboard access can be refused; the JSON is on screen either way.
+    $("btn-copy-proof").textContent = "Select it above";
+    setTimeout(() => { $("btn-copy-proof").textContent = "Copy proof"; }, 2000);
+  }
+}
+
+/* Render a verified outcome. Shared by the drawer and the paste box so the two
+   cannot describe the same result differently. */
+function renderProofOutcome(target, data, ok) {
+  if (!ok) {
+    target.replaceChildren(proofNote("bad", ["PROOF REJECTED", data.error || "unknown reason"]));
+    return;
+  }
+  target.replaceChildren(proofNote("ok", [
+    "PROOF VALID",
+    "chain " + data.chain_uid + ", event " + (data.leaf_index + 1) + " of " + data.tree_size,
+    data.path_len + " hashes checked against root " + data.signed_root.slice(0, 32) + "...",
+    "checkpoint " + data.key_source,
+    "This record was in the log when that checkpoint was signed.",
+  ]));
+}
+
+/* `raw` is the bundle's JSON text, posted verbatim. It must not be parsed and
+   re-serialized on the way: see the note where currentProofText is set. */
+async function checkProofPayload(raw, target) {
+  target.replaceChildren(proofNote("info", ["Checking..."]));
+  try {
+    const res = await fetch("/api/verify-proof", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: raw,
+    });
+    const data = await res.json().catch(() => ({}));
+    renderProofOutcome(target, data, res.ok);
+  } catch (e) {
+    target.replaceChildren(proofNote("bad", ["Could not reach the console: " + e.message]));
+  }
+}
+
+async function checkPastedProof() {
+  const target = $("proof-check-out");
+  const text = $("proof-input").value.trim();
+  if (!text) {
+    target.replaceChildren(proofNote("bad", ["Paste a proof bundle first."]));
+    return;
+  }
+  // Parsed only to check it is JSON and to find the bundle inside a wrapper.
+  // The text itself is what gets sent, never a re-serialized copy.
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    target.replaceChildren(proofNote("bad", ["That is not valid JSON: " + e.message]));
+    return;
+  }
+  if (!parsed.leaf_record && parsed.proof) {
+    target.replaceChildren(proofNote("bad", [
+      "That looks like a console response rather than a proof.",
+      "Paste the bundle itself - the part starting with \"chain_uid\".",
+    ]));
+    return;
+  }
+  if (!parsed.leaf_record || !parsed.checkpoint) {
+    target.replaceChildren(proofNote("bad", ["That is JSON, but not a proof bundle."]));
+    return;
+  }
+  await checkProofPayload(text, target);
+}
+
+$("btn-prove").addEventListener("click", generateProof);
+$("btn-copy-proof").addEventListener("click", copyProof);
+$("btn-check-proof").addEventListener("click", () => {
+  if (currentProofText) checkProofPayload(currentProofText, $("d-proof-out"));
+});
+$("btn-check-pasted").addEventListener("click", checkPastedProof);
 
 $("btn-ask").addEventListener("click", askAboutEvent);
 $("d-ask").addEventListener("keydown", (e) => { if (e.key === "Enter") askAboutEvent(); });
