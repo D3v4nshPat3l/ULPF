@@ -279,6 +279,19 @@ point at it directly.
 ./target/release/ulpf verify events.ndjson --checkpoint data/integrity/default.checkpoint.json --public-key data/integrity/ed25519-signing.pub
 ```
 
+### Prove one event was logged
+
+```bash
+./target/release/ulpf prove --integrity-dir data/integrity --chain console --event event.json > proof.json
+```
+
+```bash
+./target/release/ulpf verify-proof --proof proof.json --public-key data/integrity/ed25519-signing.pub
+```
+
+A few hundred bytes proving one record is in the signed log, checkable by
+someone holding nothing else. See [PROOFS.md](docs/PROOFS.md).
+
 ### Retrieve the original bytes of one event
 
 ```bash
@@ -520,6 +533,7 @@ traffic, let the console draft a candidate for you and edit from there —
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Crate boundaries and data flow |
 | [DATASETS.md](docs/DATASETS.md) | Corpus provenance, coverage, named misses |
 | [THROUGHPUT.md](docs/THROUGHPUT.md) | Measured EPS, method, the limits found |
+| [PROOFS.md](docs/PROOFS.md) | Proving one event without disclosing the log |
 | [PACK_GENERATOR.md](docs/PACK_GENERATOR.md) | Clustering, generators, scoring |
 | [SINKS.md](docs/SINKS.md) | Parquet, OpenSearch, Splunk HEC |
 | [TESTING.md](docs/TESTING.md) | Test strategy |
