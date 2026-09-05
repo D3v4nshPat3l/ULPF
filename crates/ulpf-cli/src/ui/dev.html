@@ -227,6 +227,8 @@ function clearBanner() { $("alerts").replaceChildren(); }
 /* ------------------------------------------------------------- rendering */
 /* Rates the operator has typed but not yet applied, so a refresh mid-edit
    does not snap the field back to the server's value. */
+/// Matches the server default in `sim_toggle`.
+const DEFAULT_EPS = 20;
 const pendingRates = new Map();
 let busy = new Set();
 
@@ -260,7 +262,11 @@ function buildRow(src) {
   eps.type = "number";
   eps.min = "1";
   eps.max = "200000";
-  eps.value = pendingRates.has(src.id) ? pendingRates.get(src.id) : (src.eps || 2000);
+  // 20 EPS, matching the server's own default. 2000 from a single switch is a
+  // firehose for a demo: seven sources at that rate is 14,000 EPS, past the
+  // collector's measured 10,000 lossless ceiling, so it would start dropping
+  // records in front of whoever is watching.
+  eps.value = pendingRates.has(src.id) ? pendingRates.get(src.id) : (src.eps || DEFAULT_EPS);
   eps.disabled = !src.present;
   eps.setAttribute("aria-label", "Events per second for " + src.label);
   eps.addEventListener("input", () => pendingRates.set(src.id, eps.value));
@@ -283,7 +289,7 @@ function buildRow(src) {
 async function toggle(src, input) {
   const on = input.checked;
   const raw = pendingRates.has(src.id) ? pendingRates.get(src.id) : src.eps;
-  const eps = Math.max(1, Math.min(200000, Number.parseInt(raw, 10) || 2000));
+  const eps = Math.max(1, Math.min(200000, Number.parseInt(raw, 10) || DEFAULT_EPS));
 
   busy.add(src.id);
   input.disabled = true;
