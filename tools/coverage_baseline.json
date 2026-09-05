@@ -1,6 +1,6 @@
 {
   "note": "Regenerate with: python tools/measure_coverage.py --write-baseline",
-  "total": 99.8178,
+  "total": 99.8256,
   "per_corpus": {
     "Apache_2k.log": 100.0,
     "Linux_2k.log": 96.45,

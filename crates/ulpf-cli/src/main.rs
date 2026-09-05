@@ -198,6 +198,25 @@ enum Command {
         blake3: bool,
     },
 
+    /// Bridge an older tree size to the one the current checkpoint signs.
+    ///
+    /// An inclusion proof only reproduces the root it was issued under, so a
+    /// log that keeps growing would strand every proof already handed out.
+    /// This emits the hashes that show the older tree is an unmodified prefix
+    /// of today's, which `verify-proof --consistency` then checks.
+    Consistency {
+        #[arg(long, default_value = "data/integrity")]
+        integrity_dir: PathBuf,
+        #[arg(long, default_value = "default")]
+        chain: String,
+        /// Tree size the older proof was issued against, from its `tree_size`.
+        #[arg(long)]
+        from: u64,
+        /// The chain was written with BLAKE3 rather than SHA-256.
+        #[arg(long)]
+        blake3: bool,
+    },
+
     /// Check an inclusion proof against a signed checkpoint.
     ///
     /// Reads only the files given: no vault, no chain, no other event.
@@ -213,6 +232,10 @@ enum Command {
         /// Also confirm this event is the one the proof is about.
         #[arg(long)]
         event: Option<PathBuf>,
+        /// Bridge from `ulpf consistency`, when the log has grown since the
+        /// proof was issued.
+        #[arg(long)]
+        consistency: Option<PathBuf>,
     },
 
     /// Serve the operator console on http://127.0.0.1:PORT.
@@ -379,16 +402,24 @@ fn main() -> anyhow::Result<()> {
             fingerprint.as_deref(),
             blake3,
         ),
+        Command::Consistency {
+            integrity_dir,
+            chain,
+            from,
+            blake3,
+        } => proof::cmd_consistency(&integrity_dir, &chain, from, blake3),
         Command::VerifyProof {
             proof: proof_path,
             checkpoint,
             public_key,
             event,
+            consistency,
         } => proof::cmd_verify_proof(
             &proof_path,
             &checkpoint,
             public_key.as_deref(),
             event.as_deref(),
+            consistency.as_deref(),
         ),
         Command::Serve {
             packs,

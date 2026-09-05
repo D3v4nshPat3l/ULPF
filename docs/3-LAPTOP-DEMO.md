@@ -250,6 +250,41 @@ You can also demonstrate this from a terminal, independently of the console:
 ./target/release/ulpf verify events.ndjson --checkpoint data/integrity/demo.checkpoint.json --public-key data/integrity/ed25519-signing.pub
 ```
 
+
+**Then prove one event without showing the others.** This is the part that has
+no equivalent in the tools NTRO already runs. Take any single normalized event
+from `events.ndjson` into its own file and prove it:
+
+```bash
+./target/release/ulpf prove --integrity-dir data/integrity --chain demo --event one-event.json > proof.json
+```
+
+It prints something like `proof for event 412 of 20000: 15 hashes, 480 bytes`.
+Now verify it the way a recipient outside this room would — handing over only
+`proof.json`, the checkpoint, and the public key. No vault, no chain, no other
+event:
+
+```bash
+./target/release/ulpf verify-proof --proof proof.json --checkpoint data/integrity/demo.checkpoint.json --public-key data/integrity/ed25519-signing.pub --event one-event.json
+```
+
+> `PROOF VALID … This record was in the log when the checkpoint was signed.`
+
+Say what that means plainly: an auditor, a court or a partner agency can be
+shown that one record is genuine and was logged when it claims, while learning
+nothing about the rest of the log. That is what makes evidence drawn from a
+classified source shareable at all.
+
+If the collector has kept running since the proof was made, `verify-proof` will
+say the log has grown and print the two commands to bridge it. That is worth
+letting happen on purpose — it demonstrates that the tree cannot quietly be
+rewritten under an old proof:
+
+```bash
+./target/release/ulpf consistency --integrity-dir data/integrity --chain demo --from <tree_size from proof.json> > bridge.json
+./target/release/ulpf verify-proof --proof proof.json --checkpoint data/integrity/demo.checkpoint.json --public-key data/integrity/ed25519-signing.pub --consistency bridge.json
+```
+
 ### 4 · Onboarding an unknown device — (e) (i)
 
 Paste an invented device format into **Event inspector** and normalize it. It
@@ -308,6 +343,7 @@ Open <http://127.0.0.1:8787/dev>, flip sources on, and watch
 | Received count far below sent | UDP loss above the sustained rate | Lower `--eps`. See [THROUGHPUT.md](THROUGHPUT.md) — 10,000 EPS is the measured lossless ceiling per collector |
 | Console unreachable from another machine | Bound to loopback | `--host 0.0.0.0` |
 | Build fails, `output path is not a writable directory` | Windows ReadOnly attribute on a shell folder | `attrib -r /s /d .` in the repository root |
+| A command rejects a flag the docs show, or a feature behaves as though it is missing | `target/release/ulpf` is older than the checkout | `cargo test` does not refresh it. Run `cargo build --release --locked` after every pull |
 
 ### Reset between rehearsals
 

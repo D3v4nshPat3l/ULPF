@@ -24,7 +24,7 @@ The ordering is a correctness property. The vault append precedes parsing, and a
 | `ulpf-core` | Receipt envelope, transport, borrowed field map, raw locator, disposition |
 | `ulpf-decode` | Ten decoders: RFC 3164/5424 syslog, CEF, LEEF, JSON, XML, CSV, key-value, regex |
 | `ulpf-pack` | Declarative Source Pack schema, validation, compilation, fixtures, scoring |
-| `ulpf-ocsf` | OCSF event construction, RFC 8785 canonicalization, hash chain, checkpoints |
+| `ulpf-ocsf` | OCSF event construction, RFC 8785 canonicalization, hash chain, checkpoints, RFC 6962 Merkle log |
 | `ulpf-vault` | Append-only block-compressed byte archive and indexed retrieval |
 | `ulpf-cli` | File/stdin/UDP ingestion, NDJSON and data-lake/SIEM sinks, pack drafting, verification, embedded operator console |
 
@@ -41,6 +41,10 @@ Each event carries the OCSF `record_integrity` profile. Its fingerprint covers c
 The Ed25519 private key is generated once inside the configured integrity directory. The latest signed checkpoint and public key are persisted separately. A process restart verifies the stored checkpoint and resumes from its exact event UID, type UID, sequence, and fingerprint. Independent verification can require both the checkpoint and an out-of-band public key.
 
 This provides tamper evidence plus a trusted anchor. A hash chain alone cannot authenticate a completely replaced stream.
+
+Alongside the chain, every checkpoint signs a Merkle tree head over the event fingerprints, built to RFC 6962 with its `0x00`/`0x01` leaf and node domain separation. The chain gives cheap sequential tamper-evidence at write time; the tree gives cheap selective proof at read time. Neither replaces the other. Leaf hashes are persisted next to the checkpoint and reloaded on restart only up to the size the last signed checkpoint commits to, so the tree never extends past what a key has attested to.
+
+The tree is what makes a single record shareable. Proving one event by replaying the chain means disclosing every other event; an inclusion proof does it in `ceil(log2 n)` hashes, verified against the signed root by a party that holds no other part of the log. Because a proof reproduces only the root it was issued under, consistency proofs (RFC 6962 section 2.1.3) bridge an older tree size to the current signed root, and fail by construction if the log was rewritten rather than merely extended.
 
 ## Source Packs
 
@@ -66,6 +70,9 @@ can enter the runtime library.
   `--syslog-bind`, which is configurable so two collectors can share a host.
 - `ulpf raw`: exact byte retrieval by locator.
 - `ulpf verify`: event-chain verification with optional checkpoint and trusted public key.
+- `ulpf prove`: inclusion proof for one event against the chain's signed Merkle root.
+- `ulpf consistency`: proof that an earlier tree size is an unmodified prefix of the current one.
+- `ulpf verify-proof`: checks a proof against a checkpoint and a trusted key, reading no other part of the log.
 - `ulpf test`: Source Pack fixture quality gate.
 
 ## Security boundaries

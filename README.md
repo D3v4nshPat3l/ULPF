@@ -225,6 +225,12 @@ cargo test --workspace --release --locked
 The second command runs every pack's embedded fixtures. Expect
 `18 packs · 37/37 fixtures passed · 100.0% field accuracy`.
 
+After pulling changes, run `cargo build --release --locked` again before
+demonstrating anything. `cargo test` builds its own test binaries and leaves
+`target/release/ulpf` untouched, so a green test run is not evidence that the
+binary you are about to run is current — a stale one fails in ways that look
+like broken features rather than an old build.
+
 ### 3. Fetch the real corpora
 
 The datasets are not committed: they total ~150 MB, they are independently
@@ -278,6 +284,49 @@ point at it directly.
 ```bash
 ./target/release/ulpf verify events.ndjson --checkpoint data/integrity/default.checkpoint.json --public-key data/integrity/ed25519-signing.pub
 ```
+
+### Prove one event without disclosing the rest
+
+`verify` above replays a whole stream. Proving that a *single* record is
+genuine that way means handing over every other record with it — which for a
+sensitive log is often not permitted at all.
+
+Every checkpoint also signs a Merkle tree head over the event fingerprints
+(RFC 6962, the Certificate Transparency construction). One event can therefore
+be proved in `ceil(log2 n)` hashes — roughly 20 for a million events, a few
+hundred bytes — against that signed root.
+
+```bash
+./target/release/ulpf prove --integrity-dir data/integrity --chain default --event one-event.json > proof.json
+```
+
+The verifier needs the proof, the checkpoint and a public key it already
+trusts. No vault, no chain, no other event:
+
+```bash
+./target/release/ulpf verify-proof --proof proof.json --checkpoint data/integrity/default.checkpoint.json --public-key data/integrity/ed25519-signing.pub --event one-event.json
+```
+
+`--event` is optional and worth supplying: without it the proof shows a
+fingerprint was in the log, with it that *this* file is the record that
+fingerprint stands for.
+
+### Check an older proof against today's root
+
+A proof only ever reproduces the root it was issued under, so once the log
+grows the checkpoint that proof was made against is no longer the current one.
+`verify-proof` says so rather than failing vaguely, and a consistency proof
+bridges the gap — `O(log n)` hashes showing the older tree is an unmodified
+prefix of today's:
+
+```bash
+./target/release/ulpf consistency --integrity-dir data/integrity --chain default --from 40000 > bridge.json
+./target/release/ulpf verify-proof --proof proof.json --checkpoint data/integrity/default.checkpoint.json --public-key data/integrity/ed25519-signing.pub --consistency bridge.json
+```
+
+`--from` is the `tree_size` recorded in the proof. If the log did not simply
+grow — if a record it had already committed to was altered — no consistency
+proof exists and the bridge fails, which is the point.
 
 ### Retrieve the original bytes of one event
 
@@ -355,13 +404,14 @@ full method, and the three limits found by measuring, are in
 | a | Preserve raw event data without loss | **Done** | Append-only zstd vault written before parsing; locator on every event; CRC validated |
 | b | Extract source-specific attributes | **Done** | 10 decoders composed into per-pack chains |
 | c | Normalize to a common taxonomy | **Done** | OCSF 1.9.0, schema vendored at `schema/ocsf` |
-| d | Trace normalized events to originals | **Done** | `unmapped.ulpf_raw_locator`, content fingerprint, `prev_event` link |
+| d | Trace normalized events to originals | **Done** | `unmapped.ulpf_raw_locator`, content fingerprint, `prev_event` link; RFC 6962 Merkle proofs prove one event without disclosing the others |
 | e | Plug-and-play onboarding | **Done** | Declarative YAML packs, validated, fixture-tested, hot-reloaded by a filesystem watcher |
 | f | Unified visibility | **Done** | Embedded console, event inspector, cluster browser |
 | g | SIEM / data-lake integration | **Done** | NDJSON default; Parquet, OpenSearch Bulk and Splunk HEC fan-out |
 | h | AI/ML-ready analytics | **Partial** | Stable structured JSON; columnar feature pipeline not built |
 | i | Reduce parser development effort | **Done** | Drain clustering plus two generators, scored against real fixtures, human-approved |
 | j | Air-gapped deployment | **Done** | Zero runtime network dependency; console fully self-contained |
+| k | Containerized deployment | **Done** | Two-stage `Dockerfile` onto distroless, `--locked` build, read-only rootfs, all capabilities dropped; `deploy/ulpf-compose.yaml` |
 
 ---
 
@@ -373,7 +423,8 @@ crates/
   ulpf-vault       append-only compressed raw store, O(1) retrieval, crash recovery
   ulpf-decode      the ten decoders
   ulpf-pack        Source Pack spec, compilation, detection, extraction, mapping
-  ulpf-ocsf        OCSF event model, RFC 8785 JCS, fingerprints, chain, checkpoints
+  ulpf-ocsf        OCSF event model, RFC 8785 JCS, fingerprints, chain, checkpoints,
+                   RFC 6962 Merkle log with inclusion and consistency proofs
   ulpf-generator   Drain clustering, deterministic generator, LLM client, scorer
   ulpf-cli         binary: run, serve, listen, replay, draft, test, verify, raw
 packs/             18 Source Packs

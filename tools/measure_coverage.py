@@ -11,6 +11,7 @@ is copied from a vendor benchmark.
 
 import argparse
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -37,10 +38,27 @@ PARSED = re.compile(r"parsed\s+(\d+)")
 
 
 def binary() -> pathlib.Path:
-    for name in ("ulpf.exe", "ulpf"):
-        path = pathlib.Path("target/release") / name
-        if path.exists():
-            return path
+    """Locate the release binary, honouring CARGO_TARGET_DIR.
+
+    Cargo puts the build wherever CARGO_TARGET_DIR points, which is how anyone
+    working on a drive or directory where ./target is awkward has it set. This
+    looked only in ./target/release and so reported "build first" to someone
+    who had just built, with no hint at what was actually wrong.
+    """
+    roots = []
+    configured = os.environ.get("CARGO_TARGET_DIR")
+    if configured:
+        roots.append(pathlib.Path(configured))
+    roots.append(pathlib.Path("target"))
+
+    for root in roots:
+        for name in ("ulpf.exe", "ulpf"):
+            path = root / "release" / name
+            if path.exists():
+                return path
+
+    looked = ", ".join(str(r / "release") for r in roots)
+    print(f"no release binary in {looked}", file=sys.stderr)
     print("build first:  cargo build --release --locked", file=sys.stderr)
     raise SystemExit(1)
 

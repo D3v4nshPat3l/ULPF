@@ -142,6 +142,53 @@ impl MerkleLog {
         })
     }
 
+    /// Prove the tree as it stood at `first_size` leaves is a prefix of the
+    /// tree as it stands now.
+    ///
+    /// `None` when `first_size` exceeds the log: a tree cannot be a prefix of a
+    /// smaller one, and saying so is more useful than an empty path that would
+    /// verify as though it meant something.
+    pub fn consistency_proof(&self, first_size: u64) -> Option<ConsistencyProof> {
+        let n = self.len();
+        if first_size > n {
+            return None;
+        }
+        let mut out = Vec::new();
+        // A tree is trivially a prefix of itself, and every tree extends the
+        // empty one. Both carry no hashes rather than being special cases the
+        // caller has to detect.
+        if first_size > 0 && first_size < n {
+            self.subproof(first_size as usize, &self.leaves, true, &mut out);
+        }
+        Some(ConsistencyProof {
+            first_size,
+            second_size: n,
+            path: out.iter().map(hex::encode).collect(),
+        })
+    }
+
+    /// RFC 6962 SUBPROOF.
+    ///
+    /// `on_path` marks the subtree still containing the old tree's right edge.
+    /// Its root is one the verifier can already derive, so it is not sent —
+    /// which is what keeps the proof logarithmic rather than linear.
+    fn subproof(&self, m: usize, leaves: &[[u8; 32]], on_path: bool, out: &mut Vec<[u8; 32]>) {
+        if m == leaves.len() {
+            if !on_path {
+                out.push(self.root_of(leaves));
+            }
+            return;
+        }
+        let k = split_point(leaves.len());
+        if m <= k {
+            self.subproof(m, &leaves[..k], on_path, out);
+            out.push(self.root_of(&leaves[k..]));
+        } else {
+            self.subproof(m - k, &leaves[k..], false, out);
+            out.push(self.root_of(&leaves[..k]));
+        }
+    }
+
     fn path_into(&self, leaves: &[[u8; 32]], index: usize, out: &mut Vec<[u8; 32]>) {
         if leaves.len() <= 1 {
             return;
@@ -228,6 +275,130 @@ pub fn verify_inclusion(
     // Constant-time comparison is unnecessary: the expected root is public and
     // the attacker already knows it.
     hex::encode(node) == expected_root_hex.to_ascii_lowercase()
+}
+
+/// A proof that a tree of `first_size` leaves is a prefix of one of
+/// `second_size` leaves.
+///
+/// An inclusion proof is only checkable against the exact root it was issued
+/// under, so a log that keeps growing strands every proof it has already handed
+/// out: the holder would have to keep the checkpoint from that moment and hope
+/// a verifier still trusts a root nobody publishes any more. RFC 6962 answers
+/// that with this — `O(log n)` hashes showing the old tree is an unmodified
+/// prefix of the new one, which lets an old proof be checked against today's
+/// signed root without weakening what it claims.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsistencyProof {
+    pub first_size: u64,
+    pub second_size: u64,
+    /// Node hashes in RFC 6962 SUBPROOF order, hex-encoded.
+    pub path: Vec<String>,
+}
+
+/// Check that the tree whose head is `first_root_hex` is a prefix of the tree
+/// whose head is `second_root_hex`.
+///
+/// The algorithm is RFC 6962 section 2.1.3. It rebuilds *both* roots from the
+/// same path rather than only reaching the new one: a verifier that recomputed
+/// just the new root would accept any old root the prover cared to name, which
+/// is precisely the substitution this exists to prevent.
+pub fn verify_consistency(
+    hash: HashAlgorithm,
+    first_root_hex: &str,
+    second_root_hex: &str,
+    proof: &ConsistencyProof,
+) -> bool {
+    let first = proof.first_size;
+    let second = proof.second_size;
+    if first > second {
+        return false;
+    }
+    // The same tree: the roots have to agree and there is nothing to send.
+    if first == second {
+        return proof.path.is_empty() && first_root_hex.eq_ignore_ascii_case(second_root_hex);
+    }
+    // Every tree extends the empty one, and there is no old root to rebuild.
+    if first == 0 {
+        return proof.path.is_empty();
+    }
+    if proof.path.is_empty() {
+        return false;
+    }
+
+    let Some(path) = proof
+        .path
+        .iter()
+        .map(|h| decode32(h))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+
+    let log = MerkleLog::new(hash);
+    let mut node = first - 1;
+    let mut last = second - 1;
+
+    // Climb out of every right-child position first. Those subtrees lie wholly
+    // inside the old tree, so the verifier can already derive them and nothing
+    // about them is sent.
+    while node & 1 == 1 {
+        node >>= 1;
+        last >>= 1;
+    }
+
+    // If the old tree was perfectly balanced its root *is* the starting node
+    // and the verifier already holds it; otherwise the starting node is the
+    // first hash in the path.
+    let mut idx = 0usize;
+    let (mut first_hash, mut second_hash) = if node > 0 {
+        idx = 1;
+        (path[0], path[0])
+    } else {
+        let Some(root) = decode32(first_root_hex) else {
+            return false;
+        };
+        (root, root)
+    };
+
+    while node > 0 {
+        if node & 1 == 1 {
+            // A right child: its left sibling stands in both trees.
+            let Some(sibling) = path.get(idx) else {
+                return false;
+            };
+            first_hash = log.node_hash(sibling, &first_hash);
+            second_hash = log.node_hash(sibling, &second_hash);
+            idx += 1;
+        } else if node < last {
+            // A left child whose right sibling exists only in the newer tree,
+            // so it contributes to the new root and not the old one.
+            let Some(sibling) = path.get(idx) else {
+                return false;
+            };
+            second_hash = log.node_hash(&second_hash, sibling);
+            idx += 1;
+        }
+        // node == last and even: a left child with no sibling in either tree.
+        node >>= 1;
+        last >>= 1;
+    }
+
+    if hex::encode(first_hash) != first_root_hex.to_ascii_lowercase() {
+        return false;
+    }
+
+    // Whatever was appended past the old tree's right edge.
+    while last > 0 {
+        let Some(sibling) = path.get(idx) else {
+            return false;
+        };
+        second_hash = log.node_hash(&second_hash, sibling);
+        idx += 1;
+        last >>= 1;
+    }
+
+    // Hashes left over means this is not the proof for this pair of sizes.
+    idx == path.len() && hex::encode(second_hash) == second_root_hex.to_ascii_lowercase()
 }
 
 fn decode32(hex_str: &str) -> Option<[u8; 32]> {
@@ -406,6 +577,202 @@ mod tests {
             b"event-5",
             &proof,
             &a.root_hex()
+        ));
+    }
+
+    // ---- consistency proofs -------------------------------------------------
+
+    /// The property that matters: every prefix of every tree verifies, at every
+    /// size. Exhaustive up to 17 leaves, which covers both sides of the
+    /// power-of-two boundaries where the seeding rule changes.
+    #[test]
+    fn every_prefix_is_consistent_with_every_later_size() {
+        for n in 1..=17usize {
+            let new = log_of(n);
+            for m in 0..=n {
+                let old = log_of(m);
+                let proof = new
+                    .consistency_proof(m as u64)
+                    .expect("a prefix always has a proof");
+                assert!(
+                    verify_consistency(
+                        HashAlgorithm::Sha256,
+                        &old.root_hex(),
+                        &new.root_hex(),
+                        &proof
+                    ),
+                    "tree of {n} is not consistent with its prefix of {m}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_forged_old_root_does_not_verify() {
+        let new = log_of(12);
+        let proof = new.consistency_proof(7).unwrap();
+        // The root of a tree that shares no leaves with this one.
+        let mut other = MerkleLog::new(HashAlgorithm::Sha256);
+        for i in 0..7 {
+            other.append(format!("forged-{i}").as_bytes());
+        }
+        assert!(!verify_consistency(
+            HashAlgorithm::Sha256,
+            &other.root_hex(),
+            &new.root_hex(),
+            &proof
+        ));
+    }
+
+    #[test]
+    fn a_forged_new_root_does_not_verify() {
+        let old = log_of(7);
+        let new = log_of(12);
+        let proof = new.consistency_proof(7).unwrap();
+        assert!(!verify_consistency(
+            HashAlgorithm::Sha256,
+            &old.root_hex(),
+            &log_of(13).root_hex(),
+            &proof
+        ));
+    }
+
+    /// The case the whole thing exists to reject: a log that did not merely
+    /// grow, but edited a record it had already committed to.
+    #[test]
+    fn a_rewritten_history_is_not_consistent() {
+        let old = log_of(8);
+        let mut rewritten = MerkleLog::new(HashAlgorithm::Sha256);
+        for i in 0..12 {
+            if i == 3 {
+                rewritten.append(b"event-3-but-altered");
+            } else {
+                rewritten.append(format!("event-{i}").as_bytes());
+            }
+        }
+        let proof = rewritten.consistency_proof(8).unwrap();
+        assert!(!verify_consistency(
+            HashAlgorithm::Sha256,
+            &old.root_hex(),
+            &rewritten.root_hex(),
+            &proof
+        ));
+    }
+
+    #[test]
+    fn the_same_size_needs_no_path_and_the_roots_must_match() {
+        let log = log_of(9);
+        let proof = log.consistency_proof(9).unwrap();
+        assert!(proof.path.is_empty());
+        assert!(verify_consistency(
+            HashAlgorithm::Sha256,
+            &log.root_hex(),
+            &log.root_hex(),
+            &proof
+        ));
+        assert!(!verify_consistency(
+            HashAlgorithm::Sha256,
+            &log_of(8).root_hex(),
+            &log.root_hex(),
+            &proof
+        ));
+    }
+
+    #[test]
+    fn every_tree_extends_the_empty_one() {
+        let log = log_of(6);
+        let proof = log.consistency_proof(0).unwrap();
+        assert!(proof.path.is_empty());
+        assert!(verify_consistency(
+            HashAlgorithm::Sha256,
+            &MerkleLog::new(HashAlgorithm::Sha256).root_hex(),
+            &log.root_hex(),
+            &proof
+        ));
+    }
+
+    #[test]
+    fn a_first_size_beyond_the_tree_has_no_proof() {
+        assert!(log_of(5).consistency_proof(6).is_none());
+    }
+
+    #[test]
+    fn a_tampered_or_padded_path_does_not_verify() {
+        let old = log_of(7);
+        let new = log_of(12);
+        let good = new.consistency_proof(7).unwrap();
+
+        let mut tampered = good.clone();
+        tampered.path[0] = "00".repeat(32);
+        assert!(!verify_consistency(
+            HashAlgorithm::Sha256,
+            &old.root_hex(),
+            &new.root_hex(),
+            &tampered
+        ));
+
+        // Trailing hashes the algorithm never consumes must be rejected too,
+        // otherwise a proof could carry arbitrary unchecked payload.
+        let mut padded = good.clone();
+        padded.path.push("11".repeat(32));
+        assert!(!verify_consistency(
+            HashAlgorithm::Sha256,
+            &old.root_hex(),
+            &new.root_hex(),
+            &padded
+        ));
+
+        let mut truncated = good.clone();
+        truncated.path.pop();
+        assert!(!verify_consistency(
+            HashAlgorithm::Sha256,
+            &old.root_hex(),
+            &new.root_hex(),
+            &truncated
+        ));
+    }
+
+    #[test]
+    fn consistency_proof_is_logarithmic() {
+        let log = log_of(1024);
+        let proof = log.consistency_proof(500).unwrap();
+        assert!(
+            proof.path.len() <= 12,
+            "1024 leaves should need ~10 hashes, got {}",
+            proof.path.len()
+        );
+    }
+
+    /// An old inclusion proof, checked against a root signed long after it was
+    /// issued. This is the end-to-end property the CLI depends on.
+    #[test]
+    fn an_old_inclusion_proof_survives_the_log_growing() {
+        let old = log_of(5);
+        let inclusion = old.inclusion_proof(2).unwrap();
+        let new = log_of(40);
+
+        // Against the new root directly it must fail — the tree changed.
+        assert!(!verify_inclusion(
+            HashAlgorithm::Sha256,
+            b"event-2",
+            &inclusion,
+            &new.root_hex()
+        ));
+
+        // With a consistency proof tying the old root to the new one, the old
+        // proof still means what it meant.
+        let bridge = new.consistency_proof(5).unwrap();
+        assert!(verify_consistency(
+            HashAlgorithm::Sha256,
+            &old.root_hex(),
+            &new.root_hex(),
+            &bridge
+        ));
+        assert!(verify_inclusion(
+            HashAlgorithm::Sha256,
+            b"event-2",
+            &inclusion,
+            &old.root_hex()
         ));
     }
 }
