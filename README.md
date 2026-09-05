@@ -566,6 +566,7 @@ traffic, let the console draft a candidate for you and edit from there —
 | [PACK_GENERATOR.md](docs/PACK_GENERATOR.md) | Clustering, generators, scoring |
 | [SINKS.md](docs/SINKS.md) | Parquet, OpenSearch, Splunk HEC |
 | [TESTING.md](docs/TESTING.md) | Test strategy |
+| [PROBLEM-STATEMENT.md](docs/PROBLEM-STATEMENT.md) | PS 26156 read closely: what each clause demands, and how we resolved its ambiguities |
 | [3-LAPTOP-DEMO.md](docs/3-LAPTOP-DEMO.md) | Verified step-by-step multi-machine demonstration |
 | [DEMO-VIDEO-SCRIPT.md](docs/DEMO-VIDEO-SCRIPT.md) | Shot list and narration for the two-minute video |
 | [ULPF-SIH-2026.pptx](docs/ULPF-SIH-2026.pptx) | The five-slide submission deck |
