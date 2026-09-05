@@ -19,15 +19,16 @@ Split by whether it blocks the claim "the problem statement is fully met".
 
 ## Blocking
 
-### 1. Requirement (h), AI/ML-ready analytics
+### 1. Requirement (h), AI/ML-ready analytics — resolved
 
-The only requirement still marked *Partial*. Stable structured JSON exists.
-What does not exist is a batched columnar feature table with a **stable column
-contract**. Today a model consumer re-derives fields from JSON on every run,
-which means the effective schema shifts underneath them whenever a pack
-changes.
+Was the only requirement marked *Partial*. A model consumer had to re-derive
+fields from JSON on every run, so the effective schema shifted underneath them
+whenever a pack changed.
 
-This is the clearest hole in the requirement table.
+Closed by `--features`: a Hive-partitioned Parquet table with a fixed,
+versioned 24-column contract that does not move when packs do. See
+[FEATURE_TABLE.md](FEATURE_TABLE.md). The requirement table now reads eleven
+of eleven.
 
 ### 2. Nine packs have no real-corpus evidence
 
@@ -63,7 +64,7 @@ CI for that reason.
 ### 3. Self-assessment documents — resolved
 
 `docs/gap_analysis.md` marked every requirement "Fully Addressed", including
-(h), which `README.md` correctly marks *Partial*; a reader who opened both
+(h), which `README.md` then marked *Partial*; a reader who opened both
 found the repository contradicting itself. It also described "5 Source Packs
 and 7 decoders" against the current 18 and 10.
 
@@ -235,6 +236,14 @@ evidence drawn from a classified log.
 RFC 8785 canonicalization and Ed25519 signing already exist. The tree is
 perhaps 300 lines on top. Highest value per line in the backlog.
 
+**Built.** `crates/ulpf-ocsf/src/merkle.rs`, with `ulpf prove`,
+`ulpf consistency` and `ulpf verify-proof`. Consistency proofs were added on
+top, so an older proof can also be checked against the *current* signed root —
+which is what shows the log was extended rather than rewritten. See
+[PROOFS.md](PROOFS.md). Idea 2 below, witness co-signing, is the remaining
+half: consistency proofs stop a collector rewriting history under an old proof,
+but not a collector that rewrites and re-signs everything self-consistently.
+
 ## 2. Cross-collector witness co-signing
 
 The attack the current design does not stop: a compromised collector can
@@ -335,10 +344,10 @@ than per pack.
 | # | Item | Effort | Why here |
 |---|---|---|---|
 | 1 | Pack content digest | Afternoon | Small, and unlocks idea 3 |
-| 2 | Coverage regression gate | Afternoon | Tiny, permanent value |
-| 3 | Merkle tree + inclusion proofs | ~300 lines | The demonstration moment |
+| 2 | Coverage regression gate | Afternoon | Tiny, permanent value — **built** |
+| 3 | Merkle tree + inclusion proofs | ~300 lines | The demonstration moment — **built** |
 | 4 | Custody log | Afternoon | Closes the legal argument |
-| 5 | Columnar feature table | Days | Closes requirement (h) |
+| 5 | Columnar feature table | Days | Closes requirement (h) — **built** |
 | 6 | Source silence detection | Days | Differentiator |
 | 7 | Two-node deployment doc | Day | Closes the 1B/day gap |
 | 8 | Witness co-signing | Days | Novel; needs 3 and 7 first |

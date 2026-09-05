@@ -463,13 +463,7 @@ already per-collector and verify independently, so what is missing is the
 deployment story: a documented two-node configuration and a verifier that
 consumes several chains at once.
 
-### 2. Columnar feature pipeline (requirement h)
-
-The one requirement still marked *Partial*. Stable structured JSON exists;
-what is missing is a batched Parquet feature table with a stable column
-contract that a model can train against without re-deriving fields.
-
-### 3. Widen real-corpus coverage
+### 2. Widen real-corpus coverage
 
 The three named gaps are Proxifier's non-connection lines (18.9%), the daemon
 long tail in Linux syslog, and mail. Each needs packs written against the
@@ -481,19 +475,19 @@ fixtures come from documentation — there is no public corpus for them. Finding
 capturing real traffic for those vendors would materially strengthen the
 coverage claim.
 
-### 4. A better local model for the Assistant
+### 3. A better local model for the Assistant
 
 `qwen2.5:1.5b-instruct` is small enough to run anywhere, and it shows: answers
 hedge and occasionally invent OCSF class numbers. A 7B-class model would fix
 most of it at the cost of hardware. The deterministic generator exists so that
 pack drafting never depends on this.
 
-### 5. Windows Event Log and NetFlow/IPFIX
+### 4. Windows Event Log and NetFlow/IPFIX
 
 Both are named in the problem statement's spirit and neither is text-line
 shaped, so both need real ingestion work rather than another pack.
 
-### 6. Operational hardening
+### 5. Operational hardening
 
 TLS syslog (RFC 5425), backpressure signalling to senders, key rotation and a
 documented custody procedure for the signing key, and packaging as a service.
