@@ -345,6 +345,22 @@ Open <http://127.0.0.1:8787/dev>, flip sources on, and watch
 | Build fails, `output path is not a writable directory` | Windows ReadOnly attribute on a shell folder | `attrib -r /s /d .` in the repository root |
 | A command rejects a flag the docs show, or a feature behaves as though it is missing | `target/release/ulpf` is older than the checkout | `cargo test` does not refresh it. Run `cargo build --release --locked` after every pull |
 
+### Stopping the collector
+
+Ctrl-C. It signs a final checkpoint for anything received since the last
+periodic one and closes any Parquet writers, printing:
+
+```
+  Shutting down. Sealing outputs…
+  checkpoint    seq 283
+  sinks         closed
+```
+
+Wait for those lines before closing the terminal. If you are writing a feature
+table with `--features`, that is the moment the file becomes readable — killing
+the process instead leaves it without a Parquet footer, and pyarrow will refuse
+it. The events survive either way; only the current table file does not.
+
 ### Reset between rehearsals
 
 Counters, vault and chain all persist deliberately. To start clean:

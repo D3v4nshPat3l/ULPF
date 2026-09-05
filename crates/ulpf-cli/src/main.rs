@@ -819,15 +819,24 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         .enable_all()
         .build()?;
 
-    let mut sinks = sinks::AsyncSinkSet::new(sinks::SinkConfig {
-        parquet,
-        features,
-        opensearch,
-        opensearch_index,
-        splunk_hec,
-        splunk_token_env,
-        batch_size: sink_batch_size,
-    })?;
+    // Shared, not owned by the listener thread: Parquet writes its footer when
+    // the writer is dropped, and `serve` had no path that ever dropped it. A
+    // console run with --features or --parquet produced a file that was never
+    // readable — not on Ctrl-C, not on `docker stop`, not ever, because the
+    // process only ended by being killed. `finish` consumes the set, so an
+    // Option is what lets the shutdown path take it back.
+    let sinks = std::sync::Arc::new(std::sync::Mutex::new(Some(sinks::AsyncSinkSet::new(
+        sinks::SinkConfig {
+            parquet,
+            features,
+            opensearch,
+            opensearch_index,
+            splunk_hec,
+            splunk_token_env,
+            batch_size: sink_batch_size,
+        },
+    )?)));
+    let listener_sinks = sinks.clone();
 
     // Spawn UDP syslog listener on a dedicated thread to avoid blocking async.
     //
@@ -888,7 +897,9 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
                         }
                     }
 
-                    let _ = sinks.write(&processed.event);
+                    if let Some(sink) = listener_sinks.lock().unwrap().as_mut() {
+                        let _ = sink.write(&processed.event);
+                    }
 
                     // Add to recent events for the console UI
                     let pack_id = processed.disposition.pack_id().map(|s| s.to_string());
@@ -972,12 +983,87 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         eprintln!("  trusted key   {}", public_key_path.display());
         eprintln!();
 
-        axum::serve(listener, app).await.unwrap();
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown_signal())
+            .await
+            .unwrap();
 
         Ok::<(), anyhow::Error>(())
     })?;
 
+    // Past this point the HTTP server has stopped. The UDP listener thread is
+    // still parked on recv_from and will die with the process; taking the sinks
+    // out from under it is safe because a write only happens while holding this
+    // same lock.
+    eprintln!();
+    eprintln!("  Shutting down. Sealing outputs…");
+
+    // Commit whatever arrived since the last periodic checkpoint, so a clean
+    // stop leaves the tail of the chain signed rather than stranded.
+    {
+        let mut st = state.lock().unwrap();
+        match st.pipeline.checkpoint_now() {
+            Ok(Some(checkpoint)) => {
+                let path = st.checkpoint_path.clone();
+                let leaves_path = st.merkle_leaves_path.clone();
+                let leaves = st.pipeline.merkle_leaves().to_vec();
+                if let Err(e) = integrity_state::persist_leaves(&leaves_path, &leaves) {
+                    eprintln!("  could not write Merkle leaves: {e:#}");
+                }
+                if let Err(e) = integrity_state::persist_checkpoint(&path, &checkpoint) {
+                    eprintln!("  could not write checkpoint: {e:#}");
+                } else {
+                    eprintln!("  checkpoint    seq {}", checkpoint.sequence);
+                }
+                st.latest_checkpoint = Some(checkpoint);
+            }
+            Ok(None) => {}
+            Err(e) => eprintln!("  could not sign a final checkpoint: {e:#}"),
+        }
+    }
+
+    // Dropping the sink set closes the Parquet writers, which is what writes
+    // their footers. Without this the files stay unreadable.
+    let taken = sinks.lock().unwrap().take();
+    if let Some(sink) = taken {
+        match sink.finish() {
+            Ok(()) => eprintln!("  sinks         closed"),
+            Err(e) => eprintln!("  sink shutdown failed: {e:#}"),
+        }
+    }
+    eprintln!();
+
     Ok(())
+}
+
+/// Resolve when the operator asks the process to stop.
+///
+/// Ctrl-C covers an interactive run; SIGTERM is what `docker stop` and systemd
+/// send, and the compose file allows 30s for it, which is only useful if
+/// something is listening.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+
+    #[cfg(unix)]
+    {
+        let terminate = async {
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(mut sig) => {
+                    sig.recv().await;
+                }
+                Err(_) => std::future::pending::<()>().await,
+            }
+        };
+        tokio::select! {
+            _ = ctrl_c => {},
+            _ = terminate => {},
+        }
+    }
+
+    #[cfg(not(unix))]
+    ctrl_c.await;
 }
 
 fn cmd_test(packs_dir: PathBuf) -> anyhow::Result<()> {

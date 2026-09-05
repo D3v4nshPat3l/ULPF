@@ -40,8 +40,14 @@ services:
     cap_drop:
       - ALL
     restart: unless-stopped
-    # The vault is append-only and the chain resumes from its last signed
-    # checkpoint, so an unclean stop costs the tail block, not the archive.
+    # `docker stop` sends SIGTERM, which the collector handles: it signs a
+    # final checkpoint for whatever arrived since the last periodic one and
+    # closes the Parquet writers, which is what writes their footers. Without
+    # that the feature table on the volume would never be readable. 30s is
+    # generous for both.
+    #
+    # A kill -9 still costs only the tail: the vault is append-only and the
+    # chain resumes from its last signed checkpoint.
     stop_grace_period: 30s
 
 volumes:

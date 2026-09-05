@@ -96,6 +96,21 @@ past the 2⁵³ that a float64 — and therefore JavaScript, and pandas' default
 numeric handling in places — represents exactly. Anything going near JSON
 should use `epoch_seconds`. `time_ns` is there when full precision matters.
 
+## When the file becomes readable
+
+Parquet keeps its schema and row-group index in a footer written when the
+writer closes, so a file being appended to is not yet a valid Parquet file.
+
+`ulpf run` closes its writers when the input ends. `ulpf serve` closes them on
+Ctrl-C or SIGTERM — the signal `docker stop` and systemd send. Both print
+`sinks closed` when it is done.
+
+A collector killed outright (`kill -9`, power loss) leaves the current file
+without a footer, and readers will reject it. The events themselves are not
+lost: they are in the vault and in the signed chain, and the table can be
+rebuilt by replaying them. Stop the collector properly if you care about the
+current file.
+
 ## Reading it
 
 ```python
