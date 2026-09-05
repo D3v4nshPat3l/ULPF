@@ -285,48 +285,40 @@ point at it directly.
 ./target/release/ulpf verify events.ndjson --checkpoint data/integrity/default.checkpoint.json --public-key data/integrity/ed25519-signing.pub
 ```
 
-### Prove one event without disclosing the rest
-
-`verify` above replays a whole stream. Proving that a *single* record is
-genuine that way means handing over every other record with it — which for a
-sensitive log is often not permitted at all.
-
-Every checkpoint also signs a Merkle tree head over the event fingerprints
-(RFC 6962, the Certificate Transparency construction). One event can therefore
-be proved in `ceil(log2 n)` hashes — roughly 20 for a million events, a few
-hundred bytes — against that signed root.
+### Write the feature table
 
 ```bash
-./target/release/ulpf prove --integrity-dir data/integrity --chain default --event one-event.json > proof.json
+./target/release/ulpf run --packs packs --vault data/vault --integrity-dir data/integrity --input logs.txt --output events.ndjson --features data/features
 ```
 
-The verifier needs the proof, the checkpoint and a public key it already
-trusts. No vault, no chain, no other event:
+Hive-partitioned Parquet with a fixed 24-column contract, readable by pyarrow,
+DuckDB and Spark. See [FEATURE_TABLE.md](docs/FEATURE_TABLE.md).
+
+### Prove one event was logged
 
 ```bash
-./target/release/ulpf verify-proof --proof proof.json --checkpoint data/integrity/default.checkpoint.json --public-key data/integrity/ed25519-signing.pub --event one-event.json
+./target/release/ulpf prove --integrity-dir data/integrity --chain console --event event.json > proof.json
 ```
-
-`--event` is optional and worth supplying: without it the proof shows a
-fingerprint was in the log, with it that *this* file is the record that
-fingerprint stands for.
-
-### Check an older proof against today's root
-
-A proof only ever reproduces the root it was issued under, so once the log
-grows the checkpoint that proof was made against is no longer the current one.
-`verify-proof` says so rather than failing vaguely, and a consistency proof
-bridges the gap — `O(log n)` hashes showing the older tree is an unmodified
-prefix of today's:
 
 ```bash
-./target/release/ulpf consistency --integrity-dir data/integrity --chain default --from 40000 > bridge.json
-./target/release/ulpf verify-proof --proof proof.json --checkpoint data/integrity/default.checkpoint.json --public-key data/integrity/ed25519-signing.pub --consistency bridge.json
+./target/release/ulpf verify-proof --proof proof.json --public-key data/integrity/ed25519-signing.pub
 ```
 
-`--from` is the `tree_size` recorded in the proof. If the log did not simply
-grow — if a record it had already committed to was altered — no consistency
-proof exists and the bridge fails, which is the point.
+A few hundred bytes proving one record is in the signed log, checkable by
+someone holding nothing else. See [PROOFS.md](docs/PROOFS.md).
+
+A proof carries the checkpoint it was made against, so it verifies on its own
+indefinitely. To also show the log has not been rewritten since — that the tree
+it was issued against is still a prefix of today's — bridge it to the current
+checkpoint:
+
+```bash
+./target/release/ulpf consistency --integrity-dir data/integrity --chain console --from 40000 > bridge.json
+```
+
+```bash
+./target/release/ulpf verify-proof --proof proof.json --checkpoint data/integrity/console.checkpoint.json --public-key data/integrity/ed25519-signing.pub --consistency bridge.json
+```
 
 ### Retrieve the original bytes of one event
 
@@ -408,7 +400,7 @@ full method, and the three limits found by measuring, are in
 | e | Plug-and-play onboarding | **Done** | Declarative YAML packs, validated, fixture-tested, hot-reloaded by a filesystem watcher |
 | f | Unified visibility | **Done** | Embedded console, event inspector, cluster browser |
 | g | SIEM / data-lake integration | **Done** | NDJSON default; Parquet, OpenSearch Bulk and Splunk HEC fan-out |
-| h | AI/ML-ready analytics | **Partial** | Stable structured JSON; columnar feature pipeline not built |
+| h | AI/ML-ready analytics | **Done** | Hive-partitioned Parquet feature table with a fixed, versioned column contract |
 | i | Reduce parser development effort | **Done** | Drain clustering plus two generators, scored against real fixtures, human-approved |
 | j | Air-gapped deployment | **Done** | Zero runtime network dependency; console fully self-contained |
 | k | Containerized deployment | **Done** | Two-stage `Dockerfile` onto distroless, `--locked` build, read-only rootfs, all capabilities dropped; `deploy/ulpf-compose.yaml` |
@@ -512,6 +504,10 @@ documented custody procedure for the signing key, and packaging as a service.
 
 Stated plainly, because a reviewer will find them anyway.
 
+- **The feature table carries no pack content digest.** `pack_id` records
+  which pack produced a row, but a pack edited without a version bump looks
+  identical to its predecessor, so a training set is reproducible only as far
+  as the pack files are unchanged.
 - **One collector does not reach 1B/day.** 10,000 EPS lossless is 86% of the
   target. Claiming otherwise would require the 12,000 EPS figure, which drops
   1.7% of records.
@@ -571,6 +567,8 @@ traffic, let the console draft a candidate for you and edit from there —
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Crate boundaries and data flow |
 | [DATASETS.md](docs/DATASETS.md) | Corpus provenance, coverage, named misses |
 | [THROUGHPUT.md](docs/THROUGHPUT.md) | Measured EPS, method, the limits found |
+| [FEATURE_TABLE.md](docs/FEATURE_TABLE.md) | The column contract for analytics and training |
+| [PROOFS.md](docs/PROOFS.md) | Proving one event without disclosing the log |
 | [PACK_GENERATOR.md](docs/PACK_GENERATOR.md) | Clustering, generators, scoring |
 | [SINKS.md](docs/SINKS.md) | Parquet, OpenSearch, Splunk HEC |
 | [TESTING.md](docs/TESTING.md) | Test strategy |

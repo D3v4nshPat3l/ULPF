@@ -1,7 +1,9 @@
 //! `ulpf` — the Universal Log Pre-processing Framework command line.
 
+mod features;
 mod generator;
 mod integrity_state;
+mod parquet;
 mod pipeline;
 mod proof;
 mod replay;
@@ -42,6 +44,7 @@ struct RunOptions {
     inline_raw: bool,
     dead_letter: Option<PathBuf>,
     parquet: Option<PathBuf>,
+    features: Option<PathBuf>,
     opensearch: Option<String>,
     opensearch_index: String,
     splunk_hec: Option<String>,
@@ -114,6 +117,10 @@ enum Command {
         /// scalar columns.
         #[arg(long)]
         parquet: Option<PathBuf>,
+        /// Write the columnar feature table, for analytics and model training.
+        /// Its column contract is fixed; see docs/FEATURE_TABLE.md.
+        #[arg(long)]
+        features: Option<PathBuf>,
         /// OpenSearch base URL. Uses `/_bulk`; HTTP is intended for a trusted
         /// local proxy or lab endpoint.
         #[arg(long)]
@@ -223,8 +230,10 @@ enum Command {
     VerifyProof {
         #[arg(long)]
         proof: PathBuf,
+        /// Signed checkpoint to check against. Optional: the proof carries the
+        /// one it was made against, which is what makes it self-contained.
         #[arg(long)]
-        checkpoint: PathBuf,
+        checkpoint: Option<PathBuf>,
         /// Trusted Ed25519 public key. Without it the checkpoint is only
         /// checked against the key it carries, which proves far less.
         #[arg(long)]
@@ -271,9 +280,13 @@ enum Command {
         /// Environment variable containing the Splunk HEC token.
         #[arg(long, default_value = "ULPF_SPLUNK_HEC_TOKEN")]
         splunk_token_env: String,
-        /// Write a self-contained Parquet archive.
+        /// Write a self-contained Parquet archive of whole OCSF documents.
         #[arg(long)]
         parquet: Option<PathBuf>,
+        /// Write the columnar feature table, for analytics and model training.
+        /// Its column contract is fixed; see docs/FEATURE_TABLE.md.
+        #[arg(long)]
+        features: Option<PathBuf>,
         /// Maximum events held by each remote sink before a request is sent.
         #[arg(long, default_value_t = 250)]
         sink_batch_size: usize,
@@ -347,6 +360,7 @@ fn main() -> anyhow::Result<()> {
             inline_raw,
             dead_letter,
             parquet,
+            features,
             opensearch,
             opensearch_index,
             splunk_hec,
@@ -363,6 +377,7 @@ fn main() -> anyhow::Result<()> {
             inline_raw,
             dead_letter,
             parquet,
+            features,
             opensearch,
             opensearch_index,
             splunk_hec,
@@ -416,7 +431,7 @@ fn main() -> anyhow::Result<()> {
             consistency,
         } => proof::cmd_verify_proof(
             &proof_path,
-            &checkpoint,
+            checkpoint.as_deref(),
             public_key.as_deref(),
             event.as_deref(),
             consistency.as_deref(),
@@ -434,6 +449,7 @@ fn main() -> anyhow::Result<()> {
             splunk_hec,
             splunk_token_env,
             parquet,
+            features,
             sink_batch_size,
             datasets,
             sim_target,
@@ -450,6 +466,7 @@ fn main() -> anyhow::Result<()> {
             splunk_hec,
             splunk_token_env,
             parquet,
+            features,
             sink_batch_size,
             datasets_dir: datasets,
             sim_target,
@@ -500,6 +517,7 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
         inline_raw,
         dead_letter,
         parquet,
+        features,
         opensearch,
         opensearch_index,
         splunk_hec,
@@ -542,14 +560,15 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
         Some(path) => Some(open_output(&path.display().to_string())?),
         None => None,
     };
-    let mut sinks = sinks::AsyncSinkSet::new(
-        parquet.as_deref(),
-        opensearch.as_deref(),
-        &opensearch_index,
-        splunk_hec.as_deref(),
-        &splunk_token_env,
-        sink_batch_size,
-    )?;
+    let mut sinks = sinks::AsyncSinkSet::new(sinks::SinkConfig {
+        parquet: parquet.as_deref(),
+        features: features.as_deref(),
+        opensearch: opensearch.as_deref(),
+        opensearch_index: &opensearch_index,
+        splunk_hec: splunk_hec.as_deref(),
+        splunk_token_env: &splunk_token_env,
+        batch_size: sink_batch_size,
+    })?;
     if !sinks.is_empty() {
         tracing::info!("optional output sinks enabled");
     }
@@ -722,6 +741,7 @@ pub struct ServeConfig {
     pub splunk_hec: Option<String>,
     pub splunk_token_env: String,
     pub parquet: Option<PathBuf>,
+    pub features: Option<PathBuf>,
     pub sink_batch_size: usize,
     pub datasets_dir: PathBuf,
     pub sim_target: String,
@@ -741,6 +761,7 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         splunk_hec,
         splunk_token_env,
         parquet,
+        features,
         sink_batch_size,
         datasets_dir,
         sim_target,
@@ -752,6 +773,7 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
     let splunk_hec = splunk_hec.as_deref();
     let splunk_token_env = splunk_token_env.as_str();
     let parquet = parquet.as_deref();
+    let features = features.as_deref();
     let (library, errors) = PackLibrary::load_dir(&packs_dir)
         .with_context(|| format!("loading packs from {}", packs_dir.display()))?;
     for (path, err) in &errors {
@@ -786,6 +808,7 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         latest_checkpoint,
         checkpoint_path,
         merkle_leaves_path: merkle_leaves_path.clone(),
+        public_key_path: public_key_path.clone(),
         vault_dir,
         packs_dir: packs_dir.clone(),
         drain: ulpf_generator::drain::Drain::new(),
@@ -796,14 +819,15 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         .enable_all()
         .build()?;
 
-    let mut sinks = sinks::AsyncSinkSet::new(
+    let mut sinks = sinks::AsyncSinkSet::new(sinks::SinkConfig {
         parquet,
+        features,
         opensearch,
         opensearch_index,
         splunk_hec,
         splunk_token_env,
-        sink_batch_size,
-    )?;
+        batch_size: sink_batch_size,
+    })?;
 
     // Spawn UDP syslog listener on a dedicated thread to avoid blocking async.
     //

@@ -29,11 +29,14 @@ changes.
 
 This is the clearest hole in the requirement table.
 
-### 2. Eight packs have no real-corpus evidence
+### 2. Nine packs have no real-corpus evidence
 
-Cisco ASA, FortiGate, Palo Alto PAN-OS, Check Point, Juniper SRX, Suricata,
-ModSecurity and Squid pass fixtures written from vendor documentation. No
-public corpus backs them.
+Check Point, Cisco ASA, FortiGate, Juniper SRX, ModSecurity, Palo Alto PAN-OS,
+Squid, Suricata and the generic CEF pack all pass fixtures written from vendor
+documentation. No public corpus backs any of them — exactly half the library.
+
+This said "eight" and omitted the generic CEF pack, while `README.md` said
+nine. Counted from the fixtures themselves, it is nine.
 
 Real data has already broken three packs in this project that passed
 documentation-derived tests:
@@ -47,8 +50,15 @@ documentation-derived tests:
   `"GET /scripts/..%255c../winnt/system32/cmd.exe?/c+dir"` omits the HTTP
   version — precisely the records worth keeping.
 
-Until those eight see real traffic they are unproven. This is the largest
+Until those nine see real traffic they are unproven. This is the largest
 credibility gap in the project and it is not a technical problem.
+
+It is also not hypothetical any more. The Apache and Squid packs both numbered
+HTTP methods in the order someone wrote them down rather than the order OCSF
+defines, so every GET was recorded as Connect and every POST as Delete. Both
+were documentation-derived, both passed every fixture, and neither was caught
+until the schema itself was checked. `tools/audit_pack_enums.py` now runs in
+CI for that reason.
 
 ### 3. Self-assessment documents — resolved
 

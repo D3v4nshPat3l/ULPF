@@ -46,6 +46,7 @@ pub struct AppState {
     pub latest_checkpoint: Option<ulpf_ocsf::Checkpoint>,
     pub checkpoint_path: std::path::PathBuf,
     pub merkle_leaves_path: std::path::PathBuf,
+    pub public_key_path: std::path::PathBuf,
     pub vault_dir: std::path::PathBuf,
     pub packs_dir: std::path::PathBuf,
     pub drain: ulpf_generator::drain::Drain,
@@ -81,6 +82,8 @@ pub fn router(state: Shared) -> Router {
         .route("/api/sim/sources", get(sim_sources))
         .route("/api/sim/toggle", post(sim_toggle))
         .route("/api/sim/stop-all", post(sim_stop_all))
+        .route("/api/proof", post(make_proof))
+        .route("/api/verify-proof", post(check_proof))
         .layer(DefaultBodyLimit::max(MAX_INGEST_BYTES))
         .with_state(state)
 }
@@ -332,6 +335,118 @@ fn heuristic_draft(samples: &[String], reason: &str) -> Result<Json<Value>, ApiE
         "fixtures_passed": draft.fixtures_passed,
         "field_accuracy": draft.field_accuracy,
     })))
+}
+
+#[derive(serde::Deserialize)]
+struct ProofRequest {
+    /// The event's attestation fingerprint, as shown in the event detail panel.
+    fingerprint: String,
+    #[serde(default)]
+    event_uid: Option<String>,
+}
+
+/// Issue an inclusion proof for one event.
+///
+/// A checkpoint is forced first. Only leaves the last signed checkpoint commits
+/// to can be proved, and on a live collector the event an operator just clicked
+/// is usually newer than that. Signing one now costs a single Ed25519
+/// signature and removes an otherwise baffling "wait a few seconds" failure.
+async fn make_proof(
+    State(state): State<Shared>,
+    Json(body): Json<ProofRequest>,
+) -> Result<Response, ApiError> {
+    let mut s = lock(&state);
+
+    if let Ok(Some(checkpoint)) = s.pipeline.checkpoint_now() {
+        let leaves_path = s.merkle_leaves_path.clone();
+        let checkpoint_path = s.checkpoint_path.clone();
+        let leaves = s.pipeline.merkle_leaves().to_vec();
+        crate::integrity_state::persist_leaves(&leaves_path, &leaves)
+            .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        crate::integrity_state::persist_checkpoint(&checkpoint_path, &checkpoint)
+            .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        s.latest_checkpoint = Some(checkpoint);
+    }
+
+    let checkpoint = s
+        .latest_checkpoint
+        .clone()
+        .ok_or_else(|| ApiError(StatusCode::CONFLICT, "no signed checkpoint yet".into()))?;
+    let leaves = s.pipeline.merkle_leaves()[..checkpoint.tree_size as usize].to_vec();
+    let fingerprint = body.fingerprint.trim().to_ascii_lowercase();
+
+    let bundle = crate::proof::build_bundle(
+        ulpf_ocsf::HashAlgorithm::Sha256,
+        &checkpoint,
+        leaves,
+        &fingerprint,
+        body.event_uid,
+    )
+    .map_err(|e| ApiError(StatusCode::NOT_FOUND, e.to_string()))?;
+
+    // The bundle is the whole body, pretty-printed, and the key path travels in
+    // a header. Wrapping it in an envelope would force the console to parse the
+    // response to dig the bundle out, and parsing is precisely what must not
+    // happen: `created_time` is nanoseconds, past 2^53, so a JavaScript
+    // round-trip rounds it and the signature stops matching. Handing back the
+    // exact bytes lets the console show, copy and re-post them untouched.
+    let body = serde_json::to_string_pretty(&bundle)
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let key_path = s.public_key_path.display().to_string();
+
+    let mut response = body.into_response();
+    let headers = response.headers_mut();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    if let Ok(value) = axum::http::HeaderValue::from_str(&key_path) {
+        headers.insert(
+            axum::http::HeaderName::from_static("x-ulpf-public-key"),
+            value,
+        );
+    }
+    Ok(response)
+}
+
+/// The bundle arrives as the raw request body rather than wrapped in a field.
+///
+/// A checkpoint's `created_time` is nanoseconds since the epoch, around
+/// 1.8e18, which is far past the 2^53 that JavaScript can hold exactly. A
+/// browser that parses the proof and re-serializes it silently rounds that
+/// number and the signature stops matching — a valid proof rejected for a
+/// reason nothing in the message would explain. Taking the body as-is means
+/// the console can post the bytes it was given without ever parsing them.
+type CheckProofRequest = crate::proof::ProofBundle;
+
+/// Check a pasted proof against this collector's signed checkpoint.
+///
+/// Verifying here is a convenience, not the security claim: the point of a
+/// proof is that someone else can check it with `ulpf verify-proof` and a
+/// public key, holding nothing of this collector's.
+async fn check_proof(
+    State(state): State<Shared>,
+    Json(body): Json<CheckProofRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let bundle = body;
+
+    // Verify against the checkpoint the proof carries, not this collector's
+    // current one. The tree grows every few seconds, so a proof issued a moment
+    // ago names an earlier tree size — checking it against the latest
+    // checkpoint would reject a perfectly good proof. The embedded copy is
+    // still only accepted once its signature checks out against the trusted
+    // key below.
+    let checkpoint = bundle.checkpoint.clone();
+    let key_path = { lock(&state).public_key_path.clone() };
+
+    let key = crate::integrity_state::read_public_key(&key_path)
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let label = key_path.display().to_string();
+
+    let outcome = crate::proof::check_bundle(&bundle, &checkpoint, Some(&key), Some(&label), None)
+        .map_err(|e| ApiError(StatusCode::BAD_REQUEST, format!("{e:#}")))?;
+
+    Ok(Json(serde_json::to_value(outcome).unwrap_or(json!({}))))
 }
 
 /// The corpora the simulator can replay, with live per-stream counters.
