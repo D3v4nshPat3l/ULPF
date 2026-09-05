@@ -21,15 +21,18 @@ use std::net::IpAddr;
 
 /// How an event reached us. Recorded before any interpretation is attempted,
 /// so it stays trustworthy even when parsing fails.
+///
+/// Only transports the collector actually accepts appear here. `SyslogTcp`,
+/// `SyslogTls` and `Kafka` were listed once but nothing ever constructed them:
+/// there is no TCP listener, no TLS listener and no Kafka consumer, so the
+/// variants advertised capabilities the binary did not have. They belong back
+/// here when the listeners exist, and not before — see docs/ROADMAP.md.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Transport {
     SyslogUdp,
-    SyslogTcp,
-    SyslogTls,
     File,
     Http,
-    Kafka,
     Stdin,
 }
 
@@ -37,11 +40,8 @@ impl Transport {
     pub fn as_str(&self) -> &'static str {
         match self {
             Transport::SyslogUdp => "syslog-udp",
-            Transport::SyslogTcp => "syslog-tcp",
-            Transport::SyslogTls => "syslog-tls",
             Transport::File => "file",
             Transport::Http => "http",
-            Transport::Kafka => "kafka",
             Transport::Stdin => "stdin",
         }
     }
