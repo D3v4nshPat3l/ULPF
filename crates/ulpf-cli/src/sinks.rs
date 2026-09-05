@@ -18,8 +18,28 @@ const MAX_HTTP_RESPONSE: usize = 64 * 1024;
 
 pub struct SinkSet {
     parquet: Option<ParquetSink>,
+    features: Option<crate::features::FeatureSink>,
     opensearch: Option<OpenSearchSink>,
     splunk: Option<SplunkHecSink>,
+}
+
+/// Where normalized events should go, besides the NDJSON stream.
+///
+/// Grouped rather than passed positionally: this was six arguments and adding
+/// the feature table would have made seven, most of them optional strings and
+/// paths. Transposing two of those compiles cleanly and fails against a live
+/// SIEM.
+#[derive(Default, Clone)]
+pub struct SinkConfig<'a> {
+    /// Whole OCSF documents, for retention.
+    pub parquet: Option<&'a Path>,
+    /// The stable feature table, for training. See `crate::features`.
+    pub features: Option<&'a Path>,
+    pub opensearch: Option<&'a str>,
+    pub opensearch_index: &'a str,
+    pub splunk_hec: Option<&'a str>,
+    pub splunk_token_env: &'a str,
+    pub batch_size: usize,
 }
 
 pub struct AsyncSinkSet {
@@ -28,22 +48,8 @@ pub struct AsyncSinkSet {
 }
 
 impl AsyncSinkSet {
-    pub fn new(
-        parquet: Option<&Path>,
-        opensearch: Option<&str>,
-        opensearch_index: &str,
-        splunk_hec: Option<&str>,
-        splunk_token_env: &str,
-        batch_size: usize,
-    ) -> anyhow::Result<Self> {
-        let mut inner = SinkSet::new(
-            parquet,
-            opensearch,
-            opensearch_index,
-            splunk_hec,
-            splunk_token_env,
-            batch_size,
-        )?;
+    pub fn new(config: SinkConfig<'_>) -> anyhow::Result<Self> {
+        let mut inner = SinkSet::new(config)?;
 
         if inner.is_empty() {
             return Ok(Self {
@@ -94,34 +100,40 @@ impl AsyncSinkSet {
 }
 
 impl SinkSet {
-    pub fn new(
-        parquet: Option<&Path>,
-        opensearch: Option<&str>,
-        opensearch_index: &str,
-        splunk_hec: Option<&str>,
-        splunk_token_env: &str,
-        batch_size: usize,
-    ) -> anyhow::Result<Self> {
-        let batch_size = batch_size.max(1);
+    pub fn new(config: SinkConfig<'_>) -> anyhow::Result<Self> {
+        let batch_size = config.batch_size.max(1);
         Ok(Self {
-            parquet: parquet
+            parquet: config
+                .parquet
                 .map(|path| ParquetSink::create(path, batch_size))
                 .transpose()?,
-            opensearch: opensearch
-                .map(|url| OpenSearchSink::new(url, opensearch_index, batch_size))
+            features: config
+                .features
+                .map(|path| crate::features::FeatureSink::create(path, batch_size))
                 .transpose()?,
-            splunk: splunk_hec
-                .map(|url| SplunkHecSink::new(url, splunk_token_env, batch_size))
+            opensearch: config
+                .opensearch
+                .map(|url| OpenSearchSink::new(url, config.opensearch_index, batch_size))
+                .transpose()?,
+            splunk: config
+                .splunk_hec
+                .map(|url| SplunkHecSink::new(url, config.splunk_token_env, batch_size))
                 .transpose()?,
         })
     }
 
     pub fn is_empty(&self) -> bool {
-        self.parquet.is_none() && self.opensearch.is_none() && self.splunk.is_none()
+        self.parquet.is_none()
+            && self.features.is_none()
+            && self.opensearch.is_none()
+            && self.splunk.is_none()
     }
 
     pub fn write(&mut self, event: &OcsfEvent) -> anyhow::Result<()> {
         if let Some(sink) = &mut self.parquet {
+            sink.write(event)?;
+        }
+        if let Some(sink) = &mut self.features {
             sink.write(event)?;
         }
         if let Some(sink) = &mut self.opensearch {
@@ -137,6 +149,9 @@ impl SinkSet {
         if let Some(sink) = &mut self.parquet {
             sink.flush()?;
         }
+        if let Some(sink) = &mut self.features {
+            sink.flush()?;
+        }
         if let Some(sink) = &mut self.opensearch {
             sink.flush()?;
         }
@@ -149,6 +164,9 @@ impl SinkSet {
     pub fn finish(mut self) -> anyhow::Result<()> {
         self.flush()?;
         if let Some(sink) = self.parquet.take() {
+            sink.finish()?;
+        }
+        if let Some(sink) = self.features.take() {
             sink.finish()?;
         }
         Ok(())
