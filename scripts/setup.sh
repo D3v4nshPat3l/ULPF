@@ -11,7 +11,7 @@ fi
 rustup toolchain install stable --profile minimal --component rustfmt --component clippy
 cargo build --locked --release
 cargo test --workspace --locked
-cargo run --locked --quiet -- test --packs packs
+cargo run --release --locked --quiet -- test --packs packs
 
 printf '%s\n' "ULPF is ready: ./target/release/ulpf"
 printf '%s\n' "Start the console: ./target/release/ulpf serve"

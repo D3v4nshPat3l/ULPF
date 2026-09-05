@@ -15,8 +15,9 @@
 
 use std::sync::{Arc, Mutex};
 
-use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::StatusCode;
+use axum::extract::{DefaultBodyLimit, Path, Request, State};
+use axum::http::{header, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -63,10 +64,20 @@ pub struct RecentEvent {
 
 type Shared = Arc<Mutex<AppState>>;
 
-pub fn router(state: Shared) -> Router {
+/// Build the console router.
+///
+/// `expected_origin` is the `scheme://host:port` the console is reachable at,
+/// and gates the browser-safety middleware below. `None` disables that guard
+/// and exists for callers that drive handlers directly.
+pub fn router(state: Shared, expected_origin: Option<String>) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/dev", get(dev_dashboard))
+        // Liveness and readiness sit outside the guard: an orchestrator probing
+        // them is not a browser and has no Origin, and a readiness check that
+        // can be refused is not a readiness check.
+        .route("/healthz", get(healthz))
+        .route("/readyz", get(readyz))
         .route("/api/stats", get(stats))
         .route("/api/packs", get(packs))
         .route("/api/events", get(events))
@@ -86,6 +97,137 @@ pub fn router(state: Shared) -> Router {
         .route("/api/verify-proof", post(check_proof))
         .layer(DefaultBodyLimit::max(MAX_INGEST_BYTES))
         .with_state(state)
+        // Layered after `with_state`: the expected origin is captured by the
+        // closure rather than threaded through the handlers' AppState.
+        .layer(middleware::from_fn(move |request: Request, next: Next| {
+            let expected = expected_origin.clone();
+            async move { same_origin_only(expected, request, next).await }
+        }))
+}
+
+/// Refuse cross-origin and rebound requests.
+///
+/// The console has no login. Until now that meant any page the operator had
+/// open in another tab could POST to `127.0.0.1:8787/api/approve` and install a
+/// Source Pack — the browser sends the request, the server has no way to tell
+/// it apart from the operator's own click, and a Source Pack decides how every
+/// subsequent record is interpreted. That is a control surface on a security
+/// appliance, reachable from any website.
+///
+/// Two checks close it without introducing a credential to manage:
+///
+/// * **Origin.** A browser attaches `Origin` to every cross-origin request and
+///   forbids the page from forging it. If it is present and is not ours, the
+///   request did not come from the console. Absent means a non-browser client
+///   (curl, an orchestrator, our own tests), which is not the threat here.
+/// * **Host.** DNS rebinding defeats an origin check by making the attacker's
+///   own name resolve to 127.0.0.1, so the page and the console share an
+///   origin. The `Host` header still carries that name, so requiring it to be
+///   one we actually bound closes it.
+///
+/// This is a browser-safety boundary, not authentication. It stops a remote
+/// page from driving the console; it does not stop someone who can already
+/// reach the port. Binding to loopback remains the deployment control, and a
+/// reverse proxy in front remains the answer for anything wider.
+async fn same_origin_only(
+    expected_origin: Option<String>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let Some(expected) = expected_origin.as_deref() else {
+        return next.run(request).await;
+    };
+
+    // Read both headers into owned values before any await. Holding a borrow
+    // of the request across `next.run` makes the future non-Send, because the
+    // body behind it is not Sync.
+    let (origin, host) = {
+        let headers = request.headers();
+        let get = |name: header::HeaderName| {
+            headers
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_ascii_lowercase)
+        };
+        (get(header::ORIGIN), get(header::HOST))
+    };
+
+    if let Some(origin) = origin {
+        if origin != expected {
+            return refuse(
+                "this request came from another origin; the console does not accept cross-site requests",
+            );
+        }
+    }
+
+    // `expected` is scheme://host:port; the Host header is host:port.
+    let expected_host = expected.split("://").nth(1).unwrap_or(expected);
+    match host {
+        // A bare loopback host on the right port is the same machine by
+        // another name, and is what a browser sends for a hand-typed URL.
+        Some(host) if host != expected_host && !loopback_equivalent(&host, expected_host) => {
+            return refuse(
+                "unexpected Host header; the console only answers on the address it was bound to",
+            )
+        }
+        _ => {}
+    }
+
+    next.run(request).await
+}
+
+/// True when `host` names this machine on the same port as `expected`.
+fn loopback_equivalent(host: &str, expected: &str) -> bool {
+    let port = |s: &str| s.rsplit(':').next().unwrap_or_default().to_string();
+    if port(host) != port(expected) {
+        return false;
+    }
+    let name = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
+    matches!(
+        name.trim_matches(|c| c == '[' || c == ']'),
+        "localhost" | "127.0.0.1" | "::1"
+    )
+}
+
+fn refuse(message: &str) -> Response {
+    ApiError(StatusCode::FORBIDDEN, message.to_string()).into_response()
+}
+
+/// Liveness: the process is up and serving. Deliberately does no work.
+async fn healthz() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        "ok
+",
+    )
+}
+
+/// Readiness: the collector can actually do its job.
+///
+/// Distinct from liveness on purpose. A collector that is running but has no
+/// packs loaded, or cannot write its vault, will accept syslog and silently
+/// fail to preserve it — which is the one outcome this project exists to
+/// prevent. An orchestrator should take it out of rotation instead.
+async fn readyz(State(state): State<Shared>) -> Response {
+    let s = lock(&state);
+    let packs = s.pipeline.packs().len();
+    let vault_writable = s.vault_dir.exists();
+    let chain_signed = s.latest_checkpoint.is_some() || s.pipeline.chain_head().is_none();
+    let ready = packs > 0 && vault_writable;
+
+    let body = json!({
+        "ready": ready,
+        "packs_loaded": packs,
+        "vault_writable": vault_writable,
+        "chain_signed_or_empty": chain_signed,
+        "schema_version": ulpf_ocsf::SCHEMA_VERSION,
+    });
+    let code = if ready {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (code, Json(body)).into_response()
 }
 
 async fn index() -> Html<&'static str> {
@@ -1019,4 +1161,34 @@ async fn tamper(
         "before": before,
         "after": body.value,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Host check is what stops DNS rebinding, so its edge cases matter:
+    /// too strict and a hand-typed `localhost:8787` is refused, too loose and
+    /// an attacker's hostname on the right port is accepted.
+    #[test]
+    fn loopback_names_are_equivalent_only_on_the_same_port() {
+        for host in ["localhost:8787", "127.0.0.1:8787", "[::1]:8787"] {
+            assert!(
+                loopback_equivalent(host, "127.0.0.1:8787"),
+                "{host} names this machine"
+            );
+        }
+        assert!(
+            !loopback_equivalent("localhost:9999", "127.0.0.1:8787"),
+            "a different port is a different service"
+        );
+        assert!(
+            !loopback_equivalent("attacker.example.com:8787", "127.0.0.1:8787"),
+            "a rebound hostname must not pass"
+        );
+        assert!(
+            !loopback_equivalent("127.0.0.1.evil.com:8787", "127.0.0.1:8787"),
+            "a suffix attack must not pass"
+        );
+    }
 }

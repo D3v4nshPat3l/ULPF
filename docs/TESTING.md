@@ -71,7 +71,10 @@ it is not added to `packs/` automatically.
 7. Tamper with the in-memory copy and confirm fingerprint verification fails.
 8. Clear the view and confirm counters/vault state are retained.
 
-The screenshots under `docs/images` were generated from this flow, not mocked.
+The screenshots under `docs/screenshots`, which README.md embeds, were
+generated from this flow against a real corpus. They are regenerated when the
+console changes; a screenshot of a build that no longer exists is worse than
+no screenshot.
 
 ## Two gates that fixture scoring cannot provide
 

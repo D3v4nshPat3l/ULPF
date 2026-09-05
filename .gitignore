@@ -17,4 +17,4 @@ __pycache__/
 *.pyc
 
 # Documentation evidence is intentionally versioned.
-!/docs/images/*.png
+!/docs/screenshots/*.png

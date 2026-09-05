@@ -12,7 +12,17 @@ The team will acknowledge a complete report within three working days and provid
 
 ## Deployment guidance
 
-- The console has no authentication and binds to `127.0.0.1` by default. Place it behind an authenticated reverse proxy before any broader exposure.
+- The console authenticates nobody and binds to `127.0.0.1` by default. It
+  refuses cross-origin requests and requests carrying an unexpected `Host`,
+  which stops a page the operator has open in another tab from driving it
+  (CSRF) and stops a hostile name resolving to loopback (DNS rebinding). That
+  is a browser-safety boundary, not a login: anyone who can reach the port can
+  write a Source Pack, and a Source Pack decides how every subsequent record is
+  interpreted. Place it behind an authenticating reverse proxy before any
+  broader exposure.
+- `/healthz` and `/readyz` are deliberately outside that guard so an
+  orchestrator can probe them. Neither discloses event data; `/readyz` reports
+  only pack count, vault writability and schema version.
 - Treat `data/integrity/ed25519-signing.key` as a secret. It is excluded from Git; back it up through the team’s secret-management process.
 - Pin a trusted public key out of band when verifying checkpoints.
 - Do not run the UDP listener on an untrusted interface without network controls and capacity limits appropriate to the deployment.

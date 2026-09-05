@@ -31,6 +31,13 @@ COPY --from=builder /app/packs /app/packs
 EXPOSE 8787/tcp
 EXPOSE 5514/udp
 
+# Readiness, not just liveness: a collector that is up but has no packs loaded
+# will accept syslog and silently fail to normalize it. /readyz reports 503 in
+# that state so an orchestrator takes it out of rotation instead.
+#
+# Distroless has no shell and no curl, so the check runs the binary itself.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3   CMD ["/app/ulpf", "healthcheck", "--url", "http://127.0.0.1:8787/readyz"]
+
 # Distroless runs as a non-root user by default. The vault, integrity and any
 # sink directories must therefore be writable volumes owned by that user —
 # see deploy/ulpf-compose.yaml.

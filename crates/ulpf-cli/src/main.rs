@@ -247,6 +247,19 @@ enum Command {
         consistency: Option<PathBuf>,
     },
 
+    /// Probe a running collector's readiness endpoint. Exits non-zero if it
+    /// is not ready.
+    ///
+    /// Exists because the runtime image is distroless: no shell, no curl, so
+    /// the container HEALTHCHECK has nothing else to call.
+    Healthcheck {
+        #[arg(long, default_value = "http://127.0.0.1:8787/readyz")]
+        url: String,
+        /// Seconds to wait before treating the probe as failed.
+        #[arg(long, default_value_t = 5)]
+        timeout: u64,
+    },
+
     /// Serve the operator console on http://127.0.0.1:PORT.
     Serve {
         #[arg(long, default_value = "packs")]
@@ -436,6 +449,7 @@ fn main() -> anyhow::Result<()> {
             event.as_deref(),
             consistency.as_deref(),
         ),
+        Command::Healthcheck { url, timeout } => cmd_healthcheck(&url, timeout),
         Command::Serve {
             packs,
             vault,
@@ -747,6 +761,36 @@ pub struct ServeConfig {
     pub sim_target: String,
 }
 
+/// GET a readiness URL and translate it into an exit code.
+///
+/// 200 means ready, anything else means not. Deliberately dependency-free
+/// beyond the HTTP client the generator already pulls in, and deliberately
+/// silent on success so container logs stay readable.
+fn cmd_healthcheck(url: &str, timeout_secs: u64) -> anyhow::Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+
+    runtime.block_on(async {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(timeout_secs))
+            .build()?;
+        match client.get(url).send().await {
+            Ok(response) if response.status().is_success() => Ok(()),
+            Ok(response) => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                eprintln!("not ready: {status} {}", body.trim());
+                std::process::exit(1);
+            }
+            Err(e) => {
+                eprintln!("unreachable at {url}: {e}");
+                std::process::exit(1);
+            }
+        }
+    })
+}
+
 fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
     let ServeConfig {
         packs_dir,
@@ -951,7 +995,9 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
     });
 
     runtime.block_on(async {
-        let app = server::router(state.clone());
+        // The console's own origin, so the guard can tell the operator's tab
+        // apart from any other page that knows the port.
+        let app = server::router(state.clone(), Some(format!("http://{host}:{port}")));
         let addr: std::net::SocketAddr = match format!("{host}:{port}").parse() {
             Ok(addr) => addr,
             Err(e) => {

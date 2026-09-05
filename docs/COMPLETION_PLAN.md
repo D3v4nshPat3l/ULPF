@@ -104,7 +104,7 @@ source and its absence is conspicuous.
 
 ### 7. OCSF schema validation in CI
 
-Already requested by [ROADMAP.md](ROADMAP.md). The schema is vendored at
+The schema is vendored at
 `schema/ocsf` but no validators are generated from it, so a pack can emit a
 class-invalid event and nothing catches it.
 

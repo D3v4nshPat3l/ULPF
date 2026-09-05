@@ -12,7 +12,7 @@ rustup toolchain install stable --profile minimal --component rustfmt --componen
 cargo build --locked --release
 if (-not $SkipTests) {
     cargo test --workspace --locked
-    cargo run --locked --quiet -- test --packs packs
+    cargo run --release --locked --quiet -- test --packs packs
 }
 
 Write-Host "ULPF is ready: .\target\release\ulpf.exe" -ForegroundColor Green

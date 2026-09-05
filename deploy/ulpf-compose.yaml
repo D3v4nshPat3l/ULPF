@@ -2,10 +2,15 @@
 #
 #   docker compose -f deploy/ulpf-compose.yaml up -d --build
 #
-# The console is published on loopback only. It has no authentication, so
-# exposing it on 0.0.0.0 would put an unauthenticated control surface — one
-# that can write Source Packs — on the network. Put a reverse proxy in front
-# if it needs to be reachable from another host.
+# The console is published on loopback only. It authenticates nobody: it
+# refuses cross-origin and rebound requests, which stops a web page the
+# operator has open from driving it, but that is a browser-safety boundary,
+# not a login. Anyone who can reach the port can write Source Packs, and a
+# Source Pack decides how every subsequent record is interpreted.
+#
+# Exposing it on 0.0.0.0 therefore puts a control surface on the network. Put
+# an authenticating reverse proxy in front if it must be reachable from
+# another host.
 #
 # The syslog receiver is published on all interfaces, because devices have to
 # reach it. That is a receive-only UDP socket; every datagram is vaulted before

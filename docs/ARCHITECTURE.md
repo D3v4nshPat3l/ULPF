@@ -77,13 +77,14 @@ can enter the runtime library.
 
 ## Security boundaries
 
-The console binds to loopback by default. It has no authentication and must not be exposed directly to an untrusted network. The Docker Compose file publishes it only on `127.0.0.1`, drops Linux capabilities, uses a read-only root filesystem, and persists only `/app/data`.
+The console binds to loopback by default. It authenticates nobody and must not be exposed directly to an untrusted network. It does refuse cross-origin requests and requests whose `Host` is not an address it bound, which closes CSRF and DNS rebinding — a page the operator has open elsewhere cannot drive it — but that is a browser-safety boundary, not a login. `/healthz` and `/readyz` sit outside that guard so an orchestrator can probe them, and disclose no event data. The Docker Compose file publishes it only on `127.0.0.1`, drops Linux capabilities, uses a read-only root filesystem, and persists only `/app/data`.
 
 The server bounds JSON bodies to 4 MiB, accepts at most 2,000 non-empty records per request, and keeps at most 500 recent events in memory. Evicting or clearing rows advances a retained verification anchor instead of silently making the remaining window look like genesis.
 
 ## Current limitations
 
-- UDP syslog is implemented; TCP/TLS and Kafka remain roadmap work.
+- The console has no authentication. Anyone who can reach the port can write a Source Pack. An authenticating reverse proxy is required for any exposure beyond loopback.
+- UDP syslog is implemented; TCP/TLS and Kafka remain future work.
 - Parquet, OpenSearch Bulk, and Splunk HEC adapters use plain HTTP to a trusted
   local endpoint. TLS termination and destination-specific authentication are
   deployment responsibilities.

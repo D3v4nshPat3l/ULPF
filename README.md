@@ -320,6 +320,23 @@ checkpoint:
 ./target/release/ulpf verify-proof --proof proof.json --checkpoint data/integrity/console.checkpoint.json --public-key data/integrity/ed25519-signing.pub --consistency bridge.json
 ```
 
+### Check a running collector
+
+```bash
+curl -s http://127.0.0.1:8787/readyz
+```
+
+```json
+{"ready":true,"packs_loaded":18,"vault_writable":true,"chain_signed_or_empty":true,"schema_version":"1.9.0"}
+```
+
+`/healthz` answers as long as the process is serving. `/readyz` answers 503
+when the collector is up but cannot do its job — no packs loaded, or a vault it
+cannot write — because in that state it accepts syslog and silently fails to
+preserve it. The container image runs the same probe through
+`ulpf healthcheck`, which exists because the distroless runtime has no shell
+and no `curl`.
+
 ### Retrieve the original bytes of one event
 
 ```bash
@@ -571,7 +588,6 @@ traffic, let the console draft a candidate for you and edit from there —
 | [DEMO-VIDEO-SCRIPT.md](docs/DEMO-VIDEO-SCRIPT.md) | Shot list and narration for the two-minute video |
 | [ULPF-SIH-2026.pptx](docs/ULPF-SIH-2026.pptx) | The five-slide submission deck |
 | [COMPLETION_PLAN.md](docs/COMPLETION_PLAN.md) | What is left, the competitive landscape, and ideas worth building |
-| [ROADMAP.md](docs/ROADMAP.md) | Longer-range plan |
 
 ---
 
