@@ -279,6 +279,15 @@ point at it directly.
 ./target/release/ulpf verify events.ndjson --checkpoint data/integrity/default.checkpoint.json --public-key data/integrity/ed25519-signing.pub
 ```
 
+### Write the feature table
+
+```bash
+./target/release/ulpf run --packs packs --vault data/vault --integrity-dir data/integrity --input logs.txt --output events.ndjson --features data/features
+```
+
+Hive-partitioned Parquet with a fixed 24-column contract, readable by pyarrow,
+DuckDB and Spark. See [FEATURE_TABLE.md](docs/FEATURE_TABLE.md).
+
 ### Prove one event was logged
 
 ```bash
@@ -372,7 +381,7 @@ full method, and the three limits found by measuring, are in
 | e | Plug-and-play onboarding | **Done** | Declarative YAML packs, validated, fixture-tested, hot-reloaded by a filesystem watcher |
 | f | Unified visibility | **Done** | Embedded console, event inspector, cluster browser |
 | g | SIEM / data-lake integration | **Done** | NDJSON default; Parquet, OpenSearch Bulk and Splunk HEC fan-out |
-| h | AI/ML-ready analytics | **Partial** | Stable structured JSON; columnar feature pipeline not built |
+| h | AI/ML-ready analytics | **Done** | Hive-partitioned Parquet feature table with a fixed, versioned column contract |
 | i | Reduce parser development effort | **Done** | Drain clustering plus two generators, scored against real fixtures, human-approved |
 | j | Air-gapped deployment | **Done** | Zero runtime network dependency; console fully self-contained |
 
@@ -474,6 +483,10 @@ documented custody procedure for the signing key, and packaging as a service.
 
 Stated plainly, because a reviewer will find them anyway.
 
+- **The feature table carries no pack content digest.** `pack_id` records
+  which pack produced a row, but a pack edited without a version bump looks
+  identical to its predecessor, so a training set is reproducible only as far
+  as the pack files are unchanged.
 - **One collector does not reach 1B/day.** 10,000 EPS lossless is 86% of the
   target. Claiming otherwise would require the 12,000 EPS figure, which drops
   1.7% of records.
@@ -533,6 +546,7 @@ traffic, let the console draft a candidate for you and edit from there —
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Crate boundaries and data flow |
 | [DATASETS.md](docs/DATASETS.md) | Corpus provenance, coverage, named misses |
 | [THROUGHPUT.md](docs/THROUGHPUT.md) | Measured EPS, method, the limits found |
+| [FEATURE_TABLE.md](docs/FEATURE_TABLE.md) | The column contract for analytics and training |
 | [PROOFS.md](docs/PROOFS.md) | Proving one event without disclosing the log |
 | [PACK_GENERATOR.md](docs/PACK_GENERATOR.md) | Clustering, generators, scoring |
 | [SINKS.md](docs/SINKS.md) | Parquet, OpenSearch, Splunk HEC |
