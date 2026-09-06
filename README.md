@@ -223,7 +223,7 @@ cargo test --workspace --release --locked
 ```
 
 The second command runs every pack's embedded fixtures. Expect
-`18 packs · 37/37 fixtures passed · 100.0% field accuracy`.
+`35 packs · 67/67 fixtures passed · 100.0% field accuracy`.
 
 After pulling changes, run `cargo build --release --locked` again before
 demonstrating anything. `cargo test` builds its own test binaries and leaves
@@ -240,7 +240,7 @@ available, and vendoring them would silently relicense third-party data.
 python tools/fetch_datasets.py
 ```
 
-This downloads and prepares ten corpora into `../realdata` — Honeynet Project
+This downloads and prepares the corpora into `../realdata` — Honeynet Project
 Scan of the Month 30/34, the Honeynet Dragon capture, and four Loghub
 production samples. See [docs/DATASETS.md](docs/DATASETS.md) for full
 provenance.
@@ -327,7 +327,7 @@ curl -s http://127.0.0.1:8787/readyz
 ```
 
 ```json
-{"ready":true,"packs_loaded":18,"vault_writable":true,"chain_signed_or_empty":true,"schema_version":"1.9.0"}
+{"ready":true,"packs_loaded":35,"vault_writable":true,"chain_signed_or_empty":true,"schema_version":"1.9.0"}
 ```
 
 `/healthz` answers as long as the process is serving. `/readyz` answers 503
@@ -359,16 +359,17 @@ and no `curl`.
 
 ## Measured results
 
-### Coverage — 305,582 real records
+### Coverage — 838,779 real perimeter records
 
-Measured 4 September 2026 against unmodified public captures, reproducible with
-`python tools/measure_coverage.py`.
+Reproducible with `python tools/measure_coverage.py`. Every figure comes from
+unmodified public capture data; nothing here is synthesised.
 
 | Category | Source | Origin | Records | Coverage |
 |---|---|---|---:|---:|
 | Firewall | `iptables.log` | Honeynet SotM34 | 179,752 | 100.0000% |
 | IDS | `snort.log` | Honeynet SotM34 | 69,039 | 99.9986% |
 | IDS | `dragon-nids.log` | Honeynet Dragon | 42,899 | 100.0000% |
+| Proxy | `squid-access.log` | Honeynet | 533,197 | 99.9771% |
 | Web | `apache-access.log` | Honeynet SotM34 | 3,554 | 99.9719% |
 | Web | `Apache_2k.log` | Loghub | 2,000 | 100.0000% |
 | Auth | `OpenSSH_2k.log` | Loghub | 2,000 | 100.0000% |
@@ -376,15 +377,21 @@ Measured 4 September 2026 against unmodified public captures, reproducible with
 | Host | `Linux_2k.log` | Loghub | 2,000 | 96.4500% |
 | Mail | `sendmail.log` | Honeynet SotM34 | 1,172 | 98.7201% |
 | Proxy | `Proxifier_2k.log` | Loghub | 2,000 | 81.1000% |
-| **Total** | | | **305,582** | **99.8256%** |
+| **Total** | | | **838,779** | **99.9219%** |
+
+A Blue Coat ProxySG capture of 8,130,590 records is also fetched; a
+398,380-record prefix scores 99.0148%. It is excluded from the total above
+until the full-file run is recorded, so that no number in this table is an
+extrapolation.
+
+Twelve further corpora outside the problem statement's perimeter scope — HDFS,
+Hadoop, Spark, ZooKeeper, Blue Gene/L, Thunderbird, HPC, OpenStack, Windows,
+macOS, Android, HealthApp — are measured separately and reported in
+[docs/DATASETS.md](docs/DATASETS.md). Combined across all 23 corpora:
+**862,779 records at 99.7175%**.
 
 The iptables figure is genuine cross-validation: that pack was written against
 a *different* 307,524-record capture (SotM30) and never tuned on SotM34.
-
-The misses are named rather than rounded away in
-[docs/DATASETS.md](docs/DATASETS.md) — mostly non-connection Proxifier lines
-and a long tail of daemon messages with no pack, plus two genuinely corrupt
-source records.
 
 ### Throughput
 
@@ -436,7 +443,7 @@ crates/
                    RFC 6962 Merkle log with inclusion and consistency proofs
   ulpf-generator   Drain clustering, deterministic generator, LLM client, scorer
   ulpf-cli         binary: run, serve, listen, replay, draft, test, verify, raw
-packs/             18 Source Packs
+packs/             35 Source Packs
 schema/ocsf/       vendored OCSF 1.9.0
 tools/             corpus fetch and coverage measurement scripts
 deploy/            container compose files: the collector, and an OpenSearch receiver
@@ -447,7 +454,7 @@ docs/              architecture, datasets, throughput, deployment, testing, road
 
 ## What is done
 
-**Pipeline.** Vault-first ingestion, ten decoders, 18 packs, OCSF 1.9
+**Pipeline.** Vault-first ingestion, ten decoders, 35 packs, OCSF 1.9
 normalization, NDJSON output, Parquet / OpenSearch / Splunk sinks, pack hot
 reload.
 
@@ -464,7 +471,7 @@ review-and-approve gate; provenance recorded on generated packs.
 vault, assistant, deep-linkable views, and a simulator that drives ten real
 corpora.
 
-**Evidence.** 305,582 real records at 99.8256% coverage; throughput measured
+**Evidence.** 838,779 real perimeter records at 99.9219% coverage; throughput measured
 and published with its losses; scripts to reproduce both.
 
 ---
@@ -525,9 +532,13 @@ Stated plainly, because a reviewer will find them anyway.
 - **Coverage is 99.82%, not 100%.** The remainder is enumerated in
   `docs/DATASETS.md`. Unparsed records are still vaulted, fingerprinted and
   emitted.
-- **Nine of the 18 packs have no real-corpus evidence.** They pass fixtures
-  written from vendor documentation. Real data has repeatedly broken packs that
-  passed documentation-derived tests, so treat those nine as unproven.
+- **Ten of the 35 packs have no real-corpus evidence.** Cisco ASA, FortiGate,
+  PAN-OS, Check Point, Juniper, Suricata, ModSecurity, generic CEF, Zeek,
+  nginx and pfSense pass fixtures written from vendor documentation. Treat them
+  as unproven: real data has repeatedly broken packs that passed
+  documentation-derived tests — most recently Blue Coat, whose manual-derived
+  field order matched none of 8.1 million real records until the corpus's own
+  `#Fields:` header corrected it.
 - **The Assistant's answer quality is limited by a 1.5B model.** It reads live
   context correctly but reasons loosely. The screenshot above is a real,
   unedited exchange, including its hedging.
@@ -558,9 +569,7 @@ cargo test --workspace --release --locked
 ```
 
 CI runs all four, every step with `--offline` and `--locked`, which proves the
-tree builds and tests with no network access at all. See
-[docs/TESTING.md](docs/TESTING.md) and
-[docs/DEVELOPER_NOTES.md](docs/DEVELOPER_NOTES.md).
+tree builds and tests with no network access at all. See [docs/TESTING.md](docs/TESTING.md).
 
 ### Writing a Source Pack
 
@@ -580,6 +589,7 @@ traffic, let the console draft a candidate for you and edit from there —
 | [THROUGHPUT.md](docs/THROUGHPUT.md) | Measured EPS, method, the limits found |
 | [FEATURE_TABLE.md](docs/FEATURE_TABLE.md) | The column contract for analytics and training |
 | [PROOFS.md](docs/PROOFS.md) | Proving one event without disclosing the log |
+| [SCALING.md](docs/SCALING.md) | Sharding past one collector, and verifying a multi-chain stream |
 | [PACK_GENERATOR.md](docs/PACK_GENERATOR.md) | Clustering, generators, scoring |
 | [SINKS.md](docs/SINKS.md) | Parquet, OpenSearch, Splunk HEC |
 | [TESTING.md](docs/TESTING.md) | Test strategy |

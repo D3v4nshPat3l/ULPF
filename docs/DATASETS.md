@@ -22,33 +22,86 @@ analysis research. <https://github.com/logpai/loghub>
 
 ## Corpus and measured coverage
 
-Measured 4 September 2026 with 18 source packs, reproducible with
+Measured with 35 source packs, reproducible with
 `python tools/measure_coverage.py`.
 
-> An earlier revision of this table recorded the Dragon corpus at 29,925
-> records against a total of 292,608. That count predated a re-fetch and
-> understated the corpus: `tools/fetch_datasets.py` produces 42,899 Dragon
-> records, all of which parse. The corrected total is larger and the
-> weighted coverage marginally higher.
+Two tables, deliberately. The first answers the problem statement's Current
+Scope sentence and is the figure quoted in the README; the second answers
+"does the framework hold outside the perimeter", which the word *universal*
+in its name invites a reviewer to ask. Blending them would let a
+non-perimeter source move the headline number.
+
+### Perimeter and edge sources — the headline figure
 
 | Category | Source file | Origin | Records | Coverage |
 |---|---|---|---:|---:|
-| Firewall | `SotM34/iptables/iptablesyslog` | Honeynet SotM34 | 179,752 | 100.0000% |
-| IDS | `SotM34/snort/snortsyslog` | Honeynet SotM34 | 69,039 | 99.9986% |
-| IDS | `dragon-nids.log` | Honeynet Dragon capture | 42,899 | 100.0000% |
-| Web | `SotM34/http/access_log*` | Honeynet SotM34 | 3,554 | 99.9719% |
-| Web | `Apache_2k.log` | Loghub Apache | 2,000 | 100.0000% |
-| Auth | `OpenSSH_2k.log` | Loghub OpenSSH | 2,000 | 100.0000% |
-| Host | `SotM34/syslog/messages*` | Honeynet SotM34 | 1,166 | 94.2539% |
-| Host | `Linux_2k.log` | Loghub Linux | 2,000 | 96.4500% |
-| Mail | `SotM34/syslog/maillog*` | Honeynet SotM34 | 1,172 | 98.7201% |
-| Proxy | `Proxifier_2k.log` | Loghub Proxifier | 2,000 | 81.1000% |
-| **Total** | | | **305,582** | **99.8256%** |
+| Firewall | `iptables.log` | Honeynet SotM34 | 179,752 | 100.0000% |
+| IDS | `snort.log` | Honeynet SotM34 | 69,039 | 99.9986% |
+| IDS | `dragon-nids.log` | Honeynet Dragon | 42,899 | 100.0000% |
+| Proxy | `squid-access.log` | Honeynet | 533,197 | 99.9771% |
+| Proxy | `bluecoat-proxy.log` | Honeynet | 8,130,590 | see note |
+| Web | `apache-access.log` | Honeynet SotM34 | 3,554 | 99.9719% |
+| Web | `Apache_2k.log` | Loghub | 2,000 | 100.0000% |
+| Auth | `OpenSSH_2k.log` | Loghub | 2,000 | 100.0000% |
+| Host | `linux-messages.log` | Honeynet SotM34 | 1,166 | 94.2539% |
+| Host | `Linux_2k.log` | Loghub | 2,000 | 96.4500% |
+| Mail | `sendmail.log` | Honeynet SotM34 | 1,172 | 98.7201% |
+| Proxy | `Proxifier_2k.log` | Loghub | 2,000 | 81.1000% |
+| **Total (excl. Blue Coat)** | | | **838,779** | **99.9219%** |
+
+**Blue Coat note.** The ProxySG capture is 8,130,590 records and takes several
+minutes to measure. A 398,380-record prefix scores **99.0148%**. The full-file
+figure is produced by `python tools/measure_coverage.py` on a machine with the
+`standard` tier fetched; it is not quoted above until that run is recorded, so
+that no number in this table is an extrapolation.
+
+### Sources outside the Current Scope sentence
+
+Measured on the Loghub 2,000-line excerpts. Full corpora — up to 211 million
+lines — are fetched with `--tier large` or `--tier xl`.
+
+| Category | Source | Records | Coverage |
+|---|---|---:|---:|
+| Big data | HDFS | 2,000 | 86.8500% |
+| Big data | Hadoop YARN | 2,000 | 99.8000% |
+| Big data | Spark | 2,000 | 98.0500% |
+| Big data | ZooKeeper | 2,000 | 77.9500% |
+| HPC | Blue Gene/L RAS | 2,000 | 96.3500% |
+| HPC | Thunderbird | 2,000 | 97.8000% |
+| HPC | HPC node state | 2,000 | 96.9000% |
+| Cloud | OpenStack Nova | 2,000 | 87.4500% |
+| Host | Windows CBS | 2,000 | 98.9500% |
+| Host | macOS system | 2,000 | 77.1500% |
+| Mobile | Android logcat | 2,000 | 99.8500% |
+| Mobile | HealthApp | 2,000 | 93.8000% |
+| **Combined, all sources** | | **862,779** | **99.7175%** |
 
 A separate 307,524-record iptables capture (`SotM30-anton.log`) is used for
 pack development. The SotM34 iptables figure above is therefore genuine
 cross-validation: that pack was written against SotM30 and never tuned on
 SotM34.
+
+### What real data changed
+
+Every pack in the second table was written against lines printed from the
+corpus itself, and each was measured immediately afterwards. The gap between
+the two numbers is the reason this document exists:
+
+| Pack | Own fixtures | First real-corpus run | After correction |
+|---|---:|---:|---:|
+| HPC node state | 100% | 5.25% | 96.90% |
+| Spark | 100% | 28.65% | 98.05% |
+| Android logcat | 100% | 36.95% | 99.85% |
+| Thunderbird | 100% | 35.80% | 97.80% |
+| Squid (rewritten) | 100% | 57.23% | 99.98% |
+| Blue Coat (rewritten) | 100% | 0% | 99.01% |
+
+In every case the pack passed its own fixtures completely and then failed on
+real traffic, because a fixture proves only that a pack parses a line its
+author chose. The Blue Coat pack is the clearest: its field order came from
+the vendor manual, and the corpus's own `#Fields:` header showed the manual
+was wrong in two places, so the documentation-derived pattern matched none of
+the 8.1 million records.
 
 ## What the remaining misses are
 

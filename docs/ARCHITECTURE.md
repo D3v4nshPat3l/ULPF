@@ -1,92 +1,119 @@
 # ULPF architecture
 
-## Scope
+Universal Log Pre-processing Framework · SIH 2026 · PS 26156 · NTRO
 
-ULPF is the normalization layer between perimeter-device telemetry and security analytics systems. It receives opaque records, preserves them before interpretation, extracts source-specific fields, emits OCSF 1.9.0 JSON, and binds every normalized event to the original bytes through an integrity chain.
-
-It is deliberately not a SIEM. Correlation, alert triage, visualization, and machine learning consume ULPF output downstream.
+ULPF is the normalization layer between perimeter-device telemetry and security
+analytics. It receives opaque records, preserves them before interpreting them,
+extracts source-specific fields, emits OCSF 1.9.0, and binds every normalized
+event to its original bytes through a verifiable integrity chain. It is not a
+SIEM: correlation, alerting and detection consume ULPF output downstream.
 
 ## Processing path
 
 ```text
-receiver -> raw vault -> source identification -> decoder chain -> OCSF mapping -> attestation -> fan-out sinks
-                |                |                                      |
-                |                +-> no match/failure -> dead letter ---+
-                +-> constant-time retrieval by raw locator
+receiver ─▶ raw vault ─▶ identify ─▶ decoder chain ─▶ OCSF mapping ─▶ attest ─▶ sinks
+              │            │                              │                      │
+              │            └─ no pack ─▶ salvage ─▶ dead letter ─▶ cluster ─▶ draft
+              └─ constant-time retrieval by locator                              │
+                                                          human approves ─▶ hot reload
 ```
 
-The ordering is a correctness property. The vault append precedes parsing, and a batch is flushed before any normalized row containing its locator is published. An unknown or malformed event is still vaulted, hashed, attested, emitted as a minimal OCSF event, and copied to the dead-letter stream.
+**The order is a correctness property.** The vault append precedes parsing, and
+a block is flushed before any event carrying its locator is emitted. A record
+that is unknown, malformed, or crashes a decoder is still stored, fingerprinted,
+chained and emitted as valid OCSF. "Unparsed" is a routing decision, never data
+loss.
 
 ## Components
 
 | Crate | Responsibility |
 |---|---|
 | `ulpf-core` | Receipt envelope, transport, borrowed field map, raw locator, disposition |
-| `ulpf-decode` | Ten decoders: RFC 3164/5424 syslog, CEF, LEEF, JSON, XML, CSV, key-value, regex |
-| `ulpf-pack` | Declarative Source Pack schema, validation, compilation, fixtures, scoring |
-| `ulpf-ocsf` | OCSF event construction, RFC 8785 canonicalization, hash chain, checkpoints, RFC 6962 Merkle log |
-| `ulpf-vault` | Append-only block-compressed byte archive and indexed retrieval |
-| `ulpf-cli` | File/stdin/UDP ingestion, NDJSON and data-lake/SIEM sinks, pack drafting, verification, embedded operator console |
+| `ulpf-vault` | Append-only zstd-block archive, O(1) retrieval, crash recovery |
+| `ulpf-decode` | Ten decoders (syslog RFC 3164/5424, CEF, LEEF, JSON, XML, CSV, key-value, regex) plus salvage extraction |
+| `ulpf-pack` | Source Pack schema, validation, compilation, fixtures, scoring |
+| `ulpf-ocsf` | OCSF event model, RFC 8785 canonicalization, hash chain, checkpoints, RFC 6962 Merkle log |
+| `ulpf-generator` | Drain clustering, deterministic generator, local-model client, scorer |
+| `ulpf-cli` | Ingestion, sinks, verification, proofs, embedded console |
 
-## Raw vault
+## Raw vault — requirement (a)
 
-Each record is stored as a length-prefixed byte sequence. Records are grouped into zstd-compressed blocks and rotated into segments. Each block includes uncompressed coordinates, compressed and uncompressed lengths, and CRC-32. The reader verifies the authoritative block header, decompressed length, and CRC before returning a record.
+Records are length-prefixed, batched into ~1 MiB zstd blocks, rotated into
+segments. Each block header carries its coordinates, lengths and a CRC-32; the
+reader re-validates it before trusting the segment index, so a corrupt index
+cannot return wrong bytes. The index is an optimisation, not the source of
+truth — a segment whose writer was killed is rebuilt by scanning block headers,
+so a crash costs the tail block, not the archive. `RawRef(segment, offset, len)`
+serialises as `ulpf:raw:<seg>:<off>:<len>` and travels on every event at
+`unmapped.ulpf_raw_locator`.
 
-`RawRef(segment, offset, len)` serializes as `ulpf:raw:<segment>:<offset>:<length>` and is placed at `unmapped.ulpf_raw_locator`. The receipt envelope is retained at `unmapped.ulpf_receipt`. `metadata.original_event_uid` remains available for a source-native identifier.
+## Source Packs — requirements (b), (c), (e)
 
-## Integrity model
+A pack is one YAML file: identity detectors, an ordered decoder chain, OCSF
+field mappings, enum translations, provenance, and golden fixtures. Packs
+compile once at load; the hot path performs no network or model call per event.
+A filesystem watcher recompiles the library on change, so onboarding a device is
+dropping in a file — no restart, no rebuild. A pack that fails to compile is
+logged and skipped while the previous library stays in service.
 
-Each event carries the OCSF `record_integrity` profile. Its fingerprint covers canonical event content plus the previous-event link, excluding only its own fingerprint/signature fields. ULPF uses SHA-256 by default and supports BLAKE3 with the OCSF `Other` algorithm identifier.
+Validation rejects unknown fields, empty detectors, missing base mappings,
+invalid enum references and framework-owned paths. Fixtures run in CI, and
+`tools/audit_pack_enums.py` checks every `activity_id` against the vendored
+schema — a pack can pass its own fixtures and still map a vendor's verb to the
+wrong OCSF enum, which fixtures cannot catch.
 
-The Ed25519 private key is generated once inside the configured integrity directory. The latest signed checkpoint and public key are persisted separately. A process restart verifies the stored checkpoint and resumes from its exact event UID, type UID, sequence, and fingerprint. Independent verification can require both the checkpoint and an out-of-band public key.
+## Unknown sources — requirements (i), and the Current Scope sentence
 
-This provides tamper evidence plus a trusted anchor. A hash chain alone cannot authenticate a completely replaced stream.
+Two mechanisms, both deterministic.
 
-Alongside the chain, every checkpoint signs a Merkle tree head over the event fingerprints, built to RFC 6962 with its `0x00`/`0x01` leaf and node domain separation. The chain gives cheap sequential tamper-evidence at write time; the tree gives cheap selective proof at read time. Neither replaces the other. Leaf hashes are persisted next to the checkpoint and reloaded on restart only up to the size the last signed checkpoint commits to, so the tree never extends past what a key has attested to.
+**Salvage extraction** runs on any record no pack claims. It recovers addresses,
+ports, MAC addresses, URLs, email addresses and hostnames from arbitrary text
+into OCSF `observables`, so a device nobody has onboarded is still searchable by
+the indicators an investigation pivots on. It deliberately populates only
+`observables`: it reports that an address is present, never that it is the
+source, because a wrong `src_endpoint.ip` is worse than an absent one.
 
-The tree is what makes a single record shareable. Proving one event by replaying the chain means disclosing every other event; an inclusion proof does it in `ceil(log2 n)` hashes, verified against the signed root by a party that holds no other part of the log. Because a proof reproduces only the root it was issued under, consistency proofs (RFC 6962 section 2.1.3) bridge an older tree size to the current signed root, and fail by construction if the log was rewritten rather than merely extended.
+**Assisted onboarding** clusters dead letters into templates ranked by volume,
+then drafts a candidate pack — deterministically, or from a local model asked
+only for recognition while Rust assembles the structure. Candidates are scored
+against fixtures built from real samples, carry provenance, load below every
+reviewed pack, and activate only on human approval.
 
-## Source Packs
+## Integrity — requirement (d), and the Blockchain theme
 
-A Source Pack is YAML with identity detectors, a decoder chain, OCSF mappings, enum translations, provenance, and golden fixtures. Packs are compiled once at load. A filesystem watcher recompiles the library
-when a file in the packs directory changes, so a new source is onboarded by
-dropping in a YAML file — no restart. A pack that fails to compile is logged
-and skipped; the previously loaded library stays in service. Unknown fields, empty detectors, missing base mappings, invalid enum references, unsafe framework-owned paths, invalid ranges, and malformed mapping objects fail during load.
+Every event carries the OCSF `record_integrity` profile. Its fingerprint covers
+the canonical (RFC 8785) event including its predecessor link and excluding only
+its own fingerprint, so altering event *N* invalidates every event after it.
+Ed25519 checkpoints sign the chain head periodically rather than per event —
+OCSF has nowhere to carry per-event signature bytes, and signing each event
+would cost more than the entire throughput budget.
 
-The hot path is deterministic: no network or model call executes per event. The
-offline `ulpf draft` assistant clusters dead letters and drafts YAML candidates;
-strict compilation, fixtures, and human approval remain mandatory before a pack
-can enter the runtime library.
+Each checkpoint also signs a Merkle tree head over the event fingerprints, built
+to RFC 6962 with `0x00`/`0x01` domain separation. The chain gives sequential
+tamper-evidence at write time; the tree gives selective proof at read time. An
+inclusion proof shows one record was logged in `⌈log₂ n⌉` hashes, verified by a
+party holding no other part of the log — which is what makes an extract from a
+sensitive log shareable. Consistency proofs bridge an older tree size to the
+current signed root, and fail if the log was rewritten rather than extended.
 
-## Runtime interfaces
+## Outputs and deployment
 
-- `ulpf run`: file or stdin to NDJSON, raw vault, checkpoint, optional dead-letter output, and bounded Parquet/OpenSearch/Splunk fan-out.
-- `ulpf draft`: dead-letter clustering and fixture-tested candidate Source Packs.
-- `ulpf listen`: UDP syslog receiver on an operator-selected socket.
-- `ulpf replay`: replay a capture over UDP at a fixed rate, for load testing.
-- `ulpf decoders`: list the built-in decoders a pack may name.
-- `ulpf serve`: local REST API, operator console and traffic simulator, with no
-  CDN or external runtime dependency. Binds a UDP syslog receiver on
-  `--syslog-bind`, which is configurable so two collectors can share a host.
-- `ulpf raw`: exact byte retrieval by locator.
-- `ulpf verify`: event-chain verification with optional checkpoint and trusted public key.
-- `ulpf prove`: inclusion proof for one event against the chain's signed Merkle root.
-- `ulpf consistency`: proof that an earlier tree size is an unmodified prefix of the current one.
-- `ulpf verify-proof`: checks a proof against a checkpoint and a trusted key, reading no other part of the log.
-- `ulpf test`: Source Pack fixture quality gate.
+NDJSON by default; Parquet, a fixed-contract feature table, OpenSearch Bulk and
+Splunk HEC as fan-out (g, h). The console and its assets are compiled into the
+binary, so there is no runtime network dependency of any kind — requirement (j),
+proved in CI by running every build and test step `--offline`. Requirement (k)
+is a two-stage build onto distroless, read-only root, all capabilities dropped.
 
-## Security boundaries
+## Limits
 
-The console binds to loopback by default. It authenticates nobody and must not be exposed directly to an untrusted network. It does refuse cross-origin requests and requests whose `Host` is not an address it bound, which closes CSRF and DNS rebinding — a page the operator has open elsewhere cannot drive it — but that is a browser-safety boundary, not a login. `/healthz` and `/readyz` sit outside that guard so an orchestrator can probe them, and disclose no event data. The Docker Compose file publishes it only on `127.0.0.1`, drops Linux capabilities, uses a read-only root filesystem, and persists only `/app/data`.
-
-The server bounds JSON bodies to 4 MiB, accepts at most 2,000 non-empty records per request, and keeps at most 500 recent events in memory. Evicting or clearing rows advances a retained verification anchor instead of silently making the remaining window look like genesis.
-
-## Current limitations
-
-- The console has no authentication. Anyone who can reach the port can write a Source Pack. An authenticating reverse proxy is required for any exposure beyond loopback.
-- UDP syslog is implemented; TCP/TLS and Kafka remain future work.
-- Parquet, OpenSearch Bulk, and Splunk HEC adapters use plain HTTP to a trusted
-  local endpoint. TLS termination and destination-specific authentication are
-  deployment responsibilities.
-- The event model enforces OCSF base fields and pack guardrails but is not yet validated against a generated full-class JSON Schema in CI.
-- The console uses a synchronous critical section for the single-writer pipeline. This preserves chain order but requires sharded collectors for horizontal throughput.
+- **One collector sustains 10,000 EPS lossless.** Reaching billions/day is a
+  sharded deployment: chains are per-collector and verify independently.
+- **The console has no authentication.** It refuses cross-origin and rebound
+  requests, which is browser safety, not a login. Anyone who reaches the port
+  can write a Source Pack. Use an authenticating proxy beyond loopback.
+- **UDP syslog only.** TCP/TLS (RFC 5425) is future work; the receive buffer is
+  raised at bind, but UDP has no backpressure.
+- **Sinks use plain HTTP** to a trusted local endpoint; TLS termination is a
+  deployment responsibility.
+- **Decoders read text.** Binary telemetry (NetFlow/IPFIX, EVTX) needs a second
+  decoder contract taking `&[u8]`, not another pack.

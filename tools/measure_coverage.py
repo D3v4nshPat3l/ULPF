@@ -20,7 +20,12 @@ import sys
 import tempfile
 
 # (category, source file, label used in the report)
-CORPORA = [
+#
+# PERIMETER is the set the headline coverage figure is measured on, and it is
+# the set the problem statement's Current Scope sentence describes. It is
+# reported on its own so that adding a non-perimeter source can never quietly
+# move the number that answers the statement.
+PERIMETER = [
     ("firewall", "iptables.log", "iptables (Honeynet SotM34)"),
     ("IDS", "snort.log", "Snort (Honeynet SotM34)"),
     ("IDS", "dragon-nids.log", "Enterasys Dragon (Honeynet)"),
@@ -31,7 +36,33 @@ CORPORA = [
     ("host", "Linux_2k.log", "Linux (Loghub)"),
     ("mail", "sendmail.log", "Sendmail MTA (Honeynet)"),
     ("proxy", "Proxifier_2k.log", "Proxifier (Loghub)"),
+    ("proxy", "squid-access.log", "Squid proxy (Honeynet)"),
+    ("proxy", "bluecoat-proxy.log", "Blue Coat ProxySG (Honeynet)"),
 ]
+
+# Sources outside the Current Scope sentence, kept because "universal" is in
+# the framework's name and a reviewer is entitled to ask whether it holds
+# outside the perimeter. Measured and reported separately, never blended into
+# the headline figure.
+UNIVERSAL = [
+    ("bigdata", "HDFS_2k.log", "HDFS (Loghub)"),
+    ("hpc", "BGL_2k.log", "Blue Gene/L RAS (Loghub)"),
+    ("hpc", "Thunderbird_2k.log", "Thunderbird (Loghub)"),
+    ("hpc", "HPC_2k.log", "HPC node state (Loghub)"),
+    ("bigdata", "Hadoop_2k.log", "Hadoop YARN (Loghub)"),
+    ("bigdata", "Spark_2k.log", "Spark (Loghub)"),
+    ("bigdata", "Zookeeper_2k.log", "ZooKeeper (Loghub)"),
+    ("cloud", "OpenStack_2k.log", "OpenStack Nova (Loghub)"),
+    ("host", "Windows_2k.log", "Windows CBS (Loghub)"),
+    ("host", "Mac_2k.log", "macOS system (Loghub)"),
+    ("mobile", "Android_2k.log", "Android logcat (Loghub)"),
+    ("mobile", "HealthApp_2k.log", "HealthApp (Loghub)"),
+]
+
+CORPORA = PERIMETER + UNIVERSAL
+
+# Files whose label belongs to the headline figure.
+PERIMETER_FILES = {source for _, source, _ in PERIMETER}
 
 RECEIVED = re.compile(r"received\s+(\d+)")
 PARSED = re.compile(r"parsed\s+(\d+)")
@@ -125,6 +156,8 @@ def main() -> None:
 
     total_events = 0
     total_parsed = 0
+    perimeter_events = 0
+    perimeter_parsed = 0
     missing = []
     measured = {}
 
@@ -139,14 +172,28 @@ def main() -> None:
             continue
         total_events += events
         total_parsed += parsed
+        if filename in PERIMETER_FILES:
+            perimeter_events += events
+            perimeter_parsed += parsed
         pct = 100.0 * parsed / events
         measured[filename] = pct
         print(f"{category:<10} {label:<32} {events:>9,} {parsed:>9,} {pct:>9.4f}%")
 
     print("-" * 74)
+    # Two totals, deliberately. The headline figure answers the Current Scope
+    # sentence and must not move when a non-perimeter source is added; the
+    # combined figure answers "does the framework hold outside the perimeter".
+    if perimeter_events:
+        pct = 100.0 * perimeter_parsed / perimeter_events
+        print(
+            f"{'PERIMETER (the headline figure)':<43} "
+            f"{perimeter_events:>9,} {perimeter_parsed:>9,} {pct:>9.4f}%"
+        )
     if total_events:
         pct = 100.0 * total_parsed / total_events
-        print(f"{'TOTAL':<43} {total_events:>9,} {total_parsed:>9,} {pct:>9.4f}%")
+        print(
+            f"{'ALL SOURCES':<43} {total_events:>9,} {total_parsed:>9,} {pct:>9.4f}%"
+        )
 
     if missing:
         print(f"\nnot measured (absent): {', '.join(missing)}")

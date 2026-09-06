@@ -5,10 +5,23 @@ Nothing here is generated. Every file comes from a public research dataset and
 is used byte-for-byte as published, so the figures in docs/DATASETS.md can be
 reproduced independently.
 
-    python tools/fetch_datasets.py            # into ../realdata
-    python tools/fetch_datasets.py --dir DIR
+    python tools/fetch_datasets.py                     # standard tier
+    python tools/fetch_datasets.py --tier large        # + full Loghub corpora
+    python tools/fetch_datasets.py --tier xl --dir D   # + the 30 GB corpora
 
-Roughly 150 MB on disk once prepared.
+Four tiers, because the corpora span three orders of magnitude and a laptop
+should not be asked for 60 GB to reproduce a coverage table:
+
+    sample    ~15 MB   the 2k excerpts only; enough to run every pack
+    standard  ~200 MB  + Honeynet captures and the Squid/BlueCoat proxy logs.
+                       This is the tier the published coverage table is
+                       measured on.
+    large     ~1.2 GB  + the full Loghub corpora that fit on a laptop
+    xl        ~62 GB   + Thunderbird (211M lines), Windows (114M), HDFS_v2
+                       (71M), Spark (33M). Sustained-rate testing only.
+
+Nothing here is generated. Every file comes from a public research dataset and
+is used byte-for-byte as published.
 """
 
 import argparse
@@ -28,7 +41,38 @@ LOGHUB = "https://raw.githubusercontent.com/logpai/loghub/master"
 # Android, HDFS, Spark and Zookeeper were fetched and offered in the
 # simulator with no pack behind them, so switching one on dropped coverage
 # live; they are also outside the problem statement's perimeter-device scope.
-LOGHUB_SAMPLES = ["Linux", "OpenSSH", "Apache", "Proxifier"]
+LOGHUB_SAMPLES = [
+    # Perimeter and edge sources, which the coverage table is measured on.
+    "Linux", "OpenSSH", "Apache", "Proxifier",
+    # Sources demonstrating that the framework is not perimeter-only. Each has
+    # a Source Pack, so switching one on in the simulator no longer drops
+    # coverage the way an unbacked corpus did.
+    "HDFS", "BGL", "Thunderbird", "Zookeeper", "OpenStack", "Windows",
+    "Hadoop", "Spark", "Mac", "HPC", "HealthApp", "Android",
+]
+
+ZENODO = "https://zenodo.org/records/8196385/files"
+
+# name -> (archive file, approximate size, line count). Sizes are the published
+# figures and are printed before a fetch so nobody is surprised by 30 GB.
+LOGHUB_FULL = {
+    "large": [
+        ("BGL.zip", "709 MB", "4,747,963"),
+        ("Android_v1.zip", "183 MB", "1,555,005"),
+        ("OpenStack.tar.gz", "59 MB", "207,820"),
+        ("Hadoop.zip", "49 MB", "394,308"),
+        ("HPC.zip", "32 MB", "433,489"),
+        ("HealthApp.tar.gz", "22 MB", "253,395"),
+        ("Mac.tar.gz", "16 MB", "117,283"),
+        ("Zookeeper.tar.gz", "10 MB", "74,380"),
+    ],
+    "xl": [
+        ("Thunderbird.tar.gz", "29.6 GB", "211,212,192"),
+        ("Windows.tar.gz", "26.1 GB", "114,608,388"),
+        ("HDFS_v2.zip", "16.1 GB", "71,118,073"),
+        ("Spark.tar.gz", "2.8 GB", "33,236,604"),
+    ],
+}
 
 
 def fetch(url: str) -> bytes:
@@ -99,6 +143,110 @@ def honeynet_dragon(target: pathlib.Path) -> None:
     write(out, b"".join(lines))
 
 
+def honeynet_proxy(target: pathlib.Path) -> None:
+    """Squid proxy logs, and a Blue Coat ProxySG capture.
+
+    Both come from the same Honeynet mirror the other captures do. They matter
+    because `squid-proxy-access` and `bluecoat-proxysg` were previously scored
+    only against fixtures written from vendor documentation, and real proxy
+    traffic is the evidence those packs were missing.
+    """
+    print("Honeynet proxy captures")
+    out = target / "squid-access.log"
+    if out.exists():
+        print("  squid-access.log already present")
+    else:
+        raw = fetch(f"{HONEYNET}/hnet-hon-var-log-02282006.tgz")
+        collected: list[bytes] = []
+        with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as archive:
+            for member in archive.getmembers():
+                if not member.isfile():
+                    continue
+                if "squid" not in member.name or "access" not in member.name:
+                    continue
+                handle = archive.extractfile(member)
+                if handle is None:
+                    continue
+                data = handle.read()
+                # The archive holds `access_log` alongside its rotated
+                # `access_log.N.gz` siblings. Concatenating those raw put
+                # compressed bytes into the corpus: 23,000 of 59,000 "records"
+                # were gzip framing, and the pack was scored against them.
+                if member.name.endswith(".gz"):
+                    try:
+                        data = gzip.decompress(data)
+                    except OSError:
+                        continue
+                collected.append(data)
+        if collected:
+            write(out, b"".join(collected))
+        else:
+            print("    squid access_log not found in the archive, skipped")
+
+    out = target / "bluecoat-proxy.log"
+    if out.exists():
+        print("  bluecoat-proxy.log already present")
+        return
+    try:
+        raw = fetch(f"{HONEYNET}/bluecoat_proxy_big.zip")
+    except Exception as error:  # noqa: BLE001
+        print(f"    bluecoat fetch failed ({error}), skipped")
+        return
+    import zipfile
+
+    collected = []
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        for name in archive.namelist():
+            if name.endswith("/"):
+                continue
+            collected.append(archive.read(name))
+    if collected:
+        # W3C `#Software`/`#Version`/`#Fields` directives are file structure,
+        # not events. The archive concatenates many rotated logs, so leaving
+        # them in counted 1,620 headers as unparsed records. Same reasoning as
+        # the Dragon capture's [MARK] separators.
+        body = b"".join(collected)
+        lines = [l for l in body.splitlines(keepends=True) if not l.startswith(b"#")]
+        write(out, b"".join(lines))
+
+
+def loghub_full(target: pathlib.Path, tiers: list[str]) -> None:
+    """Fetch the complete Loghub corpora for the requested tiers."""
+    import zipfile
+
+    for tier in tiers:
+        entries = LOGHUB_FULL.get(tier, [])
+        if not entries:
+            continue
+        total = ", ".join(f"{n} ({s})" for n, s, _ in entries)
+        print(f"Loghub full corpora [{tier}]: {total}")
+        for archive_name, size, lines in entries:
+            stem = archive_name.split(".")[0]
+            marker = target / f"{stem}.full.log"
+            if marker.exists():
+                print(f"  {marker.name} already present")
+                continue
+            print(f"  {archive_name}  {size}  {lines} lines")
+            raw = fetch(f"{ZENODO}/{archive_name}?download=1")
+            collected: list[bytes] = []
+            if archive_name.endswith(".zip"):
+                with zipfile.ZipFile(io.BytesIO(raw)) as handle:
+                    for name in handle.namelist():
+                        if name.endswith(".log") or name.endswith(".txt"):
+                            collected.append(handle.read(name))
+            else:
+                mode = "r:gz" if archive_name.endswith(".tar.gz") else "r:*"
+                with tarfile.open(fileobj=io.BytesIO(raw), mode=mode) as handle:
+                    for member in handle.getmembers():
+                        if not member.isfile():
+                            continue
+                        stream = handle.extractfile(member)
+                        if stream is not None:
+                            collected.append(stream.read())
+            if collected:
+                write(marker, b"".join(collected))
+
+
 def combine(target: pathlib.Path) -> None:
     """Concatenate the rotated SotM34 files into one corpus per category."""
     print("Preparing per-category corpora")
@@ -130,17 +278,35 @@ def main() -> None:
         default="../realdata",
         help="where to place the corpora (default: ../realdata)",
     )
+    parser.add_argument(
+        "--tier",
+        default="standard",
+        choices=["sample", "standard", "large", "xl"],
+        help=(
+            "how much to fetch: sample ~15 MB, standard ~200 MB (the tier the "
+            "published coverage table is measured on), large ~1.2 GB, "
+            "xl ~62 GB (sustained-rate testing)"
+        ),
+    )
     args = parser.parse_args()
     target = pathlib.Path(args.dir).resolve()
     target.mkdir(parents=True, exist_ok=True)
     print(f"Target: {target}\n")
 
+    # Tiers are cumulative: `large` implies `standard` implies `sample`.
+    order = ["sample", "standard", "large", "xl"]
+    wanted = order[: order.index(args.tier) + 1]
+    print(f"Tier: {args.tier}  (fetching: {', '.join(wanted)})\n")
+
     try:
         loghub(target)
-        honeynet_sotm34(target)
-        honeynet_sotm30(target)
-        honeynet_dragon(target)
-        combine(target)
+        if "standard" in wanted:
+            honeynet_sotm34(target)
+            honeynet_sotm30(target)
+            honeynet_dragon(target)
+            honeynet_proxy(target)
+            combine(target)
+        loghub_full(target, [t for t in wanted if t in LOGHUB_FULL])
     except Exception as error:  # noqa: BLE001 - a fetch failure should be legible
         print(f"\nfailed: {error}", file=sys.stderr)
         raise SystemExit(1) from error
