@@ -178,13 +178,17 @@ enum Command {
         /// NDJSON file produced by `ulpf run`, or `-` for stdin.
         #[arg(default_value = "-")]
         input: String,
-        /// Signed checkpoint produced by the same run/chain.
+        /// Signed checkpoint for a chain in the stream. Repeat once per
+        /// shard: a merged multi-collector stream carries one chain per
+        /// collector, and each is verified against its own checkpoint.
         #[arg(long)]
-        checkpoint: Option<PathBuf>,
+        checkpoint: Vec<PathBuf>,
         /// Trusted Ed25519 public key (hex). Stronger than trusting the key
-        /// embedded in the checkpoint itself.
+        /// embedded in the checkpoint itself. Repeat once per collector: each
+        /// shard signs with its own key, and a chain verifies if it was signed
+        /// by any of the keys supplied.
         #[arg(long)]
-        public_key: Option<PathBuf>,
+        public_key: Vec<PathBuf>,
     },
 
     /// Prove one event is in the chain's Merkle tree.
@@ -416,7 +420,7 @@ fn main() -> anyhow::Result<()> {
             input,
             checkpoint,
             public_key,
-        } => cmd_verify(&input, checkpoint.as_deref(), public_key.as_deref()),
+        } => cmd_verify(&input, &checkpoint, &public_key),
         Command::Prove {
             integrity_dir,
             chain,
@@ -1168,10 +1172,27 @@ fn cmd_raw(vault_dir: PathBuf, locator: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Read the chain a normalized event belongs to.
+///
+/// Events carry it at `attestation_list[0].chain_uid`. A stream merged from
+/// several collectors contains several chains, and verifying it as one would
+/// report a break at the first point the collectors interleave — which is not
+/// tampering, it is two independent logs in one file.
+fn chain_of(event: &OcsfEvent) -> Option<String> {
+    event
+        .as_map()
+        .get("attestation_list")?
+        .as_array()?
+        .first()?
+        .get("chain_uid")?
+        .as_str()
+        .map(str::to_string)
+}
+
 fn cmd_verify(
     input: &str,
-    checkpoint_path: Option<&Path>,
-    public_key_path: Option<&Path>,
+    checkpoint_paths: &[PathBuf],
+    public_key_paths: &[PathBuf],
 ) -> anyhow::Result<()> {
     let reader = open_input(input)?;
     let mut events = Vec::new();
@@ -1188,51 +1209,114 @@ fn cmd_verify(
         bail!("no events to verify");
     }
 
-    if public_key_path.is_some() && checkpoint_path.is_none() {
+    if !public_key_paths.is_empty() && checkpoint_paths.is_empty() {
         bail!("--public-key requires --checkpoint");
     }
 
-    let verified: anyhow::Result<ulpf_ocsf::ChainLink> = if let Some(path) = checkpoint_path {
-        let checkpoint = integrity_state::read_checkpoint(path)?;
-        if let Some(key_path) = public_key_path {
-            let key = integrity_state::read_public_key(key_path)?;
-            checkpoint
-                .verify_with(&key)
-                .context("checkpoint did not verify with the trusted public key")?;
+    // Partition by chain, preserving order within each. This is what makes a
+    // sharded deployment verifiable: chains are per-collector by design, so a
+    // merged stream is N independent logs and each is checked on its own.
+    let mut order: Vec<String> = Vec::new();
+    let mut by_chain: std::collections::HashMap<String, Vec<OcsfEvent>> =
+        std::collections::HashMap::new();
+    for event in events {
+        let chain = chain_of(&event).unwrap_or_else(|| "<unattested>".to_string());
+        if !by_chain.contains_key(&chain) {
+            order.push(chain.clone());
         }
-        Ok(ulpf_ocsf::verify_checkpoint_segment(&events, &checkpoint)?)
-    } else {
-        let anchor = events
-            .first()
-            .map(ulpf_ocsf::predecessor)
-            .transpose()?
-            .flatten();
-        Ok(ulpf_ocsf::verify_chain_from(&events, anchor.as_ref())?
-            .ok_or_else(|| anyhow::anyhow!("no chain head"))?)
-    };
+        by_chain.entry(chain).or_default().push(event);
+    }
 
-    match verified {
-        Ok(head) => {
-            println!("OK  {} events verified", events.len());
-            println!(
-                "    chain head {} fingerprint {}",
-                head.uid, head.fingerprint.value
-            );
-            if checkpoint_path.is_some() {
-                println!("    signed checkpoint verified");
-                if public_key_path.is_some() {
-                    println!("    trusted public key verified");
+    // Match each checkpoint to its chain rather than assuming argument order.
+    let mut checkpoints: std::collections::HashMap<String, ulpf_ocsf::Checkpoint> =
+        std::collections::HashMap::new();
+    for path in checkpoint_paths {
+        let checkpoint = integrity_state::read_checkpoint(path)?;
+        checkpoints.insert(checkpoint.chain_uid.clone(), checkpoint);
+    }
+
+    // A set, not one key. Each collector in a sharded deployment generates its
+    // own signing key, so verifying a merged stream against a single key fails
+    // every chain but one. The trust statement is "signed by one of my
+    // collectors", which is what a set expresses.
+    let trusted_keys: Vec<ed25519_dalek::VerifyingKey> = public_key_paths
+        .iter()
+        .map(|p| integrity_state::read_public_key(p))
+        .collect::<anyhow::Result<_>>()?;
+
+    let mut failures = 0usize;
+    let multi = order.len() > 1;
+    if multi {
+        println!("{} chains in this stream", order.len());
+    }
+
+    for chain in &order {
+        let chain_events = &by_chain[chain];
+        let result = verify_one_chain(chain_events, checkpoints.get(chain), &trusted_keys);
+        match result {
+            Ok(head) => {
+                let prefix = if multi {
+                    format!("[{chain}] ")
+                } else {
+                    String::new()
+                };
+                println!("{prefix}OK  {} events verified", chain_events.len());
+                println!(
+                    "{prefix}    chain head {} fingerprint {}",
+                    head.uid, head.fingerprint.value
+                );
+                if checkpoints.contains_key(chain) {
+                    println!("{prefix}    signed checkpoint verified");
+                    if !trusted_keys.is_empty() {
+                        println!("{prefix}    trusted public key verified");
+                    }
+                } else {
+                    println!(
+                        "{prefix}    segment consistency only \
+                         (supply --checkpoint for authenticity)"
+                    );
                 }
-            } else {
-                println!("    segment consistency only (supply --checkpoint for authenticity)");
             }
-            Ok(())
-        }
-        Err(e) => {
-            println!("FAIL  {e}");
-            bail!("chain verification failed");
+            Err(e) => {
+                failures += 1;
+                println!("[{chain}] FAIL  {e}");
+            }
         }
     }
+
+    if failures > 0 {
+        bail!("{failures} of {} chains failed verification", order.len());
+    }
+    Ok(())
+}
+
+/// Verify one chain's events, optionally against its signed checkpoint.
+fn verify_one_chain(
+    events: &[OcsfEvent],
+    checkpoint: Option<&ulpf_ocsf::Checkpoint>,
+    trusted_keys: &[ed25519_dalek::VerifyingKey],
+) -> anyhow::Result<ulpf_ocsf::ChainLink> {
+    if let Some(checkpoint) = checkpoint {
+        if !trusted_keys.is_empty()
+            && !trusted_keys
+                .iter()
+                .any(|key| checkpoint.verify_with(key).is_ok())
+        {
+            bail!(
+                "checkpoint for chain `{}` was not signed by any of the {} trusted keys",
+                checkpoint.chain_uid,
+                trusted_keys.len()
+            );
+        }
+        return Ok(ulpf_ocsf::verify_checkpoint_segment(events, checkpoint)?);
+    }
+    let anchor = events
+        .first()
+        .map(ulpf_ocsf::predecessor)
+        .transpose()?
+        .flatten();
+    ulpf_ocsf::verify_chain_from(events, anchor.as_ref())?
+        .ok_or_else(|| anyhow::anyhow!("no chain head"))
 }
 
 /// Signing and fsyncing a checkpoint after every datagram costs an Ed25519
