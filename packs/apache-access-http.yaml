@@ -1,14 +1,17 @@
-# Apache/NCSA combined access log.
+# NCSA combined access log.
 #
-# Written against the Honeynet Project SotM34 web capture; every fixture is an
-# unmodified line from it. The same shape is emitted by nginx, HAProxy and most
-# reverse proxies, so this pack covers the web tier generally.
+# Written against the Honeynet SotM34 Apache capture, and it covers nginx and
+# most reverse proxies too: the `combined` format is a shared convention, and a
+# line from nginx is byte-identical to one from Apache. There was briefly a
+# separate `nginx-access` pack; the shadowing check in `ulpf test` proved it
+# could never claim a record, because this pack has the lower priority number
+# and the two detectors describe the same bytes. One format, one pack.
 #
-# Positional, quoted, no field names, so a regex does the extraction.
+# Format: %h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-agent}i\"
 identity:
   id: apache-access-http
   vendor: Apache
-  product: HTTP Server
+  product: HTTP Server (NCSA combined)
   log_format: ncsa-combined
   priority: 30
   detect:

@@ -70,14 +70,10 @@ type Shared = Arc<Mutex<AppState>>;
 /// and gates the browser-safety middleware below. `None` disables that guard
 /// and exists for callers that drive handlers directly.
 pub fn router(state: Shared, expected_origin: Option<String>) -> Router {
-    Router::new()
+    let probe_state = state.clone();
+    let guarded = Router::new()
         .route("/", get(index))
         .route("/dev", get(dev_dashboard))
-        // Liveness and readiness sit outside the guard: an orchestrator probing
-        // them is not a browser and has no Origin, and a readiness check that
-        // can be refused is not a readiness check.
-        .route("/healthz", get(healthz))
-        .route("/readyz", get(readyz))
         .route("/api/stats", get(stats))
         .route("/api/packs", get(packs))
         .route("/api/events", get(events))
@@ -102,7 +98,27 @@ pub fn router(state: Shared, expected_origin: Option<String>) -> Router {
         .layer(middleware::from_fn(move |request: Request, next: Next| {
             let expected = expected_origin.clone();
             async move { same_origin_only(expected, request, next).await }
-        }))
+        }));
+
+    // Liveness and readiness are merged *after* the guard layer, not registered
+    // before it. `.layer()` applies to every route already on the router, so
+    // listing them above put them behind the Host check despite a comment
+    // saying otherwise — and a probe arriving through a container port mapping
+    // carries the published port in `Host`, which never matches the bound
+    // address. `docker run -p 18787:8787` plus `curl /readyz` returned
+    // "unexpected Host header", so the readiness probe the Dockerfile
+    // documents could not succeed from outside the container.
+    //
+    // Neither endpoint reads request state or discloses event data: /healthz
+    // answers while the process serves, /readyz reports pack count, vault
+    // writability and schema version. A readiness check that can be refused is
+    // not a readiness check.
+    let probes = Router::new()
+        .route("/healthz", get(healthz))
+        .route("/readyz", get(readyz))
+        .with_state(probe_state);
+
+    guarded.merge(probes)
 }
 
 /// Refuse cross-origin and rebound requests.

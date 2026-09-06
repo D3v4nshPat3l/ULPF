@@ -85,7 +85,7 @@ cargo test --workspace --release --locked
 ./target/release/ulpf test --packs packs
 ```
 
-Expect `35 packs · 67/67 fixtures passed · 100.0% field accuracy`.
+Expect `34 packs · 64/64 fixtures passed · 100.0% field accuracy`.
 
 > **Windows note.** If `cargo build` fails with
 > `autocfg ... output path is not a writable directory`, the repository is

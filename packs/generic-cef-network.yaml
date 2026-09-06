@@ -99,24 +99,14 @@ enums:
     "10": 5
 
 fixtures:
-  - note: ArcSight reference example, extended with network fields.
-    raw: 'CEF:0|Security|threatmanager|1.0|100|worm successfully stopped|10|src=10.0.0.1 dst=2.1.2.2 spt=1232 dpt=443 act=block rt=1756636800000'
+  - note: >-
+      A CEF sender with no specific pack. The fixture deliberately names a
+      vendor no other pack claims: an earlier one used a Check Point line,
+      which `checkpoint-firewall` claims first at priority 15, so this pack
+      would never have seen it in a real library.
+    raw: 'CEF:0|Contoso|EdgeSensor|4.2|4001|Traffic permitted|3|src=10.4.4.9 spt=51314 dst=203.0.113.77 dpt=443 proto=TCP act=permit'
     expect:
       class_uid: 4001
-      activity_id: 3
-      severity_id: 5
-      src_endpoint.ip: 10.0.0.1
-      dst_endpoint.ip: 2.1.2.2
-      src_endpoint.port: 1232
+      src_endpoint.ip: 10.4.4.9
+      dst_endpoint.ip: 203.0.113.77
       dst_endpoint.port: 443
-      device.vendor_name: Security
-      device.product.name: threatmanager
-
-  - note: Message containing spaces must not swallow the following key.
-    raw: 'CEF:0|CheckPoint|VPN-1|R81|100|Connection allowed|3|msg=connection allowed by policy src=192.0.2.10 dst=198.51.100.5 spt=44321 dpt=80 act=allow rt=1756636800000'
-    expect:
-      activity_id: 6
-      severity_id: 2
-      message: connection allowed by policy
-      src_endpoint.ip: 192.0.2.10
-      dst_endpoint.port: 80

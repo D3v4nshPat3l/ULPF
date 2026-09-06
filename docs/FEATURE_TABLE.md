@@ -47,6 +47,19 @@ pq.ParquetFile(path).metadata.created_by   # 'ulpf feature table v1'
 
 ## Contract version 1 — 24 columns
 
+Twenty-four columns are written into each file. A reader that opens the
+*directory* as a partitioned dataset sees a twenty-fifth, `dt`, which is not
+stored in the file at all — it is the Hive partition key, derived by the reader
+from the `dt=YYYY-MM-DD` directory name:
+
+```python
+pq.ParquetFile(one_file).schema_arrow.names   # 24
+pq.read_table(feature_dir).column_names       # 25, the extra one is dt
+```
+
+Both are correct and neither is a contract change. Select columns by name
+rather than by position if your consumer might be handed either.
+
 | Column | Type | Meaning |
 |---|---|---|
 | `event_uid` | string | `metadata.uid`, unique per event |

@@ -23,9 +23,16 @@ Figures quoted here are reproducible from the repository — see
   snapshot.
 - Ten decoders: RFC 3164 and RFC 5424 syslog, CEF, LEEF, JSON, XML, CSV,
   key-value, and regex.
-- Eighteen declarative Source Packs, 37 fixtures, 100% field accuracy.
-- 99.8256% coverage over 305,582 records of public capture data, with the 533
-  misses enumerated rather than rounded away.
+- Thirty-four declarative Source Packs, 64 fixtures, 100% field accuracy.
+- 99.9219% coverage over 838,779 records of real perimeter capture data, with
+  the misses enumerated rather than rounded away. A further twelve corpora
+  outside the perimeter scope are measured separately: 99.7175% across all
+  862,779 records.
+- Salvage extraction: addresses, ports, MAC addresses, URLs, email addresses
+  and hostnames recovered from any record, including one no pack claimed, so a
+  source nobody has onboarded is still searchable by indicator. Deterministic,
+  and it populates `observables` only — it reports that an address is present,
+  never that it is the source.
 
 ### Integrity
 
@@ -51,9 +58,16 @@ Figures quoted here are reproducible from the repository — see
 - Embedded operator console, compiled into the binary: no CDN, no web font, no
   telemetry, no network call on any path.
 - Pack drafting from unparsed traffic — a deterministic generator, and an
-  optional local model — with fixture gates before activation.
+  optional local model — with fixture gates before activation. Drafted packs
+  infer their decoder chain and delimiter from the samples and map fields by
+  naming convention, so a candidate for a perimeter source arrives with
+  `src_endpoint`, `dst_endpoint` and `connection_info` already populated.
+- Sharded deployment: `ulpf verify` partitions a merged stream by `chain_uid`
+  and checks each collector's chain against its own key, so a multi-collector
+  deployment verifies without merging its chains.
 - Two-stage container onto distroless with a read-only root filesystem and all
-  capabilities dropped.
+  capabilities dropped, plus a three-shard compose file for the horizontal
+  deployment.
 - Graceful shutdown on Ctrl-C and SIGTERM: signs a final checkpoint and closes
   the Parquet writers, without which the feature table is never readable.
 

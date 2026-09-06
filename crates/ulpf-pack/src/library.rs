@@ -29,6 +29,12 @@ impl PackLibrary {
     ///
     /// Returns the library alongside per-file errors rather than failing the
     /// whole load: one malformed pack should not take a collector offline.
+    ///
+    /// **Not recursive.** Only files directly in `dir` are read, so grouping
+    /// packs into subdirectories — `packs/firewall/`, `packs/proxy/` — would
+    /// silently load none of them. The filesystem watcher *is* recursive, which
+    /// makes the mismatch worse: a pack added in a subfolder triggers a reload
+    /// that then does not include it. Keep the directory flat, or change both.
     pub fn load_dir(dir: impl AsRef<Path>) -> Result<(Self, Vec<(PathBuf, PackError)>)> {
         let dir = dir.as_ref();
         let mut library = Self::new();
@@ -99,6 +105,40 @@ impl PackLibrary {
         let mut report = PackTestReport::default();
         for pack in &self.packs {
             report.merge(test_pack(pack));
+            report.merge(self.check_shadowing(pack));
+        }
+        report
+    }
+
+    /// Confirm that this pack, and not another, claims its own fixtures.
+    ///
+    /// `test_pack` asks whether a pack's *own* detector matches its fixture,
+    /// which cannot see the case that matters in a library: a different pack,
+    /// earlier in priority order, claiming the line first. That pack then
+    /// usually fails to extract it, and the original source silently stops
+    /// being parsed while every fixture still passes.
+    ///
+    /// This is not hypothetical. A Thunderbird pack keyed on `(pam_unix)`,
+    /// which ordinary Linux syslog also contains, and Linux coverage fell from
+    /// 94% to 19% with a green fixture run.
+    fn check_shadowing(&self, pack: &CompiledPack) -> PackTestReport {
+        let mut report = PackTestReport::default();
+        for (i, fixture) in pack.spec.fixtures.iter().enumerate() {
+            let Some(winner) = self.identify(&fixture.raw) else {
+                continue; // test_pack already reports a fixture nothing claims
+            };
+            if winner.id != pack.id {
+                report.failures.push(FixtureFailure {
+                    pack: pack.id.clone(),
+                    fixture: i,
+                    path: "<shadowed>".into(),
+                    detail: format!(
+                        "pack `{}` (priority {}) claims this fixture first; \
+                         `{}` has priority {} and would never see it",
+                        winner.id, winner.priority, pack.id, pack.priority
+                    ),
+                });
+            }
         }
         report
     }

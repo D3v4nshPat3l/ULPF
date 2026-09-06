@@ -1,6 +1,6 @@
 # Capturing real logs
 
-Ten of the thirty-five Source Packs pass fixtures written from vendor
+Nine of the thirty-four Source Packs pass fixtures written from vendor
 documentation and have never seen real traffic. This document is how to fix
 that, and why it is worth the effort.
 

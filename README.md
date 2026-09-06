@@ -17,7 +17,13 @@ runtime: no CDN, no web font, no telemetry, no model API.
 
 Every number in that screenshot came from replaying real public capture data —
 Honeynet Project and Loghub — over UDP into the collector. Nothing on this page
-is a mock-up, and no log line anywhere in this project is synthesised.
+is a mock-up, and **no coverage or throughput figure anywhere in this project
+comes from synthesised data**.
+
+One synthetic file is committed, and it is labelled as such:
+`testdata/mixed.log` mixes eight vendor formats so the pipeline can be tried
+without first downloading 200 MB of corpora. It uses RFC 5737 documentation
+addresses, is never measured, and never appears in a published number.
 
 ---
 
@@ -223,7 +229,7 @@ cargo test --workspace --release --locked
 ```
 
 The second command runs every pack's embedded fixtures. Expect
-`35 packs · 67/67 fixtures passed · 100.0% field accuracy`.
+`34 packs · 64/64 fixtures passed · 100.0% field accuracy`.
 
 After pulling changes, run `cargo build --release --locked` again before
 demonstrating anything. `cargo test` builds its own test binaries and leaves
@@ -327,7 +333,7 @@ curl -s http://127.0.0.1:8787/readyz
 ```
 
 ```json
-{"ready":true,"packs_loaded":35,"vault_writable":true,"chain_signed_or_empty":true,"schema_version":"1.9.0"}
+{"ready":true,"packs_loaded":34,"vault_writable":true,"chain_signed_or_empty":true,"schema_version":"1.9.0"}
 ```
 
 `/healthz` answers as long as the process is serving. `/readyz` answers 503
@@ -443,7 +449,7 @@ crates/
                    RFC 6962 Merkle log with inclusion and consistency proofs
   ulpf-generator   Drain clustering, deterministic generator, LLM client, scorer
   ulpf-cli         binary: run, serve, listen, replay, draft, test, verify, raw
-packs/             35 Source Packs
+packs/             34 Source Packs
 schema/ocsf/       vendored OCSF 1.9.0
 tools/             corpus fetch and coverage measurement scripts
 deploy/            container compose files: the collector, and an OpenSearch receiver
@@ -454,7 +460,7 @@ docs/              architecture, datasets, throughput, deployment, testing, road
 
 ## What is done
 
-**Pipeline.** Vault-first ingestion, ten decoders, 35 packs, OCSF 1.9
+**Pipeline.** Vault-first ingestion, ten decoders, 34 packs, OCSF 1.9
 normalization, NDJSON output, Parquet / OpenSearch / Splunk sinks, pack hot
 reload.
 
@@ -532,9 +538,9 @@ Stated plainly, because a reviewer will find them anyway.
 - **Coverage is 99.82%, not 100%.** The remainder is enumerated in
   `docs/DATASETS.md`. Unparsed records are still vaulted, fingerprinted and
   emitted.
-- **Ten of the 35 packs have no real-corpus evidence.** Cisco ASA, FortiGate,
-  PAN-OS, Check Point, Juniper, Suricata, ModSecurity, generic CEF, Zeek,
-  nginx and pfSense pass fixtures written from vendor documentation. Treat them
+- **Nine of the 34 packs have no real-corpus evidence.** Cisco ASA, FortiGate,
+  PAN-OS, Check Point, Juniper, Suricata, ModSecurity, generic CEF, Zeek and
+  pfSense pass fixtures written from vendor documentation. Treat them
   as unproven: real data has repeatedly broken packs that passed
   documentation-derived tests — most recently Blue Coat, whose manual-derived
   field order matched none of 8.1 million real records until the corpus's own
