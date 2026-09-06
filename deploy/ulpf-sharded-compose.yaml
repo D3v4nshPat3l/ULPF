@@ -1,0 +1,102 @@
+# Three ULPF collectors on one host. Requirement (k), and the deployment half
+# of the throughput answer in docs/SCALING.md.
+#
+#   docker compose -f deploy/ulpf-sharded-compose.yaml up -d --build
+#
+# One collector sustains 10,000 EPS lossless. Reaching billions of events per
+# day is more collectors, not a faster one: the vault, the attestation chain
+# and the Merkle log are each single-writer by design, and that is what makes
+# a locator stable and an inclusion proof mean something.
+#
+# Each shard is fully independent - its own UDP port, its own vault volume, its
+# own signing key, its own chain. Nothing is shared, so nothing needs
+# coordinating, and a shard that dies takes only its own tail block with it.
+#
+# Devices are split across ports by pointing groups of them at 5514, 5515 or
+# 5516. Split by device, never mid-stream: a device whose traffic is divided
+# lands in two chains.
+#
+# Verifying the merged output needs one checkpoint and one public key per
+# shard; `ulpf verify` partitions by chain_uid and checks each on its own. See
+# docs/SCALING.md.
+
+x-shard: &shard
+  build:
+    context: ..
+    dockerfile: Dockerfile
+  image: ulpf:local
+  read_only: true
+  tmpfs:
+    - /tmp
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  restart: unless-stopped
+  # SIGTERM signs a final checkpoint for whatever arrived since the last
+  # periodic one and closes the Parquet writers, which is what writes their
+  # footers. A kill -9 costs only the tail: the vault is append-only and the
+  # chain resumes from its last signed checkpoint.
+  stop_grace_period: 30s
+
+services:
+  ulpf-a:
+    <<: *shard
+    container_name: ulpf-a
+    command:
+      - serve
+      - --packs=/app/packs
+      - --vault=/app/data/vault
+      - --integrity-dir=/app/data/integrity
+      - --chain=collector-a
+      - --host=0.0.0.0
+      - --port=8787
+      - --syslog-bind=0.0.0.0:5514
+    ports:
+      - "127.0.0.1:8787:8787"
+      - "5514:5514/udp"
+    volumes:
+      - shard-a:/app/data
+
+  ulpf-b:
+    <<: *shard
+    container_name: ulpf-b
+    command:
+      - serve
+      - --packs=/app/packs
+      - --vault=/app/data/vault
+      - --integrity-dir=/app/data/integrity
+      - --chain=collector-b
+      - --host=0.0.0.0
+      - --port=8787
+      - --syslog-bind=0.0.0.0:5514
+    ports:
+      - "127.0.0.1:8788:8787"
+      - "5515:5514/udp"
+    volumes:
+      - shard-b:/app/data
+
+  ulpf-c:
+    <<: *shard
+    container_name: ulpf-c
+    command:
+      - serve
+      - --packs=/app/packs
+      - --vault=/app/data/vault
+      - --integrity-dir=/app/data/integrity
+      - --chain=collector-c
+      - --host=0.0.0.0
+      - --port=8787
+      - --syslog-bind=0.0.0.0:5514
+    ports:
+      - "127.0.0.1:8789:8787"
+      - "5516:5514/udp"
+    volumes:
+      - shard-c:/app/data
+
+# Separate volumes, not one shared. Two collectors writing one vault would
+# interleave their append streams and neither chain's locators would resolve.
+volumes:
+  shard-a:
+  shard-b:
+  shard-c:

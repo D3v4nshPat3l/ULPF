@@ -427,7 +427,7 @@ full method, and the three limits found by measuring, are in
 | h | AI/ML-ready analytics | **Done** | Hive-partitioned Parquet feature table with a fixed, versioned column contract |
 | i | Reduce parser development effort | **Done** | Drain clustering plus two generators, scored against real fixtures, human-approved |
 | j | Air-gapped deployment | **Done** | Zero runtime network dependency; console fully self-contained |
-| k | Containerized deployment | **Done** | Two-stage `Dockerfile` onto distroless, `--locked` build, read-only rootfs, all capabilities dropped; `deploy/ulpf-compose.yaml` |
+| k | Containerized deployment | **Done** | Two-stage `Dockerfile` onto distroless, `--locked` build, read-only rootfs, all capabilities dropped; `deploy/ulpf-compose.yaml`, and `deploy/ulpf-sharded-compose.yaml` for a three-collector deployment |
 
 ---
 
@@ -590,6 +590,7 @@ traffic, let the console draft a candidate for you and edit from there —
 | [FEATURE_TABLE.md](docs/FEATURE_TABLE.md) | The column contract for analytics and training |
 | [PROOFS.md](docs/PROOFS.md) | Proving one event without disclosing the log |
 | [SCALING.md](docs/SCALING.md) | Sharding past one collector, and verifying a multi-chain stream |
+| [CAPTURING-LOGS.md](docs/CAPTURING-LOGS.md) | How to obtain real logs for a pack that has none |
 | [PACK_GENERATOR.md](docs/PACK_GENERATOR.md) | Clustering, generators, scoring |
 | [SINKS.md](docs/SINKS.md) | Parquet, OpenSearch, Splunk HEC |
 | [TESTING.md](docs/TESTING.md) | Test strategy |

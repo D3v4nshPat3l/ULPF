@@ -860,6 +860,25 @@ function fillSummary(ev) {
       .join("\n");
     dl.append(dt, dd);
   }
+
+  // Salvage recovers indicators from a record no pack mapped. Saying so
+  // matters: without it the observables above look like a pack's work, and the
+  // one thing worth noticing here is that they are not — this record came from
+  // a source nobody has onboarded and is searchable anyway.
+  const salvaged = get(ev, "unmapped.ulpf_salvaged_count");
+  if (salvaged) {
+    const dt = document.createElement("dt");
+    dt.textContent = "Recovered";
+    const dd = document.createElement("dd");
+    dd.append(el("span", "pill warn", salvaged + " by salvage"));
+    const note = el("div", "sub");
+    note.style.marginTop = "4px";
+    note.textContent =
+      "Read out of the raw text without a pack. Indicators only — ULPF reports " +
+      "that an address is present, never that it is the source.";
+    dd.append(note);
+    dl.append(dt, dd);
+  }
 }
 
 function fillSource(ev) {
@@ -1334,10 +1353,18 @@ function renderClusters(list, overflow) {
     td.colSpan = 4;
     tr.append(td); body.append(tr); return;
   }
+  // Rank by share of unparsed traffic, not just raw count: "write this pack and
+  // 38% of what you cannot read becomes readable" is the decision an operator
+  // is actually making.
+  const totalUnparsed = list.reduce((sum, c) => sum + c.count, 0) + (overflow || 0);
   list.forEach((c) => {
     const tr = el("tr");
     tr.append(el("td", "mono", c.id));
-    tr.append(el("td", "num", c.count.toLocaleString()));
+    const share = totalUnparsed ? (100 * c.count) / totalUnparsed : 0;
+    const countCell = el("td", "num", c.count.toLocaleString());
+    const pct = el("div", "sub", share >= 0.1 ? share.toFixed(1) + "% of unparsed" : "");
+    countCell.append(pct);
+    tr.append(countCell);
     const t = el("td", "mono", c.template.length > 110 ? c.template.slice(0, 110) + "…" : c.template);
     t.title = c.template;
     tr.append(t);

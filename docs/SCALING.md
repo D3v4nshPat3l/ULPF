@@ -50,6 +50,17 @@ ulpf serve --packs packs \
   --chain collector-a --syslog-bind 0.0.0.0:5514 --port 8787
 ```
 
+Or containerised, three shards at once:
+
+```bash
+docker compose -f deploy/ulpf-sharded-compose.yaml up -d --build
+```
+
+`deploy/ulpf-sharded-compose.yaml` publishes UDP 5514, 5515 and 5516, gives
+each shard its own volume, and keeps every console on loopback. The volumes are
+separate on purpose: two collectors writing one vault would interleave their
+append streams and neither chain's locators would resolve.
+
 Each additional shard changes four values: `--vault`, `--integrity-dir`,
 `--chain`, `--syslog-bind` (and `--port` if the console is exposed). The chain
 name must be unique per shard; everything else follows from it.

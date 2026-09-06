@@ -31,10 +31,7 @@ pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
     // decoders from a hand-written if/else and mapped a fixed FortiGate field
     // list (`srcip`, `dstport`) regardless of the input, so a device using
     // `src_addr` got a pack that matched nothing and scored 0.
-    let decoders: Vec<String> = crate::llm::infer_decoders(&samples)
-        .into_iter()
-        .map(str::to_string)
-        .collect();
+    let decoders = crate::llm::infer_decoders(&samples);
     let detect = crate::llm::derive_detectors(&samples);
     let available = crate::llm::available_field_names(&samples);
     let field_map = crate::llm::infer_field_map(&available);
@@ -76,7 +73,13 @@ pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
         vendor: "Unknown".to_string(),
         product: "Unknown".to_string(),
         version: None,
-        log_format: Some(decoders.join("-")),
+        log_format: Some(
+            decoders
+                .iter()
+                .map(|d| d.decoder)
+                .collect::<Vec<_>>()
+                .join("-"),
+        ),
         // Detectors derived from the samples. An empty list claims nothing, so
         // the drafted pack would have loaded and then matched no traffic.
         detect: vec![ulpf_pack::spec::Detector {
@@ -91,11 +94,11 @@ pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
     };
 
     let extract = decoders
-        .into_iter()
+        .iter()
         .map(|d| ulpf_pack::spec::ExtractStep {
-            decoder: d,
+            decoder: d.decoder.to_string(),
             sep: None,
-            delim: None,
+            delim: d.delim,
             headers: vec![],
             patterns: vec![],
             optional: false,

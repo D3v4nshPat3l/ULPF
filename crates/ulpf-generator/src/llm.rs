@@ -507,11 +507,68 @@ pub fn is_stable_literal(s: &str) -> bool {
 }
 
 /// Decide the decoder chain from the shape of the samples.
-pub fn infer_decoders(samples: &[String]) -> Vec<&'static str> {
-    let joined = samples.join(
-        "
-",
-    );
+/// One step of an inferred decoder chain.
+///
+/// Carries the delimiter as well as the decoder name. Returning names alone
+/// meant a delimited format could only ever be read as comma-separated: the
+/// Loghub HealthApp corpus is pipe-delimited and Zeek's conn.log is
+/// tab-delimited, and both fell through to `keyvalue`, which finds no pairs in
+/// them and extracts nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DecoderStep {
+    pub decoder: &'static str,
+    pub delim: Option<char>,
+}
+
+impl DecoderStep {
+    fn plain(decoder: &'static str) -> Self {
+        Self {
+            decoder,
+            delim: None,
+        }
+    }
+}
+
+/// The delimiter a set of records is separated by, if they agree on one.
+///
+/// A real delimited format uses its separator the same number of times on
+/// nearly every line, because the column count is fixed. Prose containing a
+/// stray comma does not. Requiring agreement across samples is what separates
+/// the two, and it is why this looks at consistency rather than raw frequency.
+fn infer_delimiter(samples: &[String]) -> Option<char> {
+    const CANDIDATES: [char; 4] = ['|', '\t', ',', ';'];
+    let considered: Vec<&String> = samples.iter().take(20).collect();
+    if considered.len() < 2 {
+        return None;
+    }
+
+    let mut best: Option<(char, usize)> = None;
+    for delimiter in CANDIDATES {
+        let counts: Vec<usize> = considered
+            .iter()
+            .map(|line| line.matches(delimiter).count())
+            .collect();
+        let lowest = *counts.iter().min().unwrap_or(&0);
+        // At least three fields on every line, and no line disagreeing with the
+        // most common count by more than one - firmware revisions do append a
+        // column, so demanding exact agreement is too strict.
+        if lowest < 2 {
+            continue;
+        }
+        let highest = *counts.iter().max().unwrap_or(&0);
+        if highest - lowest > 1 {
+            continue;
+        }
+        if best.is_none_or(|(_, seen)| lowest > seen) {
+            best = Some((delimiter, lowest));
+        }
+    }
+    best.map(|(delimiter, _)| delimiter)
+}
+
+/// Decide the decoder chain from the shape of the samples.
+pub fn infer_decoders(samples: &[String]) -> Vec<DecoderStep> {
+    let joined = samples.join("\n");
     let first = samples.first().map(String::as_str).unwrap_or("");
 
     let mut chain = Vec::new();
@@ -540,25 +597,30 @@ pub fn infer_decoders(samples: &[String]) -> Vec<&'static str> {
             })
             .unwrap_or(false);
     if syslog_framed {
-        chain.push("syslog");
+        chain.push(DecoderStep::plain("syslog"));
     }
 
     if joined.contains("CEF:") {
-        chain.push("cef");
+        chain.push(DecoderStep::plain("cef"));
     } else if joined.contains("LEEF:") {
-        chain.push("leef");
+        chain.push(DecoderStep::plain("leef"));
     } else if first.trim_start().starts_with('{') {
-        chain.push("json");
+        chain.push(DecoderStep::plain("json"));
     } else if first.trim_start().starts_with('<') && first.contains("</") {
-        chain.push("xml");
+        chain.push(DecoderStep::plain("xml"));
     } else if count_kv_pairs(&joined) >= 2 {
-        chain.push("keyvalue");
-    } else if first.matches(',').count() >= 5 {
-        chain.push("csv");
+        chain.push(DecoderStep::plain("keyvalue"));
+    } else if let Some(delimiter) = infer_delimiter(samples) {
+        // Positional columns. The CSV decoder emits `col.N` for every field, so
+        // even a layout nobody has documented produces an inspectable map.
+        chain.push(DecoderStep {
+            decoder: "csv",
+            delim: Some(delimiter),
+        });
     }
 
     if chain.is_empty() {
-        chain.push("keyvalue");
+        chain.push(DecoderStep::plain("keyvalue"));
     }
     chain
 }
@@ -589,9 +651,9 @@ fn assemble_pack(cluster_id: &str, spec: DraftSpec, samples: &[String], model: &
     let decoders: Vec<ExtractStep> = infer_decoders(samples)
         .into_iter()
         .map(|d| ExtractStep {
-            decoder: d.to_string(),
+            decoder: d.decoder.to_string(),
             sep: None,
-            delim: None,
+            delim: d.delim,
             headers: Vec::new(),
             patterns: Vec::new(),
             // A drafted chain is a guess; a step that does not fit should not
@@ -1077,17 +1139,60 @@ Four records are unparsed.";
 
     #[test]
     fn decoder_chain_is_inferred_from_the_bytes() {
+        let names = |s: &[String]| -> Vec<&'static str> {
+            infer_decoders(s).into_iter().map(|d| d.decoder).collect()
+        };
+
         let kv = vec!["Mar 15 10:30:01 gw01 fw: src_addr=10.0.0.1 dst_addr=8.8.8.8".to_string()];
-        assert_eq!(infer_decoders(&kv), vec!["syslog", "keyvalue"]);
+        assert_eq!(names(&kv), vec!["syslog", "keyvalue"]);
 
         let cef = vec!["CEF:0|V|P|1|1|name|5|src=10.0.0.1".to_string()];
-        assert_eq!(infer_decoders(&cef), vec!["cef"]);
+        assert_eq!(names(&cef), vec!["cef"]);
 
         let js = vec![r#"{"src_ip":"10.0.0.1"}"#.to_string()];
-        assert_eq!(infer_decoders(&js), vec!["json"]);
+        assert_eq!(names(&js), vec!["json"]);
 
-        let csv = vec!["a,b,c,d,e,f,g,h".to_string()];
-        assert_eq!(infer_decoders(&csv), vec!["csv"]);
+        let csv = vec!["a,b,c,d,e,f,g,h".to_string(), "i,j,k,l,m,n,o,p".to_string()];
+        assert_eq!(names(&csv), vec!["csv"]);
+    }
+
+    #[test]
+    fn a_pipe_delimited_body_is_read_as_columns_not_as_pairs() {
+        // Real Loghub HealthApp lines. These carry no `=` pairs at all, so
+        // before delimiter inference they fell through to `keyvalue`, which
+        // extracted nothing from them.
+        let samples = vec![
+            "20171223-22:15:29:606|Step_LSC|30002312|onStandStepChanged 3579".to_string(),
+            "20171223-22:15:29:615|Step_LSC|30002312|onExtend:1514038530000 14 0 4".to_string(),
+            "20171223-22:15:29:653|Step_SPUtils|30002312|getTodayTotalDetailSteps".to_string(),
+        ];
+        let chain = infer_decoders(&samples);
+        assert_eq!(chain.len(), 1);
+        assert_eq!(chain[0].decoder, "csv");
+        assert_eq!(chain[0].delim, Some('|'));
+    }
+
+    #[test]
+    fn a_tab_delimited_body_is_recognised_too() {
+        let samples = vec![
+            "1331901000.0\tCwjj\t192.168.1.50\t49180\ttcp".to_string(),
+            "1331901005.1\tCXWv\t10.0.0.9\t51000\ttcp".to_string(),
+        ];
+        let chain = infer_decoders(&samples);
+        assert_eq!(chain[0].decoder, "csv");
+        assert_eq!(chain[0].delim, Some('\t'));
+    }
+
+    #[test]
+    fn prose_with_a_stray_comma_is_not_a_delimited_format() {
+        // Consistency, not frequency: a delimited format uses its separator the
+        // same number of times on every line because the column count is fixed.
+        let samples = vec![
+            "the component, which was idle, restarted".to_string(),
+            "restarted cleanly".to_string(),
+            "another message entirely, with one comma".to_string(),
+        ];
+        assert_ne!(infer_decoders(&samples)[0].decoder, "csv");
     }
 
     #[test]

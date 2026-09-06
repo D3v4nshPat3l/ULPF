@@ -110,7 +110,7 @@ pub fn draft(
                 note: Some("Generated representative; refine mappings before approval.".into()),
             })
             .collect();
-        let mut pack = baseline_pack(&id, &detector, fixtures, &cluster.key);
+        let mut pack = baseline_pack(&id, &detector, fixtures, &cluster.key, &raw_lines);
         if let Some(sidecar) = sidecar {
             pack = invoke_sidecar(
                 sidecar,
@@ -174,7 +174,75 @@ pub fn draft(
     Ok(())
 }
 
-fn baseline_pack(id: &str, detector: &[String], fixtures: Vec<Fixture>, cluster_key: &str) -> Pack {
+/// Build a candidate pack for one cluster.
+///
+/// `samples` decide the decoder chain and the field mapping. An earlier version
+/// hardcoded `syslog` then `keyvalue` for every candidate and mapped nothing but
+/// `class_uid` and `activity_id`, so a drafted pack "parsed" a record while
+/// putting none of its fields anywhere an analyst could read them — and a
+/// pipe- or tab-delimited source, which has no `key=value` pairs at all, got a
+/// chain that could not read it. This is the third place `ulpf draft`
+/// reimplemented something `ulpf-generator` already does; it now calls it.
+fn baseline_pack(
+    id: &str,
+    detector: &[String],
+    fixtures: Vec<Fixture>,
+    cluster_key: &str,
+    samples: &[String],
+) -> Pack {
+    let extract: Vec<ExtractStep> = ulpf_generator::llm::infer_decoders(samples)
+        .into_iter()
+        .map(|step| ExtractStep {
+            decoder: step.decoder.to_string(),
+            sep: None,
+            delim: step.delim,
+            headers: Vec::new(),
+            patterns: Vec::new(),
+            // A drafted chain is a guess; one step not fitting should not sink
+            // the record.
+            optional: true,
+        })
+        .collect();
+
+    // Map the fields the samples actually contain onto OCSF, by naming
+    // convention. Vendors are consistent here: a source address is `srcip`,
+    // `src_addr`, `src`, `source_ip` or `saddr`, and essentially never
+    // anything else.
+    let available = ulpf_generator::llm::available_field_names(samples);
+    let mut map: BTreeMap<String, MapSpec> = BTreeMap::new();
+    map.insert(
+        "class_uid".into(),
+        MapSpec::Literal(serde_json::json!(4001)),
+    );
+    map.insert("activity_id".into(), MapSpec::Literal(serde_json::json!(1)));
+    for (path, source) in ulpf_generator::llm::infer_field_map(&available) {
+        let cast = path
+            .ends_with(".port")
+            .then_some(ulpf_pack::spec::Cast::Int);
+        map.insert(
+            path,
+            MapSpec::Field(ulpf_pack::spec::FieldSpec {
+                from: ulpf_pack::spec::OneOrMany::One(source),
+                cast,
+                format: None,
+                enum_table: None,
+                default: None,
+                observable: None,
+            }),
+        );
+    }
+
+    baseline_pack_with(id, detector, fixtures, cluster_key, extract, map)
+}
+
+fn baseline_pack_with(
+    id: &str,
+    detector: &[String],
+    fixtures: Vec<Fixture>,
+    cluster_key: &str,
+    extract: Vec<ExtractStep>,
+    map: BTreeMap<String, MapSpec>,
+) -> Pack {
     Pack {
         identity: Identity {
             id: id.into(),
@@ -188,33 +256,8 @@ fn baseline_pack(id: &str, detector: &[String], fixtures: Vec<Fixture>, cluster_
             }],
             priority: 1000,
         },
-        extract: vec![
-            ExtractStep {
-                decoder: "syslog".into(),
-                sep: None,
-                delim: None,
-                headers: Vec::new(),
-                patterns: Vec::new(),
-                optional: true,
-            },
-            ExtractStep {
-                decoder: "keyvalue".into(),
-                sep: None,
-                delim: None,
-                headers: Vec::new(),
-                patterns: Vec::new(),
-                optional: true,
-            },
-        ],
-        map: [
-            (
-                "class_uid".into(),
-                MapSpec::Literal(serde_json::json!(4001)),
-            ),
-            ("activity_id".into(), MapSpec::Literal(serde_json::json!(1))),
-        ]
-        .into_iter()
-        .collect(),
+        extract,
+        map,
         enums: BTreeMap::new(),
         fixtures,
         provenance: Some(Provenance {

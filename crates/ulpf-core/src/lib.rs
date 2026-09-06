@@ -26,7 +26,7 @@ use std::net::IpAddr;
 /// `SyslogTls` and `Kafka` were listed once but nothing ever constructed them:
 /// there is no TCP listener, no TLS listener and no Kafka consumer, so the
 /// variants advertised capabilities the binary did not have. They belong back
-/// here when the listeners exist, and not before — see docs/ROADMAP.md.
+/// here when the listeners exist, and not before.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Transport {
