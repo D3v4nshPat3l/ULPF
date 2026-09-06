@@ -1,0 +1,74 @@
+# Android logcat (threadtime format).
+#
+# Written against the Loghub Android corpus (1,555,005 real lines). Included
+# because the problem statement's Background names IoT and endpoint platforms:
+# a mobile device log and a firewall log reduce to the same schema through the
+# same decoder chain, which is what "universal" has to mean.
+#
+# Format: MM-DD HH:MM:SS.mmm PID TID LEVEL Tag: message
+# The timestamp carries no year, so `time` is left unmapped rather than guessed.
+identity:
+  id: android-logcat
+  vendor: Google
+  product: Android
+  log_format: logcat-threadtime
+  priority: 155
+  detect:
+    # logcat threadtime lines are `MM-DD HH:MM:SS.mmm PID TID L Tag: message`.
+    # Detectors match substrings rather than shapes, so this keys on the
+    # single-letter priority field bracketed by spaces, which every line has.
+    - contains_any: [" D ", " I ", " W ", " E ", " V ", " F "]
+      contains_all: ["-"]
+      contains_none: ["CEF:", "LEEF:", "<134>", "org.apache.", "nova.", "dfs."]
+
+extract:
+  - decoder: regex
+    patterns:
+      - '^(?P<stamp>\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+)\s+(?P<pid>\d+)\s+(?P<tid>\d+)\s+(?P<level>[VDIWEF])\s+(?P<tag>[^:]+):\s+(?P<detail>.*)$'
+
+map:
+  class_uid: 6003                      # API Activity
+  activity_id: 2                       # Read
+  severity_id:
+    from: level
+    enum: logcat_level
+    default: 1
+  message:
+    from: detail
+  app_name:
+    from: tag
+  actor.process.pid:
+    from: pid
+    as: int
+  actor.process.tid:
+    from: tid
+    as: int
+  unmapped.logcat_original_time:
+    from: stamp
+
+enums:
+  # Android priority letters: Verbose, Debug, Info, Warn, Error, Fatal.
+  logcat_level:
+    V: 1
+    D: 1
+    I: 1
+    W: 4
+    E: 5
+    F: 6
+
+fixtures:
+  - note: Real Loghub Android line - WindowManager debug.
+    raw: '03-17 16:13:38.811  1702  2395 D WindowManager: printFreezingDisplayLogsopening app wtoken = AppWindowToken{9f4ef63 token=Token{a64f992 ActivityRecord{de9231d u0 com.tencent.qt.qtl/.activity.info.NewsDetailXmlActivity t761}}}, allDrawn= false, startingDisplayed =  false, startingMoved =  false, isRelaunching =  false'
+    expect:
+      class_uid: 6003
+      severity_id: 1
+      app_name: WindowManager
+      actor.process.pid: 1702
+      actor.process.tid: 2395
+
+  - note: Real Loghub Android line - PowerManagerService wake lock.
+    raw: '03-17 16:13:38.819  1702  8671 D PowerManagerService: acquire lock=233570404, flags=0x1, tag="View Lock", name=com.android.systemui, ws=null, uid=10037, pid=2227'
+    expect:
+      class_uid: 6003
+      app_name: PowerManagerService
+      actor.process.tid: 8671

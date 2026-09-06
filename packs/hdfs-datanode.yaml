@@ -1,0 +1,90 @@
+# Apache HDFS DataNode / NameNode logs.
+#
+# Written against the Loghub HDFS corpus (11,175,629 real production lines).
+# Block replication and transfer are file-system operations on a distributed
+# store, so they map to OCSF File System Activity rather than to a network
+# class: the addressable object is the block, not the socket.
+#
+# The corpus timestamp is `YYMMDD HHMMSS`, which no ULPF time format parses.
+# Rather than mis-parse it, the pack leaves `time` unmapped and the pipeline
+# falls back to receipt time; the device's own stamp is preserved verbatim in
+# `unmapped` and in the vaulted original.
+identity:
+  id: hdfs-datanode
+  vendor: Apache
+  product: Hadoop HDFS
+  log_format: hdfs-daemon
+  priority: 120
+  detect:
+    - contains_all: ["dfs.DataNode"]
+    - contains_all: ["dfs.FSNamesystem"]
+    - contains_all: ["dfs.DataBlockScanner"]
+
+extract:
+  - decoder: regex
+    patterns:
+      - '^(?P<date>\d{6})\s+(?P<clock>\d{6})\s+(?P<thread>\d+)\s+(?P<level>[A-Z]+)\s+(?P<component>\S+?):\s+(?P<detail>.*)$'
+  - decoder: regex
+    optional: true
+    patterns:
+      # An enum table matches the whole field value, not a substring, so the
+      # operation has to be captured as its own token rather than looked up
+      # against the free-text detail.
+      - '(?P<op>Receiving block|Received block|PacketResponder|Verification succeeded|Served block|[Dd]eleting block)'
+  - decoder: regex
+    optional: true
+    patterns:
+      - 'blk_(?P<block_id>-?\d+)'
+
+map:
+  class_uid: 1001                      # File System Activity
+  activity_id:
+    from: op
+    enum: hdfs_activity
+    default: 2                         # Read
+  severity_id:
+    from: level
+    enum: hdfs_level
+    default: 1
+  message:
+    from: detail
+  file.name:
+    from: block_id
+  file.type_id: 1                      # Regular File
+  app_name:
+    from: component
+  unmapped.hdfs_thread:
+    from: thread
+    as: int
+
+enums:
+  # Keys are the exact operation tokens the extract step captures.
+  hdfs_activity:
+    "Receiving block": 1               # Create
+    "Received block": 1
+    "PacketResponder": 2               # Read
+    "Verification succeeded": 2
+    "Served block": 2
+    "Deleting block": 4                # Delete
+    "deleting block": 4
+  hdfs_level:
+    INFO: 1
+    WARN: 4
+    ERROR: 5
+    FATAL: 6
+
+fixtures:
+  - note: Real Loghub HDFS line - PacketResponder terminating.
+    raw: '081109 203615 148 INFO dfs.DataNode$PacketResponder: PacketResponder 1 for block blk_38865049064139660 terminating'
+    expect:
+      class_uid: 1001
+      severity_id: 1
+      file.name: "38865049064139660"
+      app_name: dfs.DataNode$PacketResponder
+      activity_id: 2
+
+  - note: Real Loghub HDFS line - negative block id, which is legal.
+    raw: '081109 203807 222 INFO dfs.DataNode$PacketResponder: PacketResponder 0 for block blk_-6952295868487656571 terminating'
+    expect:
+      class_uid: 1001
+      file.name: "-6952295868487656571"

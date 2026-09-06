@@ -1,0 +1,68 @@
+# IBM Blue Gene/L RAS (Reliability, Availability, Serviceability) events.
+#
+# Written against the Loghub BGL corpus (4,747,963 real lines from Lawrence
+# Livermore National Laboratory). Kernel-level hardware fault reporting, which
+# is what OCSF Kernel Activity describes.
+#
+# Included because the framework's claim is to be universal: a supercomputer
+# RAS event and a firewall session log have nothing structurally in common, and
+# both reduce to the same schema through the same code path.
+identity:
+  id: bgl-supercomputer-ras
+  vendor: IBM
+  product: Blue Gene/L
+  log_format: bgl-ras
+  priority: 110
+  detect:
+    - contains_all: ["RAS", "KERNEL"]
+    - contains_all: ["RAS", "APP"]
+    - contains_all: ["RAS", "LINKCARD"]
+
+extract:
+  - decoder: regex
+    patterns:
+      - '^(?P<label>\S+)\s+(?P<epoch>\d{10})\s+(?P<date>[\d.]+)\s+(?P<node>\S+)\s+(?P<stamp>\S+)\s+(?P<card>\S+)\s+(?P<facility>RAS)\s+(?P<subsystem>\S+)\s+(?P<level>[A-Z]+)\s+(?P<detail>.*)$'
+
+map:
+  class_uid: 1003                      # Kernel Activity
+  activity_id: 2                       # Read - a RAS report is an observation
+  severity_id:
+    from: level
+    enum: bgl_level
+    default: 1
+  time:
+    from: epoch
+    format: epoch_s
+  message:
+    from: detail
+  device.hostname:
+    from: node
+    observable: hostname
+  device.uid:
+    from: card
+  # `-` marks a non-alert line in this corpus; anything else is the alert
+  # category, so the label is the finding tag.
+  unmapped.bgl_alert_label:
+    from: label
+  app_name:
+    from: subsystem
+
+enums:
+  bgl_level:
+    INFO: 1
+    WARNING: 4
+    ERROR: 5
+    FATAL: 6
+    FAILURE: 6
+    SEVERE: 5
+
+fixtures:
+  - note: Real Loghub BGL line - corrected cache parity error.
+    raw: '- 1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005-06-03-15.42.50.675872 R02-M1-N0-C:J12-U11 RAS KERNEL INFO instruction cache parity error corrected'
+    expect:
+      class_uid: 1003
+      activity_id: 2
+      severity_id: 1
+      device.hostname: R02-M1-N0-C:J12-U11
+      app_name: KERNEL
+      message: instruction cache parity error corrected

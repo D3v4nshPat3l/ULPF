@@ -1,0 +1,85 @@
+# OpenStack Nova API server logs.
+#
+# Written against the Loghub OpenStack corpus (207,820 real lines). The
+# nova-api WSGI records are genuine HTTP transactions — method, path, status,
+# response length and latency — so they map to OCSF HTTP Activity, the same
+# class the Squid and Apache packs target. A cloud control-plane request and a
+# proxy request describe the same shape of event, which is the point.
+identity:
+  id: openstack-nova-api
+  vendor: OpenStack
+  product: Nova
+  log_format: openstack-wsgi
+  priority: 125
+  detect:
+    - contains_all: ["nova.osapi_compute.wsgi.server"]
+    - contains_all: ["nova-api.log", "status:"]
+
+extract:
+  - decoder: regex
+    patterns:
+      - '^(?P<logfile>\S+)\s+(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\.(?P<frac>\d+)\s+(?P<pid>\d+)\s+(?P<level>[A-Z]+)\s+(?P<component>\S+)\s+\[(?P<req>[^\]]*)\]\s+(?P<client>\d+\.\d+\.\d+\.\d+)\s+"(?P<method>[A-Z]+)\s+(?P<path>\S+)\s+(?P<proto>[^"]+)"\s+status:\s+(?P<status>\d+)\s+len:\s+(?P<len>\d+)\s+time:\s+(?P<latency>[\d.]+)'
+
+map:
+  class_uid: 4002                      # HTTP Activity
+  activity_id:
+    from: method
+    enum: http_method
+    default: 99
+  severity_id:
+    from: level
+    enum: os_level
+    default: 1
+  time:
+    from: ts
+    format: date_time
+  src_endpoint.ip:
+    from: client
+    observable: ip
+  http_request.http_method:
+    from: method
+  http_request.url.path:
+    from: path
+  http_request.version:
+    from: proto
+  http_response.code:
+    from: status
+    as: int
+  traffic.bytes:
+    from: len
+    as: int
+  app_name:
+    from: component
+  actor.process.pid:
+    from: pid
+    as: int
+
+enums:
+  # OCSF HTTP Activity activity_id, from schema/ocsf/events/network/http_activity.json
+  http_method:
+    CONNECT: 1
+    DELETE: 2
+    GET: 3
+    HEAD: 4
+    OPTIONS: 5
+    POST: 6
+    PUT: 7
+    TRACE: 8
+    PATCH: 9
+  os_level:
+    INFO: 1
+    WARNING: 4
+    ERROR: 5
+    CRITICAL: 6
+
+fixtures:
+  - note: Real Loghub OpenStack line - nova-api GET returning 200.
+    raw: 'nova-api.log.1.2017-05-16_13:53:08 2017-05-16 00:00:00.008 25746 INFO nova.osapi_compute.wsgi.server [req-38101a0b-2096-447d-96ea-a692162415ae 113d3a99c3da401fbd62cc2caa5b96d2 54fadb412c4e40cdbaed9335e4c35a9e - - -] 10.11.10.1 "GET /v2/54fadb412c4e40cdbaed9335e4c35a9e/servers/detail HTTP/1.1" status: 200 len: 1893 time: 0.2477829'
+    expect:
+      class_uid: 4002
+      activity_id: 3
+      src_endpoint.ip: 10.11.10.1
+      http_request.http_method: GET
+      http_response.code: 200
+      traffic.bytes: 1893
+      actor.process.pid: 25746

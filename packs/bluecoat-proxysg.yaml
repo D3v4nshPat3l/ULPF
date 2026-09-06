@@ -1,0 +1,150 @@
+# Blue Coat (Symantec) ProxySG access logs, W3C extended format.
+#
+# A genuine perimeter appliance, and one for which real capture data exists:
+# log-sharing.dreamhosters.com publishes `bluecoat_proxy_big.zip` from a live
+# honeynet, so this pack is written against real traffic rather than a vendor
+# manual.
+#
+# ProxySG writes the `main` format by default:
+#   date time time-taken c-ip sc-status s-action sc-bytes cs-bytes cs-method
+#   cs-uri-scheme cs-host cs-uri-path cs-uri-query cs-username s-hierarchy
+#   s-supplier-name rs(Content-Type) cs(User-Agent) sc-filter-result
+#   cs-categories x-virus-id s-ip
+identity:
+  id: bluecoat-proxysg
+  vendor: Blue Coat
+  product: ProxySG
+  log_format: w3c-extended
+  priority: 18
+  detect:
+    # ProxySG always writes a cache-result code and a policy verdict. Keying on
+    # the pair identifies the format without betting on which verdict occurred —
+    # an earlier version required OBSERVED and so never claimed a DENIED line.
+    # Every ProxySG record carries an `s-action` cache-result code beginning
+    # `TCP_`. Enumerating five of them left 30,000 of 400,000 real records
+    # unclaimed, because the corpus also uses TCP_DENIED, TCP_CLIENT_REFRESH
+    # and others. Squid is tried first (priority 15) and its detector requires
+    # a `DIRECT/` or `NONE/` slash form that this space-delimited format lacks,
+    # so the two do not collide.
+    - contains_all: ["TCP_"]
+      contains_none: ["CEF:", "LEEF:", "DIRECT/", "NONE/"]
+
+extract:
+  - decoder: regex
+    patterns:
+      # Field order taken from the `#Fields:` header the corpus itself
+      # declares, not from the vendor manual. The manual's `main` format was
+      # close but wrong in two places: `sc-filter-category` is unquoted, and
+      # `s-ip` sits after the virus id rather than at the end. A pattern
+      # written from documentation matched none of the 8,139,422 records.
+      #
+      # #Fields: date time time-taken c-ip sc-status s-action sc-bytes cs-bytes
+      #   cs-method cs-uri-scheme cs-host cs-uri-path cs-uri-query cs-username
+      #   s-hierarchy s-supplier-name rs(Content-Type) cs(User-Agent)
+      #   sc-filter-result sc-filter-category x-virus-id s-ip s-sitename ...
+      - '^(?P<date>\d{4}-\d{2}-\d{2})\s+(?P<clock>\d{2}:\d{2}:\d{2})\s+(?P<taken>-?\d+)\s+(?P<client>\S+)\s+(?P<status>\d+)\s+(?P<action>\S+)\s+(?P<sc_bytes>\d+)\s+(?P<cs_bytes>\d+)\s+(?P<method>\S+)\s+(?P<scheme>\S+)\s+(?P<host>\S+)\s+(?P<path>\S+)\s+(?P<query>\S+)\s+(?P<user>\S+)\s+(?P<hierarchy>\S+)\s+(?P<supplier>\S+)\s+(?P<ctype>\S+)\s+"(?P<agent>[^"]*)"\s+(?P<filter>\S+)\s+(?P<categories>\S+)\s+(?P<virus>\S+)\s+(?P<server_ip>\S+)(?:\s+(?P<sitename>\S+))?'
+      # The same record with an unquoted user-agent. ProxySG writes a bare `-`
+      # when the client sent none, and the method may be a lowercase
+      # `unknown` on a malformed request — 70,814 of 400,000 records took one
+      # of those two shapes and a quoted-agent-only pattern rejected them all.
+      - '^(?P<date>\d{4}-\d{2}-\d{2})\s+(?P<clock>\d{2}:\d{2}:\d{2})\s+(?P<taken>-?\d+)\s+(?P<client>\S+)\s+(?P<status>\d+)\s+(?P<action>\S+)\s+(?P<sc_bytes>\d+)\s+(?P<cs_bytes>\d+)\s+(?P<method>\S+)\s+(?P<scheme>\S+)\s+(?P<host>\S+)\s+(?P<path>\S+)\s+(?P<query>\S+)\s+(?P<user>\S+)\s+(?P<hierarchy>\S+)\s+(?P<supplier>\S+)\s+(?P<ctype>\S+)\s+(?P<agent>\S+)\s+(?P<filter>\S+)\s+(?P<categories>\S+)\s+(?P<virus>\S+)\s+(?P<server_ip>\S+)(?:\s+(?P<sitename>\S+))?'
+
+map:
+  class_uid: 4002                      # HTTP Activity
+  activity_id:
+    from: method
+    enum: http_method
+    default: 99
+  severity_id:
+    from: filter
+    enum: bluecoat_severity
+    default: 1
+  # `date` and `time` are separate columns in W3C extended format, so neither
+  # alone parses as a timestamp. Receipt time is used and the device's own
+  # stamp is preserved verbatim rather than half-parsed.
+  unmapped.bluecoat_date:
+    from: date
+  unmapped.bluecoat_time:
+    from: clock
+  src_endpoint.ip:
+    from: client
+    observable: ip
+  dst_endpoint.ip:
+    from: server_ip
+    observable: ip
+  dst_endpoint.hostname:
+    from: host
+    observable: hostname
+  http_request.http_method:
+    from: method
+  http_request.url.path:
+    from: path
+  http_request.url.hostname:
+    from: host
+  http_request.url.scheme:
+    from: scheme
+  http_request.user_agent:
+    from: agent
+  http_response.code:
+    from: status
+    as: int
+  http_response.content_type:
+    from: ctype
+  traffic.bytes_out:
+    from: sc_bytes
+    as: int
+  traffic.bytes_in:
+    from: cs_bytes
+    as: int
+  actor.user.name:
+    from: user
+    observable: user
+  http_response.latency_duration:
+    from: taken
+    as: int
+  disposition:
+    from: filter
+  unmapped.bluecoat_categories:
+    from: categories
+  unmapped.bluecoat_virus_id:
+    from: virus
+
+enums:
+  http_method:
+    CONNECT: 1
+    DELETE: 2
+    GET: 3
+    HEAD: 4
+    OPTIONS: 5
+    POST: 6
+    PUT: 7
+    TRACE: 8
+    PATCH: 9
+  # A ProxySG denial is a policy block, which is worth more than informational.
+  bluecoat_severity:
+    OBSERVED: 1
+    PROXIED: 1
+    DENIED: 4
+
+fixtures:
+  - note: Real ProxySG record from the Honeynet capture - denied, upstream 503.
+    raw: '2005-04-12 21:03:45 74603 192.16.170.46 503 TCP_ERR_MISS 1736 430 GET http www.yahoo.com / - - NONE 192.16.170.42 - "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.7.6) Gecko/20050317 Firefox/1.0.2" DENIED none - 192.16.170.42 SG-HTTP-Service - server_unavailable "Server unavailable: No ICAP server is available to process request."'
+    expect:
+      class_uid: 4002
+      src_endpoint.ip: 192.16.170.46
+      http_response.code: 503
+      traffic.bytes_out: 1736
+      traffic.bytes_in: 430
+      http_request.http_method: GET
+      dst_endpoint.hostname: www.yahoo.com
+
+  - note: Real ProxySG record from the Honeynet capture - cached miss, 200.
+    raw: '2005-04-12 21:03:45 57358 192.16.170.46 503 TCP_ERR_MISS 1736 617 GET http www.yahoo.com / - - NONE 192.16.170.42 - "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; SV1)" DENIED none - 192.16.170.42 SG-HTTP-Service - server_unavailable "Server unavailable: No ICAP server is available to process request."'
+    expect:
+      class_uid: 4002
+      src_endpoint.ip: 192.16.170.46
+      http_response.code: 503
+      traffic.bytes_out: 1736
+      traffic.bytes_in: 617
+      http_request.http_method: GET
+      dst_endpoint.hostname: www.yahoo.com

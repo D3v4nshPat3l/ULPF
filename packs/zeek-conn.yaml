@@ -1,0 +1,131 @@
+# Zeek (formerly Bro) conn.log — network connection summaries.
+#
+# Zeek is the most widely deployed open-source network security monitor, and
+# `conn.log` is its core record: one line per connection with both endpoints,
+# byte and packet counts in each direction, and a connection-state field.
+# Tab-separated, so the CSV decoder handles it with an explicit delimiter and
+# a header list, which also demonstrates the positional path.
+#
+# Real data: SecRepo and the wrccdc PCAP archives both publish Zeek output, and
+# any public PCAP can be replayed through Zeek to produce more.
+identity:
+  id: zeek-conn
+  vendor: Zeek Project
+  product: Zeek Network Security Monitor
+  log_format: zeek-tsv
+  priority: 12
+  detect:
+    - contains_all: ["	"]
+      contains_any: ["ShAdDaFf", "SHR", "OTH", "S0", "SF", "REJ", "RSTO", "RSTR"]
+      contains_none: ["#fields", "#separator", "#types"]
+
+extract:
+  - decoder: csv
+    delim: "	"
+    headers:
+      - ts
+      - uid
+      - id.orig_h
+      - id.orig_p
+      - id.resp_h
+      - id.resp_p
+      - proto
+      - service
+      - duration
+      - orig_bytes
+      - resp_bytes
+      - conn_state
+      - local_orig
+      - local_resp
+      - missed_bytes
+      - history
+      - orig_pkts
+      - orig_ip_bytes
+      - resp_pkts
+      - resp_ip_bytes
+
+map:
+  class_uid: 4001                      # Network Activity
+  activity_id:
+    from: conn_state
+    enum: zeek_state
+    default: 6                         # Traffic
+  severity_id: 1
+  time:
+    from: ts
+    format: epoch_s
+  src_endpoint.ip:
+    from: id.orig_h
+    observable: ip
+  src_endpoint.port:
+    from: id.orig_p
+    as: int
+  dst_endpoint.ip:
+    from: id.resp_h
+    observable: ip
+  dst_endpoint.port:
+    from: id.resp_p
+    as: int
+  connection_info.protocol_name:
+    from: proto
+  connection_info.uid:
+    from: uid
+  app_name:
+    from: service
+  traffic.bytes_in:
+    from: resp_bytes
+    as: int
+  traffic.bytes_out:
+    from: orig_bytes
+    as: int
+  traffic.packets_in:
+    from: resp_pkts
+    as: int
+  traffic.packets_out:
+    from: orig_pkts
+    as: int
+  duration:
+    from: duration
+    as: int
+  unmapped.zeek_history:
+    from: history
+  unmapped.zeek_conn_state:
+    from: conn_state
+
+enums:
+  # Zeek conn_state values, from the Zeek conn.log documentation.
+  zeek_state:
+    S0: 4        # connection attempt, no reply -> Fail
+    S1: 1        # established, not terminated  -> Open
+    SF: 6        # normal establish and finish  -> Traffic
+    REJ: 5       # rejected                     -> Refuse
+    S2: 1
+    S3: 1
+    RSTO: 3      # originator sent RST          -> Reset
+    RSTR: 3      # responder sent RST           -> Reset
+    RSTOS0: 3
+    RSTRH: 3
+    SH: 2        # half-close                   -> Close
+    SHR: 2
+    OTH: 6
+
+fixtures:
+  - note: Zeek conn.log line - completed HTTP connection (tab separated).
+    raw: "1331901000.000000\tCwjjYJ2WqgTbAqiHl6\t192.168.1.50\t49180\t93.184.216.34\t80\ttcp\thttp\t0.229899\t525\t1841\tSF\t-\t-\t0\tShADadFf\t6\t847\t5\t2049"
+    expect:
+      class_uid: 4001
+      activity_id: 6
+      src_endpoint.ip: 192.168.1.50
+      src_endpoint.port: 49180
+      dst_endpoint.ip: 93.184.216.34
+      dst_endpoint.port: 80
+      connection_info.protocol_name: tcp
+      traffic.bytes_out: 525
+      traffic.bytes_in: 1841
+
+  - note: Zeek conn.log line - rejected connection.
+    raw: "1331901005.100000\tCXWv6p3arKYeMETxOg\t10.0.0.9\t51000\t10.0.0.200\t445\ttcp\t-\t0.000104\t0\t0\tREJ\t-\t-\t0\tSr\t1\t44\t1\t44"
+    expect:
+      class_uid: 4001
+      activity_id: 5
+      dst_endpoint.port: 445

@@ -1,0 +1,123 @@
+# pfSense / OPNsense `filterlog` — the pf packet filter's syslog output.
+#
+# pfSense is the most widely deployed open-source perimeter firewall, and
+# filterlog is a comma-separated field list carried inside a syslog envelope,
+# so the pack chains syslog then csv. The layout is positional and versioned;
+# fields 0-8 are stable across releases, and the IPv4 5-tuple sits at 8, 18-21.
+#
+# Being open source, real filterlog output can be produced from any pfSense
+# instance rather than taken from a vendor manual.
+identity:
+  id: pfsense-filterlog
+  vendor: Netgate
+  product: pfSense
+  log_format: syslog-filterlog
+  priority: 14
+  detect:
+    - contains_all: ["filterlog"]
+
+extract:
+  - decoder: syslog
+  - decoder: csv
+    headers:
+      - rule_number
+      - sub_rule
+      - anchor
+      - tracker
+      - interface
+      - reason
+      - action
+      - direction
+      - ip_version
+      - tos
+      - ecn
+      - ttl
+      - id
+      - offset
+      - flags
+      - proto_id
+      - proto
+      - length
+      - src_ip
+      - dst_ip
+      - src_port
+      - dst_port
+
+map:
+  class_uid: 4001                      # Network Activity
+  activity_id:
+    from: action
+    enum: pf_action
+    default: 6                         # Traffic
+  severity_id:
+    from: action
+    enum: pf_severity
+    default: 1
+  time:
+    from: syslog.timestamp
+    format: rfc3164
+  src_endpoint.ip:
+    from: src_ip
+    observable: ip
+  src_endpoint.port:
+    from: src_port
+    as: int
+  dst_endpoint.ip:
+    from: dst_ip
+    observable: ip
+  dst_endpoint.port:
+    from: dst_port
+    as: int
+  src_endpoint.interface_name:
+    from: interface
+  connection_info.protocol_name:
+    from: proto
+  connection_info.direction_id:
+    from: direction
+    enum: pf_direction
+    default: 0
+  traffic.bytes:
+    from: length
+    as: int
+  device.hostname:
+    from: syslog.hostname
+    observable: hostname
+  disposition:
+    from: action
+  firewall_rule.uid:
+    from: rule_number
+
+enums:
+  pf_action:
+    pass: 6                            # Traffic
+    block: 3                           # Reset - a filter drop
+    rdr: 6
+    nat: 6
+  pf_severity:
+    pass: 1
+    block: 4
+  pf_direction:
+    in: 1
+    out: 2
+
+fixtures:
+  - note: pfSense filterlog block, IPv4 TCP.
+    raw: '<134>Sep 22 10:15:04 fw-edge filterlog: 5,,,1000000103,igb0,match,block,in,4,0x0,,64,54321,0,DF,6,tcp,60,203.0.113.9,192.168.1.10,44321,22,0,S,1234567890,,29200,,mss;sackOK;TS'
+    expect:
+      class_uid: 4001
+      activity_id: 3
+      src_endpoint.ip: 203.0.113.9
+      dst_endpoint.ip: 192.168.1.10
+      src_endpoint.port: 44321
+      dst_endpoint.port: 22
+      disposition: block
+      severity_id: 4
+
+  - note: pfSense filterlog pass, IPv4 UDP.
+    raw: '<134>Sep 22 10:15:09 fw-edge filterlog: 12,,,1000000105,igb1,match,pass,out,4,0x0,,64,11111,0,DF,17,udp,76,192.168.1.20,8.8.8.8,51000,53,56'
+    expect:
+      class_uid: 4001
+      activity_id: 6
+      dst_endpoint.port: 53
+      connection_info.protocol_name: udp
+      disposition: pass

@@ -1,0 +1,78 @@
+# Microsoft Windows CBS (Component Based Servicing) logs.
+#
+# Written against the Loghub Windows corpus (114,608,388 real lines). CBS is
+# the servicing stack that installs, stages and removes Windows components, so
+# these records are software lifecycle events rather than security events —
+# OCSF Application Lifecycle is the honest class for them.
+#
+# Included because the problem statement's Background names operating systems
+# explicitly, and because it is the second-largest corpus available for
+# throughput work.
+identity:
+  id: windows-cbs-servicing
+  vendor: Microsoft
+  product: Windows CBS
+  log_format: windows-cbs
+  priority: 140
+  detect:
+    - contains_all: ["CBS"]
+      contains_any: ["Info", "Warning", "Error"]
+    - contains_all: ["CSI", "WcpInitialize"]
+
+extract:
+  - decoder: regex
+    patterns:
+      - '^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\s+(?P<level>\w+)\s+(?P<component>\w+)\s+(?P<detail>.*)$'
+  - decoder: regex
+    optional: true
+    patterns:
+      # Captured as a token because an enum matches the whole value, not a
+      # substring of the free-text detail.
+      - '(?P<action>Loaded Servicing Stack|Starting TrustedInstaller|Ending TrustedInstaller|Shutdown|Reboot)'
+
+map:
+  class_uid: 6002                      # Application Lifecycle
+  activity_id:
+    from: action
+    enum: cbs_activity
+    default: 8                         # Update - CBS exists to service components
+  severity_id:
+    from: level
+    enum: cbs_level
+    default: 1
+  time:
+    from: ts
+    format: date_time
+  message:
+    from: detail
+  app_name:
+    from: component
+  product.name: Windows CBS
+  product.vendor_name: Microsoft
+
+enums:
+  cbs_activity:
+    "Loaded Servicing Stack": 3        # Start
+    "Starting TrustedInstaller": 3
+    "Ending TrustedInstaller": 4       # Stop
+    "Shutdown": 4
+    "Reboot": 5                        # Restart
+  cbs_level:
+    Info: 1
+    Warning: 4
+    Error: 5
+
+fixtures:
+  - note: Real Loghub Windows line - servicing stack loaded.
+    raw: '2016-09-28 04:30:30, Info                  CBS    Loaded Servicing Stack v6.1.7601.23505 with Core: C:\Windows\winsxs\amd64_microsoft-windows-servicingstack_31bf3856ad364e35_6.1.7601.23505_none_681aa442f6fed7f0\cbscore.dll'
+    expect:
+      class_uid: 6002
+      activity_id: 3
+      severity_id: 1
+      app_name: CBS
+
+  - note: Real Loghub Windows line - CSI component initialise.
+    raw: '2016-09-28 04:30:31, Info                  CSI    00000001@2016/9/27:20:30:31.455 WcpInitialize (wcp.dll version 0.0.0.6) called (stack @0x7fed806eb5d @0x7fef9fb9b6d @0x7fef9f8358f @0xff83e97c @0xff83d799 @0xff83db2f)'
+    expect:
+      class_uid: 6002
+      app_name: CSI

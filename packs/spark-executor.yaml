@@ -1,0 +1,77 @@
+# Apache Spark driver and executor logs.
+#
+# Written against the Loghub Spark corpus (33,236,604 real lines — the third
+# largest corpus available, and useful for sustained-rate testing).
+#
+# The timestamp is `yy/MM/dd HH:mm:ss`, a two-digit year that none of ULPF's
+# time formats parse. The pack deliberately leaves `time` unmapped rather than
+# guessing a century; receipt time is substituted and the original stamp is
+# preserved in `unmapped`.
+identity:
+  id: spark-executor
+  vendor: Apache
+  product: Spark
+  log_format: spark-log4j
+  priority: 136
+  detect:
+    # Spark writes `<package>.<Class>: message`. Keying on package prefixes
+    # covers the long tail of classes; an enumerated class list claimed 29%.
+    - contains_any: ["executor.", "storage.", "spark.", "python.", "broadcast.",
+                     "scheduler.", "memory.", "output.", "rdd.", "util.",
+                     "network.", "client.", "yarn.", "shuffle.", "sql."]
+      contains_none: ["CEF:", "LEEF:", "org.apache.hadoop", "org.apache.zookeeper"]
+
+extract:
+  - decoder: regex
+    patterns:
+      - '^(?P<ts>\d{2}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\s+(?P<level>[A-Z]+)\s+(?P<component>\S+?):\s+(?P<detail>(?P<body>.*))$'
+  - decoder: regex
+    optional: true
+    patterns:
+      - '(?P<op>Registered|Starting|Started|Stopping|Stopped|Registering|Connecting|Successfully)'
+
+map:
+  class_uid: 6002                      # Application Lifecycle
+  activity_id:
+    from: op
+    enum: spark_activity
+    default: 3                         # Start
+  severity_id:
+    from: level
+    enum: spark_level
+    default: 1
+  message:
+    from: detail
+  app_name:
+    from: component
+  unmapped.spark_original_time:
+    from: ts
+
+enums:
+  spark_activity:
+    Starting: 3
+    Started: 3
+    Registered: 3
+    Registering: 3
+    Connecting: 3
+    Successfully: 3
+    Stopping: 4
+    Stopped: 4
+  spark_level:
+    INFO: 1
+    WARN: 4
+    ERROR: 5
+
+fixtures:
+  - note: Real Loghub Spark line - executor backend registering signal handlers.
+    raw: '17/06/09 20:10:40 INFO executor.CoarseGrainedExecutorBackend: Registered signal handlers for [TERM, HUP, INT]'
+    expect:
+      class_uid: 6002
+      activity_id: 3
+      app_name: executor.CoarseGrainedExecutorBackend
+
+  - note: Real Loghub Spark line - security manager ACL change.
+    raw: '17/06/09 20:10:40 INFO spark.SecurityManager: Changing view acls to: yarn,curi'
+    expect:
+      class_uid: 6002
+      app_name: spark.SecurityManager

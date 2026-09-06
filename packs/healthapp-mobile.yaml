@@ -1,0 +1,55 @@
+# HealthApp mobile application telemetry.
+#
+# Written against the Loghub HealthApp corpus (253,395 real lines). A
+# pipe-delimited application log with no syslog envelope and no key=value body,
+# which is exactly the shape the CSV decoder handles positionally.
+#
+# The timestamp is `yyyyMMdd-HH:mm:ss:SSS`, which no ULPF time format parses, so
+# `time` is left to receipt time and the original is preserved in `unmapped`.
+identity:
+  id: healthapp-mobile
+  vendor: Huawei
+  product: HealthApp
+  log_format: pipe-delimited
+  priority: 158
+  detect:
+    - contains_any: ["Step_LSC", "Step_SPUtils", "Step_StandReportReceiver",
+                     "Step_ExtSDM", "Step_StandStepCounter", "Step_LSC|"]
+
+extract:
+  - decoder: csv
+    delim: "|"
+    headers:
+      - stamp
+      - component
+      - pid
+      - detail
+
+map:
+  class_uid: 6003                      # API Activity
+  activity_id: 2                       # Read
+  severity_id: 1
+  message:
+    from: detail
+  app_name:
+    from: component
+  actor.process.pid:
+    from: pid
+    as: int
+  unmapped.healthapp_original_time:
+    from: stamp
+
+fixtures:
+  - note: Real Loghub HealthApp line - stand step change callback.
+    raw: '20171223-22:15:29:606|Step_LSC|30002312|onStandStepChanged 3579'
+    expect:
+      class_uid: 6003
+      app_name: Step_LSC
+      actor.process.pid: 30002312
+      message: onStandStepChanged 3579
+
+  - note: Real Loghub HealthApp line - extend callback.
+    raw: '20171223-22:15:29:615|Step_LSC|30002312|onExtend:1514038530000 14 0 4'
+    expect:
+      class_uid: 6003
+      app_name: Step_LSC

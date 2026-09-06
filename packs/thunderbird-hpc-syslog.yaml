@@ -1,0 +1,99 @@
+# Thunderbird supercomputer syslog (Sandia National Laboratories).
+#
+# Written against the Loghub Thunderbird corpus (211,212,192 real lines — the
+# largest public log corpus we are aware of, and the one used for throughput
+# work at scale).
+#
+# Each line is a Loghub alert-label prefix followed by an ordinary RFC 3164
+# syslog record. The pack strips the prefix with a regex and hands the syslog
+# remainder to the syslog decoder, which is exactly the composition the decoder
+# chain exists for.
+identity:
+  id: thunderbird-hpc-syslog
+  vendor: Sandia National Laboratories
+  product: Thunderbird HPC Cluster
+  log_format: loghub-syslog
+  priority: 115
+  detect:
+    # The Loghub prefix is `<label> <epoch> <yyyy.mm.dd> <host> `, and every
+    # line carries a `daemon[pid]:` tag after it. Keying on pam_unix alone
+    # claimed 36% of the corpus; gmetad and ntpd are the dominant daemons.
+    #
+    # `(pam_unix)` on its own is NOT enough: ordinary Linux syslog contains it
+    # too, and an earlier version of this detector claimed 853 lines of the
+    # Honeynet and Loghub Linux corpora and then failed to extract them,
+    # dropping their coverage from 94% to 19%. Every detector below therefore
+    # also requires a Thunderbird host marker — `tbird-`, or the `host/host`
+    # duplication this corpus writes for compute, boot and display nodes.
+    - contains_all: ["tbird-"]
+    - contains_all: ["(pam_unix)"]
+      contains_any: ["/cn", "/bn", "/dn", "tbird-"]
+    - contains_all: ["ntpd["]
+      contains_any: ["/cn", "/bn", "/dn"]
+
+extract:
+  - decoder: regex
+    patterns:
+      - '^(?P<label>\S+)\s+(?P<epoch>\d{10})\s+(?P<date>[\d.]+)\s+(?P<host>\S+)\s+(?P<body>.*)$'
+  - decoder: regex
+    optional: true
+    patterns:
+      - '(?P<component>\S+)\((?P<module>pam_unix)\)\[(?P<pid>\d+)\]:\s+session (?P<action>opened|closed) for user (?P<user>\S+)'
+      - '(?P<component>[\w./-]+)\[(?P<pid>\d+)\]:\s+(?P<detail>.*)$'
+      - '(?P<component>[\w./-]+):\s+(?P<detail>.*)$'
+
+map:
+  # A pack is not restricted to one event class. `pam_unix` lines are genuine
+  # authentication events; the rest of the corpus is daemon chatter, and
+  # calling all of it Authentication would be a lie the schema cannot catch.
+  class_uid:
+    from: module
+    enum: tbird_class
+    default: 6002                      # Application Lifecycle
+  activity_id:
+    from: action
+    enum: tbird_action
+    default: 0                         # Unknown
+  severity_id: 1
+  time:
+    from: epoch
+    format: epoch_s
+  device.hostname:
+    from: host
+    observable: hostname
+  actor.user.name:
+    from: user
+    observable: user
+  app_name:
+    from: component
+  actor.process.pid:
+    from: pid
+    as: int
+  auth_protocol:
+    from: module
+  unmapped.tbird_alert_label:
+    from: label
+
+enums:
+  tbird_class:
+    pam_unix: 3002                     # Authentication
+  tbird_action:
+    opened: 1                          # Logon
+    closed: 2                          # Logoff
+
+fixtures:
+  - note: Real Loghub Thunderbird line - PAM session closed.
+    raw: '- 1131566461 2005.11.09 dn228 Nov 9 12:01:01 dn228/dn228 crond(pam_unix)[2915]: session closed for user root'
+    expect:
+      class_uid: 3002
+      activity_id: 2
+      actor.user.name: root
+      device.hostname: dn228
+      actor.process.pid: 2915
+
+  - note: Real Loghub Thunderbird line - PAM session opened.
+    raw: '- 1131566461 2005.11.09 dn228 Nov 9 12:01:01 dn228/dn228 crond(pam_unix)[2915]: session opened for user root by (uid=0)'
+    expect:
+      class_uid: 3002
+      activity_id: 1
+      actor.user.name: root

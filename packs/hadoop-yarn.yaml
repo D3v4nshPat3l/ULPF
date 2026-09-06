@@ -1,0 +1,68 @@
+# Apache Hadoop YARN / MapReduce application logs (log4j).
+#
+# Written against the Loghub Hadoop corpus (394,308 real lines). Container
+# allocation, task attempts and RPC retries are control-plane operations on a
+# distributed job, which OCSF API Activity describes.
+identity:
+  id: hadoop-yarn
+  vendor: Apache
+  product: Hadoop YARN
+  log_format: log4j
+  priority: 135
+  detect:
+    - contains_all: ["org.apache.hadoop"]
+
+extract:
+  - decoder: regex
+    patterns:
+      - '^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),(?P<millis>\d+)\s+(?P<level>[A-Z]+)\s+\[(?P<thread>.+?)\]\s+(?P<component>\S+?):\s+(?P<detail>(?P<body>.*))$'
+  - decoder: regex
+    optional: true
+    patterns:
+      - '(?P<op>Created|Executing|Assigning|Released|Killing|Completed|Failed|Retrying)'
+
+map:
+  class_uid: 6003                      # API Activity
+  activity_id:
+    from: op
+    enum: yarn_activity
+    default: 2                         # Read
+  severity_id:
+    from: level
+    enum: yarn_level
+    default: 1
+  time:
+    from: ts
+    format: date_time
+  message:
+    from: detail
+  app_name:
+    from: component
+  unmapped.yarn_thread:
+    from: thread
+
+enums:
+  yarn_activity:
+    Created: 1
+    Assigning: 1
+    Executing: 2
+    Retrying: 2
+    Completed: 3
+    Killing: 4
+    Released: 4
+    Failed: 3
+  yarn_level:
+    DEBUG: 1
+    INFO: 1
+    WARN: 4
+    ERROR: 5
+    FATAL: 6
+
+fixtures:
+  - note: Real Loghub Hadoop line - MRAppMaster created.
+    raw: '2015-10-18 18:01:47,978 INFO [main] org.apache.hadoop.mapreduce.v2.app.MRAppMaster: Created MRAppMaster for application appattempt_1445144423722_0020_000001'
+    expect:
+      class_uid: 6003
+      activity_id: 1
+      severity_id: 1
+      app_name: org.apache.hadoop.mapreduce.v2.app.MRAppMaster

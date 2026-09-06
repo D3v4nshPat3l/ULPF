@@ -1,0 +1,89 @@
+# Apache ZooKeeper server logs.
+#
+# Written against the Loghub ZooKeeper corpus (74,380 real lines). ZooKeeper's
+# quorum traffic is genuinely network activity — leader election, peer
+# connection requests, socket errors — and carries real IP:port pairs, so it
+# maps to OCSF Network Activity rather than to a generic application class.
+identity:
+  id: zookeeper-server
+  vendor: Apache
+  product: ZooKeeper
+  log_format: log4j
+  priority: 130
+  detect:
+    - contains_all: ["org.apache.zookeeper"]
+    - contains_all: ["QuorumPeer", "FastLeaderElection"]
+    - contains_all: ["QuorumCnxManager"]
+
+extract:
+  - decoder: regex
+    patterns:
+      # The thread field nests brackets — `[QuorumPeer[myid=1]/...]` — so the
+      # thread group must be greedy to reach the final `]`. `body` narrows what
+      # the next step sees to the message text, which is why the peer address
+      # below is the one in the message and not the listener port in the thread.
+      - '^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),(?P<millis>\d+)\s+-\s+(?P<level>[A-Z]+)\s+\[(?P<thread>.+)\]\s+-\s+(?P<detail>(?P<body>.*))$'
+  - decoder: regex
+    optional: true
+    patterns:
+      - '(?P<action>Received connection request|Notification time out|Connection broken|closing socket connection|Interrupting SendWorker)'
+  # A separate step, not another alternative: a regex step returns on its first
+  # matching pattern, so an action and an address must be two steps to extract
+  # both from one line.
+  - decoder: regex
+    optional: true
+    patterns:
+      - '/(?P<peer_ip>\d+\.\d+\.\d+\.\d+):(?P<peer_port>\d+)'
+
+map:
+  class_uid: 4001                      # Network Activity
+  activity_id:
+    from: action
+    enum: zk_activity
+    default: 6                         # Traffic
+  severity_id:
+    from: level
+    enum: zk_level
+    default: 1
+  time:
+    from: ts
+    format: date_time
+  message:
+    from: detail
+  src_endpoint.ip:
+    from: peer_ip
+    observable: ip
+  src_endpoint.port:
+    from: peer_port
+    as: int
+  app_name: ZooKeeper
+  unmapped.zk_thread:
+    from: thread
+
+enums:
+  zk_activity:
+    "Received connection request": 1   # Open
+    "Notification time out": 4         # Fail
+    "Connection broken": 3             # Reset
+    "closing socket connection": 2     # Close
+    "Interrupting SendWorker": 3
+  zk_level:
+    INFO: 1
+    WARN: 4
+    ERROR: 5
+    FATAL: 6
+
+fixtures:
+  - note: Real Loghub ZooKeeper line - leader election timeout.
+    raw: '2015-07-29 17:41:44,747 - INFO  [QuorumPeer[myid=1]/0:0:0:0:0:0:0:0:2181:FastLeaderElection@774] - Notification time out: 3200'
+    expect:
+      class_uid: 4001
+      severity_id: 1
+      message: 'Notification time out: 3200'
+
+  - note: Real Loghub ZooKeeper line - peer connection request with IP and port.
+    raw: '2015-07-29 19:04:12,394 - INFO  [/10.10.34.11:3888:QuorumCnxManager$Listener@493] - Received connection request /10.10.34.11:45307'
+    expect:
+      class_uid: 4001
+      src_endpoint.ip: 10.10.34.11
+      src_endpoint.port: 45307

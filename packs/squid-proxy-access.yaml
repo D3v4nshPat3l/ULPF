@@ -16,7 +16,12 @@ identity:
 extract:
   - decoder: regex
     patterns:
-      - '^\s*(?P<timestamp>[\d.]+)\s+(?P<elapsed>\d+)\s+(?P<client>[\d.]+)\s+(?P<result_code>\w+)/(?P<http_status>\d+)\s+(?P<size>\d+)\s+(?P<method>\w+)\s+(?P<url>\S+)\s+(?P<user>\S+)\s+(?P<hierarchy>\w+)/(?P<peer>\S+)\s+(?P<content_type>\S+)'
+      # The client field is an address only when Squid is not resolving
+      # names. The Honeynet capture (533,197 records) is mostly reverse-resolved
+      # hostnames like `cpe-024-211-099-189.sc.res.rr.com`, which an
+      # address-only pattern rejected outright.
+      - '^\s*(?P<timestamp>[\d.]+)\s+(?P<elapsed>-?\d+)\s+(?P<client>[\w.:-]+)\s+(?P<result_code>[A-Z_]+)/(?P<http_status>\d+)\s+(?P<size>\d+)\s+(?P<method>[A-Z_]+)\s+(?P<url>\S+)\s+(?P<user>\S+)\s+(?P<hierarchy>[A-Z_]+)/(?P<peer>\S+)\s+(?P<content_type>\S+)'
+      - '^\s*(?P<timestamp>[\d.]+)\s+(?P<elapsed>-?\d+)\s+(?P<client>[\w.:-]+)\s+(?P<result_code>[A-Z_]+)/(?P<http_status>\d+)\s+(?P<size>\d+)\s+(?P<method>[A-Z_]+)\s+(?P<url>\S+)'
 
 map:
   class_uid: 4002                      # HTTP Activity
@@ -30,6 +35,8 @@ map:
     format: epoch_s
   message:
     from: result_code
+  # Either an address or a reverse-resolved name, depending on how the proxy
+  # is configured. Both are mapped; only one is present on a given record.
   src_endpoint.ip:
     from: client
     observable: ip

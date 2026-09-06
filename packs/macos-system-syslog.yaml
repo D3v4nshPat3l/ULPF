@@ -1,0 +1,58 @@
+# macOS system.log (Apple System Log, RFC 3164 shaped).
+#
+# Written against the Loghub Mac corpus (117,283 real lines from a university
+# fleet). Ordinary syslog framing, but the tags are Apple subsystems —
+# `kernel[0]`, `com.apple.CDScheduler[43]`, `sandboxd[129]` — and the generic
+# Linux syslog pack claimed only 1% of the corpus because its detector expects
+# Linux daemon names.
+identity:
+  id: macos-system-syslog
+  vendor: Apple
+  product: macOS
+  log_format: syslog-asl
+  priority: 150
+  detect:
+    - contains_any: ["com.apple.", "kernel[0]:", "sandboxd[", "QQ[", "corecaptured[",
+                     "symptomsd[", "locationd[", "Console[", "airportd["]
+
+extract:
+  - decoder: syslog
+  - decoder: regex
+    optional: true
+    patterns:
+      - '^(?P<component>[\w.\-]+)\[(?P<pid>\d+)\]:\s+(?P<detail>.*)$'
+      - '^(?P<detail>.*)$'
+
+map:
+  class_uid: 6002                      # Application Lifecycle
+  activity_id: 3                       # Start - a subsystem reporting in
+  severity_id: 1
+  time:
+    from: syslog.timestamp
+    format: rfc3164
+  device.hostname:
+    from: syslog.hostname
+    observable: hostname
+  app_name:
+    from: [component, syslog.appname]
+  actor.process.pid:
+    from: [pid, syslog.procid]
+    as: int
+  message:
+    from: detail
+
+fixtures:
+  - note: Real Loghub Mac line - Thunderbolt kernel message.
+    raw: 'Jul  1 09:00:55 calvisitor-10-105-160-95 kernel[0]: IOThunderboltSwitch<0>(0x0)::listenerCallback - Thunderbolt HPD packet for route = 0x0 port = 11 unplug = 0'
+    expect:
+      class_uid: 6002
+      device.hostname: calvisitor-10-105-160-95
+      app_name: kernel
+      actor.process.pid: 0
+
+  - note: Real Loghub Mac line - CDScheduler thermal pressure.
+    raw: 'Jul  1 09:01:05 calvisitor-10-105-160-95 com.apple.CDScheduler[43]: Thermal pressure state: 1 Memory pressure state: 0'
+    expect:
+      class_uid: 6002
+      app_name: com.apple.CDScheduler
+      actor.process.pid: 43

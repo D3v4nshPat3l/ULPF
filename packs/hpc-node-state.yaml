@@ -1,0 +1,77 @@
+# High-performance cluster node/component state changes (Los Alamos HPC).
+#
+# Written against the Loghub HPC corpus (433,489 real lines). Every record is a
+# hardware component changing state, which is what OCSF Device Config State
+# describes — not a network or application event.
+identity:
+  id: hpc-node-state
+  vendor: Los Alamos National Laboratory
+  product: HPC Cluster
+  log_format: hpc-state
+  priority: 145
+  detect:
+    # Every record names a node as `node-NNN` in field two. An earlier version
+    # keyed on `state_change.`/`unix.hw` — two of six subsystems and one of
+    # five event families — so it claimed 5% of its own corpus.
+    # One detector, not two: detectors are OR-ed, so `node-` on its own line
+    # claimed any record containing that substring anywhere.
+    # Two record shapes: most name the node as `node-NNN`, but boot and
+    # scheduler records carry a bare numeric id instead, so requiring `node-`
+    # dropped 1,080 of 2,000. The subsystem tokens are distinctive enough to
+    # claim on their own; `node-` is kept as a second detector for the
+    # subsystems not enumerated here.
+    - contains_any: ["unix.hw", "switch_module", "clusterfilesystem", "gige",
+                     "boot_cmd", "monitor_", "state_change.", "net.niff"]
+    - contains_all: ["node-"]
+      contains_any: ["node ", "action ", "psu", "temperature"]
+
+extract:
+  - decoder: regex
+    patterns:
+      - '^(?P<record_id>\d+)\s+(?P<node>\S+)\s+(?P<subsystem>\S+)\s+(?P<state_event>state_change\.(?P<state>\w+))\s+(?P<epoch>\d+)\s+(?P<flag>\d+)\s+(?P<detail>.*)$'
+      - '^(?P<record_id>\d+)\s+(?P<node>\S+)\s+(?P<subsystem>\S+)\s+(?P<state_event>\S+)\s+(?P<epoch>\d+)\s+(?P<flag>\d+)\s+(?P<detail>.*)$'
+
+map:
+  class_uid: 5002                      # Device Config State
+  activity_id: 0                       # Unknown - the class has no activity enum
+  severity_id:
+    from: state
+    enum: hpc_severity
+    default: 1
+  time:
+    from: epoch
+    format: epoch_s
+  device.hostname:
+    from: node
+    observable: hostname
+  device.uid:
+    from: record_id
+  message:
+    from: detail
+  app_name:
+    from: subsystem
+  unmapped.hpc_state:
+    from: state
+
+enums:
+  hpc_severity:
+    unavailable: 4
+    available: 1
+    down: 5
+    up: 1
+
+fixtures:
+  - note: Real Loghub HPC line - SCSI component unavailable.
+    raw: '134681 node-246 unix.hw state_change.unavailable 1077804742 1 Component State Change: Component \042SCSI-WWID:01000010:6005-08b4-0001-00c6-0006-3000-003d-0000\042 is in the unavailable state (HWID=1973)'
+    expect:
+      class_uid: 5002
+      severity_id: 4
+      device.hostname: node-246
+      app_name: unix.hw
+      device.uid: "134681"
+
+  - note: Real Loghub HPC line - alt0 interface unavailable.
+    raw: '350766 node-109 unix.hw state_change.unavailable 1084680778 1 Component State Change: Component \042alt0\042 is in the unavailable state (HWID=3180)'
+    expect:
+      class_uid: 5002
+      device.hostname: node-109

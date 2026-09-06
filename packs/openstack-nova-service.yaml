@@ -1,0 +1,82 @@
+# OpenStack Nova compute, scheduler and image-cache service logs.
+#
+# The sibling pack `openstack-nova-api` handles the WSGI request records, which
+# are genuine HTTP transactions. This one handles everything else in the corpus
+# — compute.manager, virt.libvirt.imagecache, compute.claims — which are
+# service operations rather than requests, and together are the majority of the
+# 207,820-line Loghub OpenStack corpus.
+identity:
+  id: openstack-nova-service
+  vendor: OpenStack
+  product: Nova
+  log_format: openstack-oslo
+  priority: 126
+  detect:
+    - contains_any: ["nova.compute.manager", "nova.virt.libvirt.imagecache",
+                     "nova.compute.claims", "nova.compute.resource_tracker",
+                     "nova.scheduler", "nova.metadata.wsgi.server",
+                     "nova.virt.libvirt.driver"]
+
+extract:
+  - decoder: regex
+    patterns:
+      - '^(?P<logfile>\S+)\s+(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\.(?P<frac>\d+)\s+(?P<pid>\d+)\s+(?P<level>[A-Z]+)\s+(?P<component>\S+)\s+\[(?P<req>[^\]]*)\]\s+(?P<detail>(?P<body>.*))$'
+  - decoder: regex
+    optional: true
+    patterns:
+      - '(?P<op>Took|Removing|Creating|Deleting|Attempting claim|Claim successful|Started|Terminating|Rebuilding)'
+  - decoder: regex
+    optional: true
+    patterns:
+      - '\[instance: (?P<instance>[0-9a-f-]+)\]'
+
+map:
+  class_uid: 6003                      # API Activity
+  activity_id:
+    from: op
+    enum: nova_activity
+    default: 2                         # Read
+  severity_id:
+    from: level
+    enum: nova_level
+    default: 1
+  time:
+    from: ts
+    format: date_time
+  message:
+    from: detail
+  app_name:
+    from: component
+  actor.process.pid:
+    from: pid
+    as: int
+  resource.uid:
+    from: instance
+  unmapped.nova_request_id:
+    from: req
+
+enums:
+  nova_activity:
+    Creating: 1
+    "Attempting claim": 1
+    "Claim successful": 1
+    Started: 1
+    Took: 2
+    Rebuilding: 3
+    Removing: 4
+    Deleting: 4
+    Terminating: 4
+  nova_level:
+    INFO: 1
+    WARNING: 4
+    ERROR: 5
+    CRITICAL: 6
+
+fixtures:
+  - note: Real Loghub OpenStack line - libvirt image cache scan.
+    raw: 'nova-compute.log.1.2017-05-16_13:55:31 2017-05-16 00:00:04.500 2931 INFO nova.virt.libvirt.imagecache [req-addc1839-2ed5-4778-b57e-5854eb7b8b09 - - - - -] image 0673dd71-34c5-4fbb-86c4-40623fbe45b4 at (/var/lib/nova/instances/_base/a489c868f0c37da93b76227c91bb03908ac0e742): checking'
+    expect:
+      class_uid: 6003
+      severity_id: 1
+      app_name: nova.virt.libvirt.imagecache
+      actor.process.pid: 2931
