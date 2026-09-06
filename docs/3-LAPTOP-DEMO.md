@@ -85,7 +85,7 @@ cargo test --workspace --release --locked
 ./target/release/ulpf test --packs packs
 ```
 
-Expect `18 packs · 37/37 fixtures passed · 100.0% field accuracy`.
+Expect `35 packs · 67/67 fixtures passed · 100.0% field accuracy`.
 
 > **Windows note.** If `cargo build` fails with
 > `autocfg ... output path is not a writable directory`, the repository is
@@ -289,6 +289,12 @@ rewritten under an old proof:
 
 Paste an invented device format into **Event inspector** and normalize it. It
 lands as *needs a pack* — still vaulted, still fingerprinted, still valid OCSF.
+
+Point at its `observables` before moving on. Even with no pack, ULPF has pulled
+the addresses, ports and hostnames out of a format it has never seen, so the
+record is already searchable by the things an investigation pivots on. That is
+the honest answer to "what happens to a device nobody has onboarded", and it
+happens with no model and no network.
 
 Go to **Needs a pack**: it has been clustered by template. Press **Heuristic**
 — no model, no GPU, works air-gapped — and a candidate pack appears with its

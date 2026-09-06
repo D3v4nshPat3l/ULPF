@@ -157,6 +157,21 @@ impl Pipeline {
             event.set_unmapped("ulpf_reason", serde_json::json!(reason));
         }
 
+        // A pack claiming a record is not the same as a pack understanding it.
+        // A broad fallback — generic syslog, generic CEF — matches almost any
+        // line of its shape and maps almost nothing from it, and because it
+        // *succeeded* the record was never routed to salvage. Removing the
+        // iptables pack showed this plainly: the generic syslog pack claimed
+        // 100% of the corpus, emitted a single hostname observable, and a
+        // firewall log full of addresses stayed unsearchable while reporting
+        // full coverage.
+        //
+        // So salvage runs on every record, and adds only indicators the pack
+        // did not already name. A threshold — "fewer than N observables" —
+        // would be a number to defend with nothing behind it; deduplication
+        // needs no threshold and cannot discard a pack's own mapping.
+        salvage_into(&mut event, raw);
+
         // Stage 3: attest, linking this event to its predecessor.
         self.attestor.attest(&mut event)?;
 
@@ -195,28 +210,7 @@ impl Pipeline {
             .raw(raw, Fingerprint::over_raw(self.hash, raw))
             .build()?;
 
-        // Salvage extraction. Without it an unidentified record carried its raw
-        // text and nothing else: countable and retrievable, but invisible to an
-        // analyst hunting an address, because no field held one. Pulling the
-        // entities out of arbitrary text makes a record from a device nobody
-        // has written a pack for searchable on the things investigations
-        // actually pivot on.
-        //
-        // Deliberately only `observables`: this says an address is present, it
-        // does not claim the address is the source. A wrong `src_endpoint.ip`
-        // is worse than an absent one, because a detection rule acts on it.
-        let text = String::from_utf8_lossy(raw);
-        let salvaged = ulpf_decode::salvage::salvage(&text);
-        if !salvaged.is_empty() {
-            event.set_unmapped("ulpf_salvaged_count", serde_json::json!(salvaged.len()));
-            for item in salvaged {
-                event.push_observable(Observable {
-                    name: "raw_data".to_string(),
-                    type_id: item.type_id,
-                    value: Some(item.value),
-                });
-            }
-        }
+        salvage_into(&mut event, raw);
         Ok(event)
     }
 
@@ -271,5 +265,54 @@ fn failure_reason(d: &Disposition) -> Option<&str> {
         Disposition::ExtractFailed { reason, .. } | Disposition::NormalizeFailed { reason, .. } => {
             Some(reason)
         }
+    }
+}
+
+/// Indicators the event already names, as (type_id, value).
+fn existing_observables(event: &OcsfEvent) -> std::collections::HashSet<(u64, String)> {
+    event
+        .as_map()
+        .get("observables")
+        .and_then(|v| v.as_array())
+        .map(|array| {
+            array
+                .iter()
+                .filter_map(|o| {
+                    Some((
+                        o.get("type_id")?.as_u64()?,
+                        o.get("value")?.as_str()?.to_string(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Recover indicators from arbitrary text and attach them as observables.
+///
+/// Deliberately only `observables`: this says an address is present, it does
+/// not claim the address is the source. A wrong `src_endpoint.ip` is worse
+/// than an absent one, because a detection rule acts on it.
+fn salvage_into(event: &mut OcsfEvent, raw: &[u8]) {
+    let text = String::from_utf8_lossy(raw);
+    let salvaged = ulpf_decode::salvage::salvage(&text);
+    if salvaged.is_empty() {
+        return;
+    }
+    let already = existing_observables(event);
+    let mut added = 0usize;
+    for item in salvaged {
+        if already.contains(&(u64::from(item.type_id), item.value.clone())) {
+            continue;
+        }
+        event.push_observable(Observable {
+            name: "raw_data".to_string(),
+            type_id: item.type_id,
+            value: Some(item.value),
+        });
+        added += 1;
+    }
+    if added > 0 {
+        event.set_unmapped("ulpf_salvaged_count", serde_json::json!(added));
     }
 }
