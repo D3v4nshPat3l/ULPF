@@ -21,6 +21,7 @@ pub mod json;
 pub mod keyvalue;
 pub mod leef;
 pub mod regex_dec;
+pub mod salvage;
 pub mod syslog;
 pub mod xml;
 

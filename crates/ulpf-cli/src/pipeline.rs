@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use ulpf_core::{Disposition, Envelope, RawRef};
 use ulpf_ocsf::event::{EventBuilder, OcsfEvent};
-use ulpf_ocsf::types::{Fingerprint, HashAlgorithm, Metadata, Product, Severity};
+use ulpf_ocsf::types::{Fingerprint, HashAlgorithm, Metadata, Observable, Product, Severity};
 use ulpf_ocsf::{Attestor, SCHEMA_VERSION};
 use ulpf_pack::{NormalizeCtx, PackLibrary};
 use ulpf_vault::VaultWriter;
@@ -186,14 +186,38 @@ impl Pipeline {
         metadata.logged_time = Some(envelope.received_at);
         metadata.log_format = Some("unknown".to_string());
 
-        Ok(EventBuilder::new()
+        let mut event = EventBuilder::new()
             .class(ulpf_ocsf::class::NETWORK_ACTIVITY)
             .activity(ulpf_ocsf::network_activity::UNKNOWN)
             .time(envelope.received_at)
             .severity(Severity::Informational)
             .metadata(metadata)
             .raw(raw, Fingerprint::over_raw(self.hash, raw))
-            .build()?)
+            .build()?;
+
+        // Salvage extraction. Without it an unidentified record carried its raw
+        // text and nothing else: countable and retrievable, but invisible to an
+        // analyst hunting an address, because no field held one. Pulling the
+        // entities out of arbitrary text makes a record from a device nobody
+        // has written a pack for searchable on the things investigations
+        // actually pivot on.
+        //
+        // Deliberately only `observables`: this says an address is present, it
+        // does not claim the address is the source. A wrong `src_endpoint.ip`
+        // is worse than an absent one, because a detection rule acts on it.
+        let text = String::from_utf8_lossy(raw);
+        let salvaged = ulpf_decode::salvage::salvage(&text);
+        if !salvaged.is_empty() {
+            event.set_unmapped("ulpf_salvaged_count", serde_json::json!(salvaged.len()));
+            for item in salvaged {
+                event.push_observable(Observable {
+                    name: "raw_data".to_string(),
+                    type_id: item.type_id,
+                    value: Some(item.value),
+                });
+            }
+        }
+        Ok(event)
     }
 
     /// Flush the vault so everything appended so far is retrievable, and
