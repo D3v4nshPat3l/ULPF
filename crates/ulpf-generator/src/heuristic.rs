@@ -110,9 +110,10 @@ pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
         // One fixture per sample line. Using the whole multi-line blob as a
         // single fixture produced something that could never parse as one
         // event, so the candidate always scored zero.
-        fixtures: samples
+        // The three most *different* samples, not the first three. A pack
+        // drafted from three near-identical adjacent lines learns one shape.
+        fixtures: crate::sampler::diverse_samples(&samples, 3)
             .iter()
-            .take(3)
             .map(|raw| ulpf_pack::Fixture {
                 raw: raw.clone(),
                 expect: BTreeMap::new(),

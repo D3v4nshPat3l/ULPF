@@ -463,7 +463,12 @@ fn parse_json_object(raw: &str) -> Result<DraftSpec> {
 /// Reject detector literals that would only ever match the sample they came
 /// from. This is the same failure that made an earlier drafter emit detectors
 /// containing a wall-clock time, which can never match future traffic.
-fn is_stable_literal(s: &str) -> bool {
+///
+/// Public because `ulpf draft` needs exactly this test and had none: its
+/// detectors were built from any token shared across a cluster, so a
+/// single-record cluster contributed its whole timestamped line and the
+/// resulting pack could never match a second event.
+pub fn is_stable_literal(s: &str) -> bool {
     let t = s.trim();
     if t.len() < 3 || t.len() > 40 {
         return false;

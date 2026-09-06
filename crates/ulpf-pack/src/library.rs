@@ -413,9 +413,18 @@ fixtures:
         }
     }
     fn tempdir() -> TempDir {
+        // A process id and a timestamp are not enough. Tests run in parallel
+        // threads of one process, and `as_nanos()` is only as fine as the
+        // platform clock — on macOS that is microseconds, so two tempdirs
+        // created in the same instant collided, both packs loaded from one
+        // directory, and whichever assertion read `failures[0]` saw the other
+        // pack's failure. It surfaced as a rare `<detect>` mismatch. The
+        // counter makes the name unique regardless of clock resolution.
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let base = std::env::temp_dir().join(format!(
-            "ulpf-pack-test-{}-{:?}",
+            "ulpf-pack-test-{}-{}-{:?}",
             std::process::id(),
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
