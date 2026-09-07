@@ -40,6 +40,19 @@ PERIMETER = [
     ("proxy", "bluecoat-proxy.log", "Blue Coat ProxySG (Honeynet)"),
 ]
 
+# Corpora that live in a tier beyond `standard`, and so are legitimately absent
+# on a machine — or a CI runner — that fetched only the standard tier.
+#
+# They are measured when present and simply not reported when absent. Every
+# other corpus staying absent is still a hard failure: a corpus that vanished
+# is exactly how a broken pack hides from the check meant to catch it. This set
+# is the narrow exception, not a relaxation of that rule.
+#
+# Blue Coat is 8,130,590 records and ~2.6 GB extracted. Keeping it in the
+# standard tier exhausted a GitHub runner's disk; keeping it in the corpora
+# list unconditionally then made `--check` refuse to run at all.
+OPTIONAL_CORPORA = {"bluecoat-proxy.log"}
+
 # Sources outside the Current Scope sentence, kept because "universal" is in
 # the framework's name and a reviewer is entitled to ask whether it holds
 # outside the perimeter. Measured and reported separately, never blended into
@@ -196,7 +209,12 @@ def main() -> None:
         )
 
     if missing:
-        print(f"\nnot measured (absent): {', '.join(missing)}")
+        tiered = [f for f in missing if f in OPTIONAL_CORPORA]
+        absent = [f for f in missing if f not in OPTIONAL_CORPORA]
+        if tiered:
+            print(f"\nnot measured (in a larger tier): {', '.join(tiered)}")
+        if absent:
+            print(f"\nnot measured (absent): {', '.join(absent)}")
 
     total_pct = 100.0 * total_parsed / total_events if total_events else 0.0
 
@@ -206,10 +224,14 @@ def main() -> None:
 
     if args.check:
         # A partial run must not pass: a missing corpus is exactly how a broken
-        # pack would hide from the check that exists to catch it.
-        if missing:
+        # pack would hide from the check that exists to catch it. Corpora that
+        # live in a larger tier are the one exception - they are absent by
+        # design here, not by accident.
+        unexpected = [f for f in missing if f not in OPTIONAL_CORPORA]
+        if unexpected:
             print(
-                f"refusing to check with {len(missing)} corpus/corpora absent",
+                f"refusing to check with {len(unexpected)} corpus/corpora absent: "
+                f"{', '.join(unexpected)}",
                 file=sys.stderr,
             )
             raise SystemExit(1)
