@@ -101,7 +101,7 @@ Also while you still have internet. Roughly 150 MB.
 python tools/fetch_datasets.py
 ```
 
-This writes ten corpora into `../realdata`, alongside the repository. They are
+This writes ten corpora into `realdata`, alongside the repository. They are
 not committed: they are third-party data with their own terms, and vendoring
 them would silently relicense it. See [DATASETS.md](DATASETS.md).
 
@@ -143,7 +143,7 @@ cd ULPF
 ```
 
 ```bash
-./target/release/ulpf serve --packs packs --vault data/vault --integrity-dir data/integrity --chain demo --host 0.0.0.0 --port 8787 --syslog-bind 0.0.0.0:5514 --datasets ../realdata --opensearch http://192.168.1.103:9200 --opensearch-index ulpf-events
+./target/release/ulpf serve --packs packs --vault data/vault --integrity-dir data/integrity --chain demo --host 0.0.0.0 --port 8787 --syslog-bind 0.0.0.0:5514 --datasets realdata --opensearch http://192.168.1.103:9200 --opensearch-index ulpf-events
 ```
 
 Substitute machine C's address. **Drop the two `--opensearch` arguments
@@ -156,7 +156,7 @@ What each argument does:
 | `--host 0.0.0.0` | Console reachable from the other machines. Defaults to loopback only. |
 | `--syslog-bind 0.0.0.0:5514` | UDP receiver. Change the port to run two collectors on one host. |
 | `--chain demo` | Names the attestation chain. Resumes across restarts. |
-| `--datasets ../realdata` | Where the simulator looks for corpora. Only needed if B also generates traffic. |
+| `--datasets realdata` | Where the simulator looks for corpora. Only needed if B also generates traffic. |
 | `--opensearch` | Forwards each normalized event to the SIEM. |
 
 On startup it prints the granted UDP receive buffer, the pack count and the
@@ -178,15 +178,15 @@ Point the built-in replay at machine B. One command per source; run each in its
 own terminal, or pick two or three.
 
 ```bash
-./target/release/ulpf replay --source ../realdata/iptables.log --target 192.168.1.102:5514 --eps 2000
+./target/release/ulpf replay --source realdata/iptables.log --target 192.168.1.102:5514 --eps 2000
 ```
 
 ```bash
-./target/release/ulpf replay --source ../realdata/snort.log --target 192.168.1.102:5514 --eps 500
+./target/release/ulpf replay --source realdata/snort.log --target 192.168.1.102:5514 --eps 500
 ```
 
 ```bash
-./target/release/ulpf replay --source ../realdata/apache-access.log --target 192.168.1.102:5514 --eps 300
+./target/release/ulpf replay --source realdata/apache-access.log --target 192.168.1.102:5514 --eps 300
 ```
 
 Add `--count 50000` to stop after a fixed number rather than looping.
@@ -197,7 +197,7 @@ If machine A also runs `serve`, its `/dev` page gives you switches instead of
 terminals — and streams keep running whether or not the page is open:
 
 ```bash
-./target/release/ulpf serve --packs packs --vault data/simvault --integrity-dir data/simintegrity --port 8788 --syslog-bind 127.0.0.1:5515 --datasets ../realdata --sim-target 192.168.1.102:5514
+./target/release/ulpf serve --packs packs --vault data/simvault --integrity-dir data/simintegrity --port 8788 --syslog-bind 127.0.0.1:5515 --datasets realdata --sim-target 192.168.1.102:5514
 ```
 
 Then open **<http://localhost:8788/dev>** and flip sources on. Note the
@@ -330,7 +330,7 @@ the partitioned files instead.
 Machine A folds onto B. Run the collector:
 
 ```bash
-./target/release/ulpf serve --packs packs --vault data/vault --integrity-dir data/integrity --host 127.0.0.1 --port 8787 --syslog-bind 127.0.0.1:5514 --datasets ../realdata --sim-target 127.0.0.1:5514
+./target/release/ulpf serve --packs packs --vault data/vault --integrity-dir data/integrity --host 127.0.0.1 --port 8787 --syslog-bind 127.0.0.1:5514 --datasets realdata --sim-target 127.0.0.1:5514
 ```
 
 Open <http://127.0.0.1:8787/dev>, flip sources on, and watch
@@ -343,7 +343,7 @@ Open <http://127.0.0.1:8787/dev>, flip sources on, and watch
 | Symptom | Cause | Fix |
 |---|---|---|
 | Console shows nothing, sources say "sent N" | Datagrams are not arriving | Firewall on B, or wrong `--target`. Test with `ulpf replay --source ... --target <B>:5514 --eps 10 --count 10` and watch B's counter |
-| Every source reads **absent** in `/dev` | Corpora not fetched, or wrong path | `python tools/fetch_datasets.py`, and check `--datasets` points at `../realdata` |
+| Every source reads **absent** in `/dev` | Corpora not fetched, or wrong path | `python tools/fetch_datasets.py`, and check `--datasets` points at `realdata` |
 | `could not bind the console to ...` | Port already taken | Another `ulpf serve` is running, or pick another `--port` |
 | Coverage well below 100% | Wrong corpus for the loaded packs | Expected for sources with no pack; check **Needs a pack** |
 | Received count far below sent | UDP loss above the sustained rate | Lower `--eps`. See [THROUGHPUT.md](THROUGHPUT.md) — 10,000 EPS is the measured lossless ceiling per collector |

@@ -22,7 +22,7 @@ Start clean so the counters read plausibly and the chain is short:
 
 ```bash
 rm -rf data/vault data/integrity events.ndjson
-./target/release/ulpf serve --packs packs --vault data/vault --integrity-dir data/integrity --chain demo --datasets ../realdata
+./target/release/ulpf serve --packs packs --vault data/vault --integrity-dir data/integrity --chain demo --datasets realdata
 ```
 
 Set the terminal to a light background and at least 16pt — a dark terminal

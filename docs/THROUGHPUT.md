@@ -18,7 +18,7 @@ fresh attestation chain:
 
 ```bash
 ulpf listen --packs packs --vault /tmp/b/vault --integrity-dir /tmp/b/integrity --bind 127.0.0.1:5610
-ulpf replay --source ../realdata/iptables.log --target 127.0.0.1:5610 --eps 10000 --count 100000
+ulpf replay --source realdata/iptables.log --target 127.0.0.1:5610 --eps 10000 --count 100000
 ```
 
 "Received" is what the collector durably vaulted, fingerprinted, chained and

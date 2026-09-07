@@ -59,7 +59,8 @@ curl -x http://127.0.0.1:3128 http://example.com/
 ```
 
 Or skip it: the Honeynet mirror already publishes 533,197 real Squid records,
-and `fetch_datasets.py --tier standard` retrieves them.
+and `fetch_datasets.py --tier standard` retrieves them. (Blue Coat is in
+`--tier large`: it is 2.6 GB.)
 
 ### ModSecurity and nginx
 

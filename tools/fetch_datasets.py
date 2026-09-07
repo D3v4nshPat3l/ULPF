@@ -13,10 +13,11 @@ Four tiers, because the corpora span three orders of magnitude and a laptop
 should not be asked for 60 GB to reproduce a coverage table:
 
     sample    ~15 MB   the 2k excerpts only; enough to run every pack
-    standard  ~200 MB  + Honeynet captures and the Squid/BlueCoat proxy logs.
-                       This is the tier the published coverage table is
-                       measured on.
-    large     ~1.2 GB  + the full Loghub corpora that fit on a laptop
+    standard  ~200 MB  + the Honeynet captures and the Squid proxy logs. This
+                       is the tier the published perimeter figure is measured
+                       on, and the tier CI runs.
+    large     ~3.8 GB  + the Blue Coat capture (8.1M records) and the full
+                       Loghub corpora that fit on a laptop
     xl        ~62 GB   + Thunderbird (211M lines), Windows (114M), HDFS_v2
                        (71M), Spark (33M). Sustained-rate testing only.
 
@@ -144,12 +145,14 @@ def honeynet_dragon(target: pathlib.Path) -> None:
 
 
 def honeynet_proxy(target: pathlib.Path) -> None:
-    """Squid proxy logs, and a Blue Coat ProxySG capture.
+    """Squid proxy logs, from the same Honeynet mirror as the other captures.
 
-    Both come from the same Honeynet mirror the other captures do. They matter
-    because `squid-proxy-access` and `bluecoat-proxysg` were previously scored
-    only against fixtures written from vendor documentation, and real proxy
-    traffic is the evidence those packs were missing.
+    Real proxy traffic is the evidence `squid-proxy-access` was missing: it was
+    scored only against fixtures written from vendor documentation, and the
+    corpus showed the pattern assumed dotted-quad clients where the capture
+    uses reverse-resolved hostnames.
+
+    Blue Coat is fetched separately by `honeynet_bluecoat` in the `large` tier.
     """
     print("Honeynet proxy captures")
     out = target / "squid-access.log"
@@ -183,6 +186,21 @@ def honeynet_proxy(target: pathlib.Path) -> None:
         else:
             print("    squid access_log not found in the archive, skipped")
 
+
+
+def honeynet_bluecoat(target: pathlib.Path) -> None:
+    """Blue Coat ProxySG capture — 8,130,590 records, ~2.6 GB extracted.
+
+    In the `large` tier, not `standard`. It is an order of magnitude bigger
+    than every other Honeynet capture combined, and putting it in `standard`
+    exhausted the disk on a GitHub-hosted runner: the coverage workflow died
+    with "the runner has received a shutdown signal" partway through the fetch.
+    A tier documented as ~200 MB should not pull 2.6 GB.
+
+    `tools/measure_coverage.py` lists it and reports it as absent when it is not
+    present, so the perimeter total is computed without it rather than failing.
+    """
+    print("Honeynet Blue Coat ProxySG capture (~2.6 GB)")
     out = target / "bluecoat-proxy.log"
     if out.exists():
         print("  bluecoat-proxy.log already present")
@@ -208,6 +226,7 @@ def honeynet_proxy(target: pathlib.Path) -> None:
         body = b"".join(collected)
         lines = [l for l in body.splitlines(keepends=True) if not l.startswith(b"#")]
         write(out, b"".join(lines))
+
 
 
 def loghub_full(target: pathlib.Path, tiers: list[str]) -> None:
@@ -275,8 +294,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--dir",
-        default="../realdata",
-        help="where to place the corpora (default: ../realdata)",
+        default="realdata",
+        help="where to place the corpora (default: realdata)",
     )
     parser.add_argument(
         "--tier",
@@ -306,6 +325,8 @@ def main() -> None:
             honeynet_dragon(target)
             honeynet_proxy(target)
             combine(target)
+        if "large" in wanted:
+            honeynet_bluecoat(target)
         loghub_full(target, [t for t in wanted if t in LOGHUB_FULL])
     except Exception as error:  # noqa: BLE001 - a fetch failure should be legible
         print(f"\nfailed: {error}", file=sys.stderr)

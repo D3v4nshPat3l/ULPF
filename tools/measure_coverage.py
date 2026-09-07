@@ -124,7 +124,7 @@ def measure(exe: pathlib.Path, packs: str, corpus: pathlib.Path) -> tuple[int, i
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data", default="../realdata")
+    parser.add_argument("--data", default="realdata")
     parser.add_argument("--packs", default="packs")
     parser.add_argument(
         "--check",

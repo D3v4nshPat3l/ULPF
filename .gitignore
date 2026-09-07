@@ -1,5 +1,12 @@
 /target/
 /data/
+
+# Public log corpora, fetched by tools/fetch_datasets.py. Up to ~62 GB at the
+# `xl` tier. They live inside the project so that one `rm -rf` cleans up after
+# it, and they are ignored here so third-party research data is never pushed:
+# vendoring it would silently relicense someone else's dataset.
+/realdata/
+
 /testdata/bench.log
 /testdata/real/
 *.ndjson

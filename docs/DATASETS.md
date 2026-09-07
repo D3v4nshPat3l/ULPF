@@ -49,11 +49,16 @@ non-perimeter source move the headline number.
 | Proxy | `Proxifier_2k.log` | Loghub | 2,000 | 81.1000% |
 | **Total (excl. Blue Coat)** | | | **838,779** | **99.9219%** |
 
-**Blue Coat note.** The ProxySG capture is 8,130,590 records and takes several
-minutes to measure. A 398,380-record prefix scores **99.0148%**. The full-file
-figure is produced by `python tools/measure_coverage.py` on a machine with the
-`standard` tier fetched; it is not quoted above until that run is recorded, so
-that no number in this table is an extrapolation.
+**Blue Coat note.** The ProxySG capture is 8,130,590 records and ~2.6 GB
+extracted, so it sits in the `large` tier rather than `standard`: putting it in
+`standard` exhausted the disk on a GitHub-hosted runner and the coverage
+workflow died mid-fetch. Fetch it with
+`python tools/fetch_datasets.py --tier large`.
+
+A 398,380-record prefix scores **99.0148%**. The full-file figure is not quoted
+above until that run is recorded, so that no number in this table is an
+extrapolation. `measure_coverage.py` reports the corpus as absent and computes
+the perimeter total without it when it has not been fetched.
 
 ### Sources outside the Current Scope sentence
 
@@ -124,7 +129,7 @@ its raw text. "Unparsed" is a routing decision, never data loss.
 ## Reproducing this
 
 ```bash
-python tools/fetch_datasets.py          # downloads and prepares ../realdata
+python tools/fetch_datasets.py          # downloads and prepares realdata
 cargo build --release --locked
 python tools/measure_coverage.py        # prints the table above
 ```

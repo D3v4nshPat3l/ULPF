@@ -246,7 +246,7 @@ available, and vendoring them would silently relicense third-party data.
 python tools/fetch_datasets.py
 ```
 
-This downloads and prepares the corpora into `../realdata` — Honeynet Project
+This downloads and prepares the corpora into `realdata` — Honeynet Project
 Scan of the Month 30/34, the Honeynet Dragon capture, and four Loghub
 production samples. See [docs/DATASETS.md](docs/DATASETS.md) for full
 provenance.
@@ -269,7 +269,7 @@ the deterministic generator covers pack drafting.
 ### The console
 
 ```bash
-./target/release/ulpf serve --packs packs --vault data/vault --integrity-dir data/integrity --datasets ../realdata
+./target/release/ulpf serve --packs packs --vault data/vault --integrity-dir data/integrity --datasets realdata
 ```
 
 Open <http://127.0.0.1:8787> for the operator console and
@@ -282,7 +282,7 @@ point at it directly.
 ### A file, start to finish
 
 ```bash
-./target/release/ulpf run --packs packs --vault data/vault --integrity-dir data/integrity --input ../realdata/snort.log --output events.ndjson
+./target/release/ulpf run --packs packs --vault data/vault --integrity-dir data/integrity --input realdata/snort.log --output events.ndjson
 ```
 
 ### Verify a stream independently
@@ -358,7 +358,7 @@ and no `curl`.
 ### Replay a capture at a fixed rate
 
 ```bash
-./target/release/ulpf replay --source ../realdata/iptables.log --target 127.0.0.1:5514 --eps 5000 --count 50000
+./target/release/ulpf replay --source realdata/iptables.log --target 127.0.0.1:5514 --eps 5000 --count 50000
 ```
 
 ---

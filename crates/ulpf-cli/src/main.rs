@@ -308,7 +308,7 @@ enum Command {
         #[arg(long, default_value_t = 250)]
         sink_batch_size: usize,
         /// Directory holding the public corpora the /dev simulator replays.
-        #[arg(long, default_value = "../realdata")]
+        #[arg(long, default_value = "realdata")]
         datasets: PathBuf,
         /// Where the /dev simulator sends its UDP traffic.
         #[arg(long, default_value = "127.0.0.1:5514")]
