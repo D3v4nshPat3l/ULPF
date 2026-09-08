@@ -36,6 +36,7 @@ import urllib.request
 
 HONEYNET = "http://log-sharing.dreamhosters.com"
 LOGHUB = "https://raw.githubusercontent.com/logpai/loghub/master"
+SECREPO = "https://www.secrepo.com"
 
 # Loghub publishes a 2,000-line sample of each corpus in the repository itself.
 # Only corpora a shipped Source Pack can actually claim. Windows, macOS,
@@ -229,6 +230,55 @@ def honeynet_bluecoat(target: pathlib.Path) -> None:
 
 
 
+def secrepo_maccdc_zeek_conn(target: pathlib.Path) -> None:
+    """Real Zeek/Bro conn.log from the MACCDC 2012 competition capture.
+
+    `zeek-conn` was one of the nine packs the README lists as unverified —
+    its column order came from a general description of conn.log, not a real
+    capture, and turned out to be wrong: real output puts `missed_bytes`,
+    `history` and the packet/byte counts immediately after `conn_state`, with
+    a single `local_orig` before that and a trailing `tunnel_parents` set,
+    not the `local_orig`/`local_resp` pair the old order assumed there.
+
+    The full file is ~524 MB compressed (~2.6 GB extracted) — the same order
+    of magnitude as the Blue Coat capture, so this follows the same fetching
+    pattern: a bounded byte-range prefix, not the whole file, sized to match
+    the `large` tier it lives in. A truncated gzip stream raises partway
+    through decompression; everything decompressed before that point is
+    still valid conn.log lines and is kept, with the one torn trailing line
+    dropped. `tools/measure_coverage.py` reports this as a prefix, the same
+    way it already does for Blue Coat, so no number here is an extrapolation
+    to the full file.
+    """
+    print("SecRepo MACCDC 2012 Zeek conn.log (prefix)")
+    out = target / "zeek-conn.log"
+    if out.exists():
+        print("  zeek-conn.log already present")
+        return
+    prefix_bytes = 50_000_000
+    print(f"  fetching first {prefix_bytes / 1e6:.0f} MB of {SECREPO}/maccdc2012/conn.log.gz")
+    request = urllib.request.Request(
+        f"{SECREPO}/maccdc2012/conn.log.gz",
+        headers={"Range": f"bytes=0-{prefix_bytes - 1}"},
+    )
+    with urllib.request.urlopen(request, timeout=300) as response:
+        compressed = response.read()
+
+    lines: list[bytes] = []
+    with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as handle:
+        try:
+            for line in handle:
+                lines.append(line)
+        except (OSError, EOFError):
+            pass  # the byte range cut the gzip stream mid-block; keep what decoded
+    if lines and not lines[-1].endswith(b"\n"):
+        lines.pop()  # the torn line at the cut point, not a real record
+    if lines:
+        write(out, b"".join(lines))
+    else:
+        print("    no lines recovered from the prefix, skipped")
+
+
 def loghub_full(target: pathlib.Path, tiers: list[str]) -> None:
     """Fetch the complete Loghub corpora for the requested tiers."""
     import zipfile
@@ -327,6 +377,7 @@ def main() -> None:
             combine(target)
         if "large" in wanted:
             honeynet_bluecoat(target)
+            secrepo_maccdc_zeek_conn(target)
         loghub_full(target, [t for t in wanted if t in LOGHUB_FULL])
     except Exception as error:  # noqa: BLE001 - a fetch failure should be legible
         print(f"\nfailed: {error}", file=sys.stderr)

@@ -40,6 +40,7 @@ non-perimeter source move the headline number.
 | IDS | `dragon-nids.log` | Honeynet Dragon | 42,899 | 100.0000% |
 | Proxy | `squid-access.log` | Honeynet | 533,197 | 99.9771% |
 | Proxy | `bluecoat-proxy.log` | Honeynet | 8,130,590 | see note |
+| Network | `zeek-conn.log` | SecRepo (MACCDC 2012) | 2,125,308 | see note |
 | Web | `apache-access.log` | Honeynet SotM34 | 3,554 | 99.9719% |
 | Web | `Apache_2k.log` | Loghub | 2,000 | 100.0000% |
 | Auth | `OpenSSH_2k.log` | Loghub | 2,000 | 100.0000% |
@@ -59,6 +60,27 @@ A 398,380-record prefix scores **99.0148%**. The full-file figure is not quoted
 above until that run is recorded, so that no number in this table is an
 extrapolation. `measure_coverage.py` reports the corpus as absent and computes
 the perimeter total without it when it has not been fetched.
+
+**Zeek conn.log note.** `zeek-conn` was one of the nine packs the README used
+to list as unverified — its column order came from a general description of
+`conn.log`, not a real capture, and turned out to be wrong: real Zeek/Bro
+output puts `missed_bytes`, `history` and the packet/byte counts immediately
+after `conn_state`, with one `local_orig` before that and a trailing
+`tunnel_parents` set, not the `local_orig`/`local_resp` pair the old order
+assumed there. `src_endpoint`, `dst_endpoint`, `connection_info.protocol_name`,
+the byte counts and `conn_state` all sat before that split and were never
+wrong; what the old order got wrong was `history` and both packet counts,
+silently reading one column over from where real data puts them — the exact
+"coverage stays high while specific fields are quietly wrong" failure mode
+this project has hit before (Apache/Squid method IDs).
+
+The full MACCDC 2012 `conn.log` is ~524 MB compressed (~2.6 GB extracted),
+the same order of magnitude as Blue Coat, so `fetch_datasets.py` fetches a
+bounded byte-range prefix in the `large` tier rather than the whole file — a
+**2,125,308-record prefix scores 99.9861%** with the corrected column order.
+Like Blue Coat, this is not extrapolated to the full file, and
+`measure_coverage.py` reports the corpus as absent rather than failing when
+it has not been fetched.
 
 ### Sources outside the Current Scope sentence
 

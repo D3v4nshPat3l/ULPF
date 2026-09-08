@@ -1,7 +1,20 @@
-# ModSecurity WAF audit logs over syslog.
+# ModSecurity WAF audit logs, in two shapes seen from real deployments.
 #
-# ModSecurity logs are written to syslog or Apache error_log. The key
-# identifying pattern is the [id "XXXXXX"] field from the SecRule.
+# ModSecurity logs are written to syslog, Apache error_log, or — for the
+# libmodsecurity3 + nginx connector, run directly against
+# owasp/modsecurity-crs:nginx and confirmed against its real output — nginx's
+# own error log with no syslog wrapping at all. The key identifying pattern
+# either way is the [id "XXXXXX"] field from the SecRule.
+#
+# The two shapes differ in more than wrapping: the nginx connector's real
+# output puts `[client IP]` *before* "ModSecurity:", not after `[severity]`
+# as the syslog-forwarded patterns below assume, has an extra `[rev ""]`
+# bracket between `[id]` and `[msg]` that an earlier version of this pack's
+# patterns did not tolerate, and reports `[severity]` as a bare number (CRS's
+# own syslog-style scale) rather than a word. Both are handled as separate
+# pattern alternatives rather than forcing one regex to cover both, since
+# they come from genuinely different deployment configurations.
+#
 # This maps to OCSF Detection Finding (2004) since WAF events are detections.
 identity:
   id: modsecurity-waf-alert
@@ -17,6 +30,13 @@ extract:
   - decoder: syslog
   - decoder: regex
     patterns:
+      # Real libmodsecurity3 + nginx connector output (confirmed against
+      # owasp/modsecurity-crs:nginx): `[client IP]` appears *before*
+      # "ModSecurity:", inside nginx's own error-log line, and `[rev ""]`
+      # sits between `[id]` and `[msg]` — hence `.*?` there rather than the
+      # `\s+` a syslog-forwarded line's tighter spacing would allow.
+      - '\[client (?P<client_ip>[\d.]+)\].*ModSecurity: (?P<action>[^.]+)\..*?\[id "(?P<rule_id>\d+)"\].*?\[msg "(?P<message>[^"]+)"\].*?\[severity "(?P<severity>\w+)"\]'
+      - '\[client (?P<client_ip>[\d.]+)\].*ModSecurity: (?P<action>[^.]+)\..*?\[id "(?P<rule_id>\d+)"\].*?\[msg "(?P<message>[^"]+)"\]'
       # After syslog parsing, the body starts with "Access denied..." (tag was consumed)
       # Match id, msg, severity, and client IP
       - '(?P<action>[^.]+)\.\s+.*\[id "(?P<rule_id>\d+)"\]\s+\[msg "(?P<message>[^"]+)"\].*\[severity "(?P<severity>\w+)"\].*\[client (?P<client_ip>[\d.]+)\]'
@@ -58,6 +78,17 @@ enums:
     WARNING: 3
     NOTICE: 2
     INFO: 1
+    # OWASP CRS's own [severity "N"] scale (RFC 5424 syslog levels), confirmed
+    # against real owasp/modsecurity-crs:nginx output — the libmodsecurity3 +
+    # nginx connector reports these as bare digits, not the words above.
+    "0": 6   # Emergency  -> Fatal
+    "1": 5   # Alert      -> Critical
+    "2": 5   # Critical   -> Critical
+    "3": 4   # Error      -> High
+    "4": 3   # Warning    -> Medium
+    "5": 2   # Notice     -> Low
+    "6": 1   # Informational -> Informational
+    "7": 1   # Debug      -> Informational
 
 fixtures:
   - note: XSS attack detected by ModSecurity CRS rule.
@@ -79,3 +110,35 @@ fixtures:
       finding_info.uid: "942100"
       finding_info.title: SQL Injection Attack Detected via libinjection
       src_endpoint.ip: 203.0.113.10
+
+  - note: >
+      Real nginx-error-log line, captured by actually running
+      owasp/modsecurity-crs:nginx and sending a `?q=' OR 1=1--` request at it.
+      Under CRS's anomaly-scoring mode (the current default), a blocked
+      request's error-log line names the *aggregate* blocking rule (949110,
+      "Inbound Anomaly Score Exceeded") rather than the specific attack
+      signature that tripped it — libmodsecurity3 only puts the specific
+      "SQL Injection Attack Detected via libinjection" rule id in the
+      separate JSON audit log, a structurally different stream this pack
+      does not read. `finding_info.title` below is therefore genuinely
+      generic for this real line, not a simplification for the fixture.
+    raw: '2026/09/08 11:25:09 [error] 503#503: *1 [client 172.17.0.1] ModSecurity: Access denied with code 403 (phase 2). Matched "Operator `Ge'' with parameter `5'' against variable `TX:ANOMALY_SCORE'' (Value: `8'' ) [file "/etc/modsecurity.d/owasp-crs/rules/REQUEST-949-BLOCKING-EVALUATION.conf"] [line "81"] [id "949110"] [rev ""] [msg "Inbound Anomaly Score Exceeded (Total Score: 8)"] [data ""] [severity "2"] [ver "OWASP_CRS/3.3.10"] [hostname "127.0.0.1"] [uri "/"], client: 172.17.0.1, server: localhost, request: "GET /?q=%27%20OR%201=1-- HTTP/1.1", host: "127.0.0.1:8080"'
+    expect:
+      class_uid: 2004
+      activity_id: 1
+      severity_id: 5
+      finding_info.uid: "949110"
+      finding_info.title: "Inbound Anomaly Score Exceeded (Total Score: 8)"
+      src_endpoint.ip: 172.17.0.1
+
+  - note: >
+      Second real line from the same container, a higher anomaly score
+      (18, from an XSS payload rather than SQLi) tripping the same
+      aggregate rule.
+    raw: '2026/09/08 11:25:09 [error] 504#504: *2 [client 172.17.0.1] ModSecurity: Access denied with code 403 (phase 2). Matched "Operator `Ge'' with parameter `5'' against variable `TX:ANOMALY_SCORE'' (Value: `18'' ) [file "/etc/modsecurity.d/owasp-crs/rules/REQUEST-949-BLOCKING-EVALUATION.conf"] [line "81"] [id "949110"] [rev ""] [msg "Inbound Anomaly Score Exceeded (Total Score: 18)"] [data ""] [severity "2"] [ver "OWASP_CRS/3.3.10"] [hostname "127.0.0.1"] [uri "/"], client: 172.17.0.1, server: localhost, request: "GET /?q=<script>alert(1)</script> HTTP/1.1", host: "127.0.0.1:8080"'
+    expect:
+      class_uid: 2004
+      severity_id: 5
+      finding_info.uid: "949110"
+      finding_info.title: "Inbound Anomaly Score Exceeded (Total Score: 18)"
+      src_endpoint.ip: 172.17.0.1

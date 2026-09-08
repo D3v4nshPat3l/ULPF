@@ -38,6 +38,7 @@ PERIMETER = [
     ("proxy", "Proxifier_2k.log", "Proxifier (Loghub)"),
     ("proxy", "squid-access.log", "Squid proxy (Honeynet)"),
     ("proxy", "bluecoat-proxy.log", "Blue Coat ProxySG (Honeynet)"),
+    ("network", "zeek-conn.log", "Zeek conn.log (MACCDC 2012, prefix)"),
 ]
 
 # Corpora that live in a tier beyond `standard`, and so are legitimately absent
@@ -51,7 +52,12 @@ PERIMETER = [
 # Blue Coat is 8,130,590 records and ~2.6 GB extracted. Keeping it in the
 # standard tier exhausted a GitHub runner's disk; keeping it in the corpora
 # list unconditionally then made `--check` refuse to run at all.
-OPTIONAL_CORPORA = {"bluecoat-proxy.log"}
+#
+# zeek-conn.log is the same situation at a similar scale: the full MACCDC
+# 2012 conn.log is ~524 MB compressed (~2.6 GB extracted), so
+# `fetch_datasets.py` fetches a bounded prefix in the `large` tier rather
+# than the whole file, same as Blue Coat.
+OPTIONAL_CORPORA = {"bluecoat-proxy.log", "zeek-conn.log"}
 
 # Sources outside the Current Scope sentence, kept because "universal" is in
 # the framework's name and a reviewer is entitled to ask whether it holds
