@@ -291,7 +291,14 @@ fn parse_3164<'a>(input: &'a str, fields: &mut FieldMap<'a>) -> &'a str {
     rest
 }
 
-/// `MMM d HH:MM:SS`, where the day may be space-padded. Exactly 15 characters.
+/// `MMM d HH:MM:SS`, where the day may be space-padded (exactly 15
+/// characters), or Cisco's own `MMM d YYYY HH:MM:SS` variant (20 characters)
+/// emitted when `service timestamps log datetime year` is configured on ASA
+/// and IOS devices — confirmed against a real ASA capture (Elastic's
+/// `cisco_asa` integration test fixtures use exactly this shape, e.g.
+/// `Oct 10 2018 12:34:56`). Without the second form, a device configured
+/// this way loses its whole syslog header — timestamp, hostname and tag all
+/// silently absent — because the fixed-width classic parse never matches.
 fn take_3164_timestamp(input: &str) -> Option<(&str, &str)> {
     const MONTHS: [&str; 12] = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -299,28 +306,46 @@ fn take_3164_timestamp(input: &str) -> Option<(&str, &str)> {
     if input.len() < 15 || !input.is_char_boundary(15) {
         return None;
     }
-    let stamp = &input[..15];
-    if !MONTHS.contains(&&stamp[..3]) {
+    if !MONTHS.contains(&&input[..3]) {
         return None;
     }
-    let b = stamp.as_bytes();
+    let b = input.as_bytes();
     let day_ok = b[3] == b' '
         && (b[4].is_ascii_digit() || b[4] == b' ')
         && b[5].is_ascii_digit()
         && b[6] == b' ';
-    let time_ok = b[9] == b':'
-        && b[12] == b':'
-        && b[7].is_ascii_digit()
-        && b[8].is_ascii_digit()
-        && b[10].is_ascii_digit()
-        && b[11].is_ascii_digit()
-        && b[13].is_ascii_digit()
-        && b[14].is_ascii_digit();
-    if !(day_ok && time_ok) {
+    if !day_ok {
         return None;
     }
-    let rest = input[15..].strip_prefix(' ').unwrap_or(&input[15..]);
-    Some((stamp, rest))
+
+    if is_hms(&input[7..15]) {
+        let rest = input[15..].strip_prefix(' ').unwrap_or(&input[15..]);
+        return Some((&input[..15], rest));
+    }
+
+    if input.len() >= 20 && input.is_char_boundary(20) {
+        let year_ok = input.as_bytes()[7..11].iter().all(u8::is_ascii_digit) && b[11] == b' ';
+        if year_ok && is_hms(&input[12..20]) {
+            let rest = input[20..].strip_prefix(' ').unwrap_or(&input[20..]);
+            return Some((&input[..20], rest));
+        }
+    }
+
+    None
+}
+
+/// `HH:MM:SS`, exactly 8 bytes.
+fn is_hms(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 8
+        && b[2] == b':'
+        && b[5] == b':'
+        && b[0].is_ascii_digit()
+        && b[1].is_ascii_digit()
+        && b[3].is_ascii_digit()
+        && b[4].is_ascii_digit()
+        && b[6].is_ascii_digit()
+        && b[7].is_ascii_digit()
 }
 
 /// Reject tokens that are obviously the start of a message body rather than a
@@ -442,6 +467,33 @@ mod tests {
             d.body,
             Some("date=2026-08-31 time=10:23:45 devname=\"FGT-01\" srcip=10.2.4.7")
         );
+    }
+
+    #[test]
+    fn cisco_asa_year_timestamp_still_yields_a_hostname() {
+        // `service timestamps log datetime year` shape, confirmed against
+        // Elastic's cisco_asa integration test fixtures (a real ASA capture).
+        let line = "<166>Oct 10 2018 12:34:56 localhost CiscoASA[999]: %ASA-6-302013: Built outbound TCP connection";
+        let d = decode(line);
+        assert_eq!(
+            d.fields.get_str("syslog.timestamp"),
+            Some("Oct 10 2018 12:34:56")
+        );
+        assert_eq!(d.fields.get_str("syslog.hostname"), Some("localhost"));
+        assert_eq!(d.fields.get_str("syslog.appname"), Some("CiscoASA"));
+        assert_eq!(d.fields.get_str("syslog.procid"), Some("999"));
+        assert!(d.body.unwrap().starts_with("%ASA-6-302013"));
+    }
+
+    #[test]
+    fn cisco_asa_year_timestamp_with_space_padded_day() {
+        let line = "<166>Oct  1 2018 12:34:56 localhost CiscoASA[999]: %ASA-6-302013: Built";
+        let d = decode(line);
+        assert_eq!(
+            d.fields.get_str("syslog.timestamp"),
+            Some("Oct  1 2018 12:34:56")
+        );
+        assert_eq!(d.fields.get_str("syslog.hostname"), Some("localhost"));
     }
 
     #[test]

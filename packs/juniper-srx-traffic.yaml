@@ -3,6 +3,32 @@
 # SRX logs use the RT_FLOW prefix for session events. The key fields are
 # embedded in a structured message with positional data.
 # Shape: RFC 3164 syslog with RT_FLOW_SESSION_CREATE or RT_FLOW_SESSION_CLOSE.
+#
+# Checked against Elastic's juniper_srx integration test fixtures (real SRX
+# device output, github.com/elastic/integrations, used only as a structure
+# reference — no lines copied verbatim into this pack). One real finding:
+#
+# A real SRX typically sends this over proper syslog framing —
+# `<14>1 2019-11-14T09:37:51.184+01:00 SRX-GW1 RT_FLOW - RT_FLOW_SESSION_CREATE
+# [junos@67.43.156.15 source-address="..." ...]` — a `<PRI>` prefix followed
+# by an RFC 5424 envelope, where MSGID is literally `RT_FLOW_SESSION_CREATE`
+# and the bracket is real, spec-conformant RFC 5424 structured data
+# (`[junos@<enterprise-id> key="value" ...]`, space-separated, not the
+# semicolon style Check Point uses). The generic `syslog` decoder's Auto
+# dialect detection sees the version number and correctly parses all of this
+# — but that is exactly the problem: it *consumes* `RT_FLOW_SESSION_CREATE`
+# into `syslog.msgid` and the key/value pairs into `syslog.sd.<sd-id>.*`,
+# where `<sd-id>` is `junos@<the device's own IP or enterprise number>` — a
+# value that differs per device and can never be a fixed field path in a
+# pack. The regex patterns below, expecting to find `RT_FLOW_SESSION_CREATE`
+# and bare `source-address=` still present in the body, then matched
+# *nothing*: detection claimed the record, extraction produced zero fields,
+# turning what looked like solid fixture coverage into a total miss on real
+# device output. Pinning the envelope decoder to `syslog_rfc3164` disables
+# that auto-detection — the version-number-shaped prefix does not parse as a
+# 3164 timestamp either, so the whole line is left untouched for the regex
+# step below, which now also captures the hostname itself (optionally, so
+# fixtures where the plain `syslog` decoder already consumed it still work).
 identity:
   id: juniper-srx-traffic
   vendor: Juniper
@@ -13,13 +39,16 @@ identity:
     - contains_any: ["RT_FLOW_SESSION_CREATE", "RT_FLOW_SESSION_CLOSE", "RT_FLOW_SESSION_DENY"]
 
 extract:
-  - decoder: syslog
+  - decoder: syslog_rfc3164
   - decoder: regex
     patterns:
       # RT_FLOW_SESSION_CREATE: source-address="10.0.0.1" source-port="12345" destination-address="8.8.8.8" destination-port="53" ...
-      - 'RT_FLOW_SESSION_(?P<action>\w+)\s+.*?source-address="(?P<src_ip>[\d.]+)"\s+source-port="(?P<src_port>\d+)"\s+destination-address="(?P<dst_ip>[\d.]+)"\s+destination-port="(?P<dst_port>\d+)".*?protocol-id="(?P<proto>\d+)"'
+      # The leading hostname group is optional: it only has something to
+      # match when syslog_rfc3164 above failed to parse an envelope (the
+      # real, PRI+RFC5424-shaped case) and left the hostname token in place.
+      - '(?:(?P<hostname>[\w.-]+)\s+)?RT_FLOW\s+-\s+RT_FLOW_SESSION_(?P<action>\w+)\s+.*?source-address="(?P<src_ip>[\d.]+)"\s+source-port="(?P<src_port>\d+)"\s+destination-address="(?P<dst_ip>[\d.]+)"\s+destination-port="(?P<dst_port>\d+)".*?protocol-id="(?P<proto>\d+)"'
       # Alternate format with service-name
-      - 'RT_FLOW_SESSION_(?P<action>\w+)\s+.*?source-address="(?P<src_ip>[\d.]+)"\s+source-port="(?P<src_port>\d+)"\s+destination-address="(?P<dst_ip>[\d.]+)"\s+destination-port="(?P<dst_port>\d+)"'
+      - '(?:(?P<hostname>[\w.-]+)\s+)?RT_FLOW\s+-\s+RT_FLOW_SESSION_(?P<action>\w+)\s+.*?source-address="(?P<src_ip>[\d.]+)"\s+source-port="(?P<src_port>\d+)"\s+destination-address="(?P<dst_ip>[\d.]+)"\s+destination-port="(?P<dst_port>\d+)"'
 
 map:
   class_uid: 4001                      # Network Activity
@@ -44,7 +73,7 @@ map:
     from: proto
     as: int
   device.hostname:
-    from: syslog.hostname
+    from: [syslog.hostname, hostname]
     observable: hostname
 
 enums:
@@ -55,7 +84,7 @@ enums:
 
 fixtures:
   - note: Session create event from SRX.
-    raw: 'Jan 15 10:30:45 srx-gw-01 RT_FLOW - RT_FLOW_SESSION_CREATE [junos@2636.1.1.1.2.129 source-address="10.0.0.5" source-port="45678" destination-address="8.8.8.8" destination-port="53" protocol-id="17"]'
+    raw: '<189>Jan 15 10:30:45 srx-gw-01 RT_FLOW - RT_FLOW_SESSION_CREATE [junos@2636.1.1.1.2.129 source-address="10.0.0.5" source-port="45678" destination-address="8.8.8.8" destination-port="53" protocol-id="17"]'
     expect:
       class_uid: 4001
       activity_id: 1
@@ -67,7 +96,7 @@ fixtures:
       device.hostname: srx-gw-01
 
   - note: Session deny event — blocked by policy.
-    raw: 'Jan 15 10:31:00 srx-gw-01 RT_FLOW - RT_FLOW_SESSION_DENY [junos@2636.1.1.1.2.129 source-address="203.0.113.10" source-port="61234" destination-address="10.0.0.5" destination-port="3389" protocol-id="6"]'
+    raw: '<188>Jan 15 10:31:00 srx-gw-01 RT_FLOW - RT_FLOW_SESSION_DENY [junos@2636.1.1.1.2.129 source-address="203.0.113.10" source-port="61234" destination-address="10.0.0.5" destination-port="3389" protocol-id="6"]'
     expect:
       class_uid: 4001
       activity_id: 3
@@ -75,3 +104,22 @@ fixtures:
       dst_endpoint.ip: 10.0.0.5
       dst_endpoint.port: 3389
       device.hostname: srx-gw-01
+
+  - note: >
+      Real device framing: `<PRI>` plus a proper RFC 5424 envelope (version
+      number, RFC 3339 timestamp with offset, RT_FLOW_SESSION_CREATE as
+      MSGID, real structured data with a per-device `junos@<ip>` SD-ID). This
+      used to produce zero fields — see the pack header comment — because
+      the generic syslog decoder's own RFC 5424 structured-data parser
+      consumed everything into fields keyed by that per-device SD-ID before
+      the regex step ever saw it.
+    raw: '<14>1 2026-03-29T09:37:51.184+01:00 SRX-GW1 RT_FLOW - RT_FLOW_SESSION_CREATE [junos@198.51.100.9 source-address="10.0.0.1" source-port="594" destination-address="203.0.113.13" destination-port="10400" protocol-id="17" service-name="dns"]'
+    expect:
+      class_uid: 4001
+      activity_id: 1
+      src_endpoint.ip: 10.0.0.1
+      src_endpoint.port: 594
+      dst_endpoint.ip: 203.0.113.13
+      dst_endpoint.port: 10400
+      connection_info.protocol_num: 17
+      device.hostname: SRX-GW1

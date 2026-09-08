@@ -1,0 +1,159 @@
+# Check Point Log Exporter's native "syslog" format.
+#
+# Check Point's Log Exporter can emit CEF, LEEF, Splunk or its own default
+# format — semicolon-separated `key:"value"` pairs inside a single bracketed
+# block, wrapped in an otherwise-ordinary RFC 5424 envelope:
+#
+#   <134>1 2020-03-29T13:19:22Z gw-01 CheckPoint 1930 - [action:"Accept"; \
+#     src:"192.168.1.100"; dst:"192.168.1.1"; proto:"17"; s_port:"46915"; \
+#     service:"53"; service_id:"domain-udp"; ...]
+#
+# This is a different wire format from checkpoint-firewall.yaml (CEF) and
+# needs a different pack, not a different pattern in the same one — the two
+# never appear on the same deployment and their detect strings do not
+# collide.
+#
+# Checked against Elastic's checkpoint integration test fixtures (real
+# gateway output, github.com/elastic/integrations, used only as a structure
+# reference — no lines copied verbatim into this pack).
+#
+# The generic `syslog` decoder cannot be used for the envelope here: its
+# RFC 5424 structured-data parser expects `[id key="value" ...]` (space
+# separated, `=`, one leading id token) and silently mangles anything else —
+# Check Point's colon/semicolon block confuses it into inventing garbage
+# `syslog.sd.*` fields instead of exposing the real payload. A single regex
+# step reads the envelope and the bracket body itself, then `keyvalue` with
+# `:`/`;` parses the body properly.
+identity:
+  id: checkpoint-firewall-syslog
+  vendor: Check Point
+  product: VPN-1
+  log_format: syslog-keyvalue
+  priority: 15
+  detect:
+    - contains_all: ["CheckPoint", "action:", "loguid:"]
+
+extract:
+  - decoder: regex
+    patterns:
+      - '^<\d+>\d+\s+(?P<ts>\S+)\s+(?P<hostname>\S+)\s+CheckPoint\s+\d+\s+-\s+\[(?P<body>.*)\]\s*$'
+  - decoder: keyvalue
+    sep: ':'
+    delim: ';'
+
+map:
+  class_uid: 4001                      # Network Activity
+  activity_id:
+    from: action
+    enum: checkpoint_syslog_activity
+    default: 6
+  severity_id:
+    from: action
+    enum: checkpoint_syslog_severity
+    default: 1
+  time:
+    from: ts
+    format: rfc3339
+  message:
+    from: action
+  src_endpoint.ip:
+    from: src
+    observable: ip
+  src_endpoint.port:
+    from: s_port
+    as: int
+  dst_endpoint.ip:
+    from: dst
+    observable: ip
+  dst_endpoint.port:
+    from: service
+    as: int
+  connection_info.protocol_num:
+    from: proto
+    as: int
+  connection_info.protocol_name:
+    from: proto
+    enum: checkpoint_ip_proto
+    default: "Other"
+  connection_info.direction_id:
+    from: ifdir
+    enum: checkpoint_direction
+    default: 0
+  device.hostname:
+    from: hostname
+    observable: hostname
+  device.uid:
+    from: origin
+    observable: ip
+
+enums:
+  # Accept/Detect still pass traffic; Block/Drop/Reject/Prevent stop it.
+  checkpoint_syslog_activity:
+    Accept: 6
+    Detect: 6
+    Block: 3
+    Drop: 3
+    Reject: 3
+    Prevent: 3
+  checkpoint_syslog_severity:
+    Accept: 1
+    Detect: 2
+    Block: 3
+    Drop: 3
+    Reject: 3
+    Prevent: 4
+  # This format carries the IANA protocol number, not a name.
+  checkpoint_ip_proto:
+    "1": ICMP
+    "6": TCP
+    "17": UDP
+  checkpoint_direction:
+    inbound: 1
+    outbound: 2
+
+fixtures:
+  - note: >
+      Accepted UDP DNS lookup. Structure verified against a real Check Point
+      gateway capture (see the pack header comment) — a fresh line built from
+      the same field set and shapes, not copied from that source.
+    raw: '<134>1 2026-03-29T13:19:22Z gw-lon-01 CheckPoint 1930 - [action:"Accept"; flags:"444676"; ifdir:"outbound"; ifname:"eth0"; logid:"0"; loguid:"{0x5e80a05a,0x0,0x60e0fe3b,0xda019994}"; origin:"192.168.1.100"; sequencenum:"1"; version:"5"; dst:"192.168.1.1"; inzone:"Local"; outzone:"Internal"; product:"VPN-1 & FireWall-1"; proto:"17"; s_port:"46915"; service:"53"; service_id:"domain-udp"; src:"192.168.1.100"]'
+    expect:
+      class_uid: 4001
+      activity_id: 6
+      severity_id: 1
+      src_endpoint.ip: 192.168.1.100
+      src_endpoint.port: 46915
+      dst_endpoint.ip: 192.168.1.1
+      dst_endpoint.port: 53
+      connection_info.protocol_num: 17
+      connection_info.protocol_name: UDP
+      connection_info.direction_id: 2
+      device.hostname: gw-lon-01
+      device.uid: 192.168.1.100
+
+  - note: Dropped TCP connection, inbound.
+    raw: '<134>1 2026-03-29T13:20:05Z gw-lon-01 CheckPoint 1930 - [action:"Drop"; ifdir:"inbound"; loguid:"{0x5e80a06b,0x1,0x60e0fe3b,0xda019995}"; origin:"192.168.1.100"; sequencenum:"2"; version:"5"; dst:"192.168.1.100"; proto:"6"; s_port:"51234"; service:"445"; src:"203.0.113.77"]'
+    expect:
+      class_uid: 4001
+      activity_id: 3
+      severity_id: 3
+      src_endpoint.ip: 203.0.113.77
+      src_endpoint.port: 51234
+      dst_endpoint.ip: 192.168.1.100
+      dst_endpoint.port: 445
+      connection_info.protocol_num: 6
+      connection_info.protocol_name: TCP
+      connection_info.direction_id: 1
+
+  - note: >
+      A quoted value containing an escaped bracket (Check Point's
+      `__policy_id_tag` regularly does this — a policy name with a literal
+      `]` written as `\]`) must not truncate the body early.
+    raw: '<134>1 2026-03-29T13:21:00Z gw-lon-01 CheckPoint 1930 - [action:"Accept"; loguid:"{0x5e80a07c,0x2,0x60e0fe3b,0xda019996}"; __policy_id_tag:"product=VPN-1 & FireWall-1[db_tag={AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE};mgmt=gw-lon-01;date=1585487925;policy_name=Standard\]"; dst:"192.168.1.1"; ifdir:"outbound"; proto:"6"; s_port:"1025"; service:"443"; src:"192.168.1.50"]'
+    expect:
+      class_uid: 4001
+      activity_id: 6
+      src_endpoint.ip: 192.168.1.50
+      dst_endpoint.ip: 192.168.1.1
+      connection_info.protocol_num: 6
+      dst_endpoint.port: 443

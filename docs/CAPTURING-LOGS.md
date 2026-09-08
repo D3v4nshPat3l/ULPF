@@ -1,6 +1,6 @@
 # Capturing real logs
 
-Nine of the thirty-four Source Packs pass fixtures written from vendor
+Three of the thirty-five Source Packs pass fixtures written from vendor
 documentation and have never seen real traffic. This document is how to fix
 that, and why it is worth the effort.
 
@@ -105,37 +105,76 @@ A pfSense VM under VirtualBox writes it directly; point its syslog at ULPF.
 
 ## The commercial appliances
 
-**Cisco ASA, FortiGate, PAN-OS, Check Point, Juniper SRX.** No public corpus was
-found for any of these. Two honest options:
+**Cisco ASA, FortiGate, PAN-OS, Check Point, Juniper SRX.** No public corpus of
+raw device output was found for any of these — pre-indexed Splunk buckets
+(BOTS v3) and vendor evaluation VMs remain the two options for an actual
+device-generated capture, and neither has been done (a vendor VM is a few
+hours per device; BOTS v3 means standing up Splunk Free just to export raw
+events, roughly half a day per vendor).
 
-**Vendor evaluation VMs.** FortiGate VM, PAN-OS VM and Cisco ASAv all have free
-trial images. Boot one, point its syslog at a ULPF collector, generate traffic
-through it, and the logs are real device output. A few hours per vendor.
+What *is* public, free of that setup cost, and still real: the test fixtures
+that ship with `elastic/integrations` (Elastic License 2.0). Elastic's own
+ingest pipelines for these exact products are validated against captured
+device output — some of it explicitly labeled `unsanitized`, most of it with
+only device names and IDs redacted, structurally real down to details a
+manual would never reproduce (a stray trailing padding byte after FortiGate's
+`srcserver=0`, for instance). That is evidence of *structure*, not a
+substitute for a corpus: values are frequently placeholder-anonymized
+(`devname="foo"`), so it cannot feed a coverage percentage the way
+Honeynet or Loghub can. Used for exactly what it is good for — checking
+whether a pack's field order, timestamp precision, and message shapes match
+what the real device actually emits — it caught four real bugs no fixture
+written from documentation had:
 
-**Splunk Boss of the SOC.** [BOTS v3](https://github.com/splunk/botsv3) is CC0
-public domain and carries `fgt_traffic` / `fgt_utm` (FortiGate) and
-`pan:traffic` / `pan:threat` (Palo Alto) sourcetypes. The catch: it ships only
-as pre-indexed Splunk buckets, so extracting raw events means standing up
-Splunk Free and exporting. Roughly half a day per vendor.
+- **FortiGate** — `eventtime` is nanosecond epoch on FortiOS 6.2+, not
+  seconds; the pack had assumed seconds.
+- **Cisco ASA** — `service timestamps log datetime year` produces a
+  20-character timestamp the syslog envelope decoder didn't recognize,
+  silently dropping `device.hostname`; ICMP and GRE messages use a
+  completely different shape from the TCP/UDP one the regexes covered, so an
+  enum entry claiming ICMP support was quietly false.
+- **Juniper SRX** — real RFC 5424 framing made every session field
+  disappear into a per-device structured-data ID before the pack's regex
+  ever saw them. Detection claimed the record; extraction produced zero
+  fields. That is worse than an honest unparsed line, because nothing
+  reports it as a miss.
+- **Check Point** — Log Exporter's *default* output is not CEF. It is a
+  semicolon-separated `key:"value"` syslog format the existing CEF-based
+  pack cannot read at all, so it now has its own pack rather than a patch
+  pretending the two are one wire format.
 
-If neither is done, say so. The README already lists those packs as unproven,
-and that is a better position than an unqualified claim.
+**No line from that source was copied into any pack.** Every fixture below
+is freshly constructed to match the confirmed real structure — the same
+discipline as quoting a vendor manual, not reproducing someone else's
+corpus. PAN-OS was checked the same way and needed no changes: every column
+index matched a real capture.
 
-## Two evidence classes, kept apart
+If a pack has had neither this check nor a real corpus, say so. The README
+lists exactly those as unproven, and that is a better position than an
+unqualified claim.
+
+## Four evidence classes, kept apart
 
 Logs you generate yourself are real output but **your** traffic. They are not
 independent the way a third-party capture is: you chose the requests, so a pack
-tuned on them has seen its own test set.
+tuned on them has seen its own test set. And checking a pack's structure
+against someone else's real device output is not the same as running your
+own tool over your own corpus, even though both beat vendor documentation.
 
 Record them as a distinct class in [DATASETS.md](DATASETS.md):
 
 - **third-party production capture** — Honeynet, Loghub. Strongest evidence.
 - **tool-generated from public PCAP** — you ran Suricata over someone else's
   traffic. Real output, independent input.
-- **lab-generated** — you produced the traffic too. Weakest; useful for
+- **structure verified against real device output** — a real capture existed
+  (an integration test fixture, a vendor's own published sample) and a pack's
+  field order, encoding and message shapes were checked against it, but no
+  coverage percentage was measured and no line was reused verbatim. Real
+  bugs surface this way; a coverage claim does not.
+- **lab-generated** — you produced the traffic yourself. Weakest; useful for
   throughput and for exercising a decoder, not for a coverage claim.
 
-Do not blend the three into one percentage.
+Do not blend these into one percentage.
 
 ## Adding a corpus to the measured set
 

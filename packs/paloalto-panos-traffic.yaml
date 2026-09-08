@@ -5,6 +5,17 @@
 # Positions below are 0-based (col.N = documented position - 1).
 #
 # Format reference: PAN-OS Admin Guide, "Traffic Log Fields".
+#
+# Checked against Elastic's panw integration test fixtures (real PA-220
+# device output, a genuine 2018 capture, github.com/elastic/integrations,
+# used only as a structure reference — no lines copied verbatim into this
+# pack). Every column index below — including the three-column gap between
+# Destination Zone/Interfaces and Session ID that the documentation alone
+# would be easy to miscount — landed exactly where the real device put it.
+# No changes were needed; recorded here the same way suricata-eve-alert's
+# clean real-data pass is, because a documentation-derived pack that has
+# never actually been checked against real device output is exactly the
+# failure mode this project has hit before (see docs/CAPTURING-LOGS.md).
 identity:
   id: paloalto-panos-traffic
   vendor: Palo Alto Networks
@@ -95,3 +106,17 @@ fixtures:
       traffic.bytes: 512
       src_endpoint.zone: trust
       dst_endpoint.zone: untrust
+
+  - note: >
+      Same column layout, freshly built to match a real PA-220's traffic-log
+      shape (see the pack header comment) rather than copied from that
+      source. ICMP session: no real ports, both port columns numeric zero.
+    raw: '<14>Nov 30 16:09:10 PA-220 1,2026/11/30 16:09:09,012801096514,TRAFFIC,end,2049,2026/11/30 16:09:09,192.168.15.224,175.16.199.1,192.168.1.63,175.16.199.1,new_outbound_from_trust,,,ping,vsys1,trust,untrust,ethernet1/2,ethernet1/1,send_to_mac,2026/11/30 16:09:09,24223,6,0,0,0,0,0x500019,icmp,allow,1176,588,588,12,2026/11/30 16:08:55,0,any,0,32091113,0x0,192.168.0.0-192.168.255.255,United States,0,6,6,aged-out,0,0,0,0,,PA-220,from-policy,,,0,,0,,N/A,0,0,0,0'
+    expect:
+      class_uid: 4001
+      activity_id: 6
+      src_endpoint.ip: 192.168.15.224
+      dst_endpoint.ip: 175.16.199.1
+      connection_info.protocol_name: icmp
+      connection_info.session_uid: "24223"
+      device.uid: "012801096514"

@@ -235,7 +235,7 @@ cargo test --workspace --release --locked
 ```
 
 The second command runs every pack's embedded fixtures. Expect
-`34 packs · 64/64 fixtures passed · 100.0% field accuracy`.
+`35 packs · 75/75 fixtures passed · 100.0% field accuracy`.
 
 After pulling changes, run `cargo build --release --locked` again before
 demonstrating anything. `cargo test` builds its own test binaries and leaves
@@ -508,7 +508,7 @@ crates/
                    RFC 6962 Merkle log with inclusion and consistency proofs
   ulpf-generator   Drain clustering, deterministic generator, LLM client, scorer
   ulpf-cli         binary: run, serve, listen, replay, draft, test, verify, raw
-packs/             34 Source Packs
+packs/             35 Source Packs
 schema/ocsf/       vendored OCSF 1.9.0
 tools/             corpus fetch and coverage measurement scripts
 deploy/            container compose files: the collector, and an OpenSearch receiver
@@ -519,7 +519,7 @@ docs/              architecture, datasets, throughput, deployment, testing, road
 
 ## What is done
 
-**Pipeline.** Vault-first ingestion, ten decoders, 34 packs, OCSF 1.9
+**Pipeline.** Vault-first ingestion, ten decoders, 35 packs, OCSF 1.9
 normalization, NDJSON output, Parquet / OpenSearch / Splunk sinks, pack hot
 reload.
 
@@ -607,17 +607,42 @@ Stated plainly, because a reviewer will find them anyway.
 - **Coverage is 99.82%, not 100%.** The remainder is enumerated in
   `docs/DATASETS.md`. Unparsed records are still vaulted, fingerprinted and
   emitted.
-- **Seven of the 34 packs have no real-corpus evidence.** Cisco ASA,
-  FortiGate, PAN-OS, Check Point, Juniper, generic CEF and pfSense pass
-  fixtures written from vendor documentation. Treat them as unproven: real
-  data has repeatedly broken packs that passed documentation-derived tests —
-  most recently `zeek-conn`, whose documentation-derived column order put
-  `local_orig`/`local_resp` where real Zeek/Bro output instead puts
-  `missed_bytes`/`history`/the packet counts, silently reading each one
-  column over from where a real capture puts it. Measuring a real MACCDC
-  2012 capture (`docs/DATASETS.md`) caught it and corrected the pack; before
-  that, Blue Coat's manual-derived field order matched none of 8.1 million
-  real records until the corpus's own `#Fields:` header corrected it.
+- **Three of the 35 packs have no real-corpus evidence.** Generic CEF,
+  pfSense and Check Point's CEF variant (`checkpoint-firewall.yaml` — its
+  native-syslog sibling below is checked) pass fixtures written from vendor
+  documentation. Treat them as unproven: real data has repeatedly broken
+  packs that passed documentation-derived tests — most recently `zeek-conn`,
+  whose documentation-derived column order put `local_orig`/`local_resp`
+  where real Zeek/Bro output instead puts `missed_bytes`/`history`/the packet
+  counts, silently reading each one column over from where a real capture
+  puts it. Measuring a real MACCDC 2012 capture (`docs/DATASETS.md`) caught
+  it and corrected the pack; before that, Blue Coat's manual-derived field
+  order matched none of 8.1 million real records until the corpus's own
+  `#Fields:` header corrected it.
+- **Four more were checked against real device output and had real bugs
+  found and fixed.** No public corpus exists for Cisco ASA, FortiGate, Check
+  Point or Juniper SRX (see `docs/CAPTURING-LOGS.md`), but Elastic's own
+  integration test suite (github.com/elastic/integrations, Elastic License
+  2.0) ships real captured device output as pipeline test fixtures — used
+  here only to check field structure and find bugs, never redistributed: no
+  line in any pack's fixtures was copied from that source. Every check found
+  something: FortiGate's `eventtime` is nanoseconds since FortiOS 6.2, not
+  seconds — this pack assumed seconds. Cisco ASA configured with
+  `service timestamps log datetime year` uses a 20-character timestamp the
+  syslog envelope decoder didn't recognize, silently dropping
+  `device.hostname`; its ICMP and GRE teardown messages also use a
+  completely different shape from the TCP/UDP one the regexes covered, so an
+  enum entry claiming ICMP support was quietly false. Juniper SRX's real
+  RFC 5424 framing made `RT_FLOW_SESSION_CREATE` and every session field
+  disappear into a per-device structured-data ID before this pack's regex
+  ever saw them — detection claimed the record, extraction produced zero
+  fields, and that combination is worse than an honest unparsed line. Check
+  Point's Log Exporter default output is not CEF at all — it is a
+  semicolon-separated `key:"value"` syslog format the CEF-based pack cannot
+  read — so it now has its own pack
+  (`packs/checkpoint-firewall-syslog.yaml`) rather than a patch pretending
+  the two are the same wire format. PAN-OS was the one clean pass: every
+  column index matched a real PA-220 capture with no changes needed.
   `suricata-eve-alert` was checked the same way — real 2016 exploit-kit
   traffic (a public capture, not self-generated) replayed through Suricata
   with the real ~68,600-rule Emerging Threats Open ruleset — and needed no
@@ -627,9 +652,10 @@ Stated plainly, because a reviewer will find them anyway.
   `owasp/modsecurity-crs:nginx` and sending it real attack payloads) rather
   than hand-typed from documentation — a real step up, but self-generated
   traffic against a lab container is a weaker evidence class than
-  `suricata-eve-alert`'s real-capture-plus-real-tool result (see the three
-  classes in `docs/CAPTURING-LOGS.md`), so it stays out of this list without
-  being counted as fully proven either.
+  `suricata-eve-alert`'s real-capture-plus-real-tool result, and weaker
+  still than the appliance packs' real-device-structure checks above (see
+  the four classes in `docs/CAPTURING-LOGS.md`), so it stays out of both
+  lists without being counted as fully proven either.
 - **The Assistant's answer quality is limited by a 1.5B model.** It reads live
   context correctly but reasons loosely. The screenshot above is a real,
   unedited exchange, including its hedging.
