@@ -665,9 +665,60 @@ function pill(kind, text) {
   p.append(el("i"), document.createTextNode(text));
   return p;
 }
+/* ------------------------------------------------------- console auth token
+   Every /api/* route requires a bearer token unless the collector was started
+   with --no-auth (see crate::auth on the server side). The token is printed
+   once in the terminal at startup and never re-shown by the server, so it is
+   kept in this browser's localStorage for this origin only — it is attached
+   to requests back to this same console and nowhere else. */
+const ULPF_TOKEN_KEY = "ulpf_console_token";
+let ulpfPromptingForToken = false;
+
+function ulpfStoredToken() {
+  try { return localStorage.getItem(ULPF_TOKEN_KEY) || ""; } catch (e) { return ""; }
+}
+function ulpfAuthHeaders() {
+  const t = ulpfStoredToken();
+  return t ? { "Authorization": "Bearer " + t } : {};
+}
+/** Ask once for the token this collector printed at startup. The 2-second
+    poll and a user's own click can both hit a 401 at once; only the first
+    should open a prompt. */
+function ulpfAskForToken() {
+  if (ulpfPromptingForToken) return false;
+  ulpfPromptingForToken = true;
+  try {
+    const entered = window.prompt(
+      "This collector requires a console token.\n\n" +
+      "It was printed once in the terminal that ran `ulpf serve`, and saved to " +
+      "console.token inside the integrity directory.\n\nPaste it here:"
+    );
+    if (entered && entered.trim()) {
+      try { localStorage.setItem(ULPF_TOKEN_KEY, entered.trim()); } catch (e) { /* ignore */ }
+      return true;
+    }
+    return false;
+  } finally {
+    ulpfPromptingForToken = false;
+  }
+}
+/** Attach the token, retrying once through a prompt on a 401. Every caller
+    that talks to this console — the polling loop, a button click, the raw
+    fetches below — goes through this so there is exactly one place that
+    decides how a missing/expired token is handled. */
+async function authedFetch(path, options) {
+  options = options || {};
+  options.headers = Object.assign({}, options.headers, ulpfAuthHeaders());
+  let res = await fetch(path, options);
+  if (res.status === 401 && ulpfAskForToken()) {
+    options.headers = Object.assign({}, options.headers, ulpfAuthHeaders());
+    res = await fetch(path, options);
+  }
+  return res;
+}
 /** Every response is checked; a failed fetch must never be reported as success. */
 async function api(path, options) {
-  const res = await fetch(path, options);
+  const res = await authedFetch(path, options);
   let body = null;
   try { body = await res.json(); } catch (e) { body = null; }
   if (!res.ok) {
@@ -1110,7 +1161,7 @@ async function askAboutEvent() {
 
   $("btn-ask").disabled = true;
   try {
-    const res = await fetch("/api/chat", {
+    const res = await authedFetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1179,7 +1230,7 @@ async function generateProof() {
   $("btn-prove").disabled = true;
   out.replaceChildren(proofNote("info", ["Signing a checkpoint and building the proof..."]));
   try {
-    const res = await fetch("/api/proof", {
+    const res = await authedFetch("/api/proof", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1256,7 +1307,7 @@ function renderProofOutcome(target, data, ok) {
 async function checkProofPayload(raw, target) {
   target.replaceChildren(proofNote("info", ["Checking..."]));
   try {
-    const res = await fetch("/api/verify-proof", {
+    const res = await authedFetch("/api/verify-proof", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: raw,

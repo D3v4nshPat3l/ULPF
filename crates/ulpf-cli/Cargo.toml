@@ -36,9 +36,19 @@ reqwest = { version = "0.13.4" }
 notify = "8.2.0"
 chrono = "0.4.45"
 socket2 = "0.6.5"
+# TLS termination for the console. rustls rather than a system-OpenSSL
+# binding, so a Windows build needs no separate OpenSSL install and the
+# air-gapped/container story (README, requirement j) is unaffected.
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+# Generates the optional self-signed certificate. Pure Rust, no OpenSSL, so it
+# does not change what has to be present on an air-gapped build host.
+rcgen = "0.13"
 
 [dev-dependencies]
 criterion = "0.7.0"
+# `oneshot`, for driving the real router in tests without binding a socket.
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
 
 [[bench]]
 name = "bench"

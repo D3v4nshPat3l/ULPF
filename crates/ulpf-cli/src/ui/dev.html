@@ -210,8 +210,44 @@ function fmtBytes(n) {
   while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
   return (i === 0 ? v : v.toFixed(1)) + " " + u[i];
 }
+/* Same token this origin's main console page stores (see index.html) — the
+   simulator dashboard is served by the same authenticated collector, so it
+   reuses whatever the operator already entered there. */
+const ULPF_TOKEN_KEY = "ulpf_console_token";
+let ulpfPromptingForToken = false;
+function ulpfStoredToken() {
+  try { return localStorage.getItem(ULPF_TOKEN_KEY) || ""; } catch (e) { return ""; }
+}
+function ulpfAuthHeaders() {
+  const t = ulpfStoredToken();
+  return t ? { "Authorization": "Bearer " + t } : {};
+}
+function ulpfAskForToken() {
+  if (ulpfPromptingForToken) return false;
+  ulpfPromptingForToken = true;
+  try {
+    const entered = window.prompt(
+      "This collector requires a console token.\n\n" +
+      "It was printed once in the terminal that ran `ulpf serve`, and saved to " +
+      "console.token inside the integrity directory.\n\nPaste it here:"
+    );
+    if (entered && entered.trim()) {
+      try { localStorage.setItem(ULPF_TOKEN_KEY, entered.trim()); } catch (e) { /* ignore */ }
+      return true;
+    }
+    return false;
+  } finally {
+    ulpfPromptingForToken = false;
+  }
+}
 async function api(path, options) {
-  const res = await fetch(path, options);
+  options = options || {};
+  options.headers = Object.assign({}, options.headers, ulpfAuthHeaders());
+  let res = await fetch(path, options);
+  if (res.status === 401 && ulpfAskForToken()) {
+    options.headers = Object.assign({}, options.headers, ulpfAuthHeaders());
+    res = await fetch(path, options);
+  }
   let body = null;
   try { body = await res.json(); } catch (e) { body = null; }
   if (!res.ok) throw new Error((body && body.error) ? body.error : (res.statusText || ("HTTP " + res.status)));

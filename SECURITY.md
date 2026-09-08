@@ -12,19 +12,46 @@ The team will acknowledge a complete report within three working days and provid
 
 ## Deployment guidance
 
-- The console authenticates nobody and binds to `127.0.0.1` by default. It
-  refuses cross-origin requests and requests carrying an unexpected `Host`,
-  which stops a page the operator has open in another tab from driving it
-  (CSRF) and stops a hostile name resolving to loopback (DNS rebinding). That
-  is a browser-safety boundary, not a login: anyone who can reach the port can
-  write a Source Pack, and a Source Pack decides how every subsequent record is
-  interpreted. Place it behind an authenticating reverse proxy before any
-  broader exposure.
-- `/healthz` and `/readyz` are deliberately outside that guard so an
-  orchestrator can probe them. Neither discloses event data; `/readyz` reports
-  only pack count, vault writability and schema version.
-- Treat `data/integrity/ed25519-signing.key` as a secret. It is excluded from Git; back it up through the team’s secret-management process.
-- Pin a trusted public key out of band when verifying checkpoints.
+- The console requires a bearer token on every `/api/*` route by default,
+  generated on first `serve`, stored at `<integrity-dir>/console.token` with
+  owner-only file permissions, and printed once at startup. It also refuses
+  cross-origin requests and requests carrying an unexpected `Host`, which
+  stops a page the operator has open in another tab from driving it (CSRF)
+  and stops a hostile name resolving to loopback (DNS rebinding); this second
+  check is browser-safety, kept as defense in depth alongside the token, not
+  instead of it. `--no-auth` disables the token check for a throwaway local
+  demo — with it set, the browser-safety guard is the *only* remaining
+  control, and anyone who can reach the port directly can still write a
+  Source Pack, which decides how every subsequent record is interpreted. Bind
+  to `127.0.0.1` (the default) unless the deployment genuinely needs a wider
+  interface, and place a real reverse proxy in front for anything beyond a
+  trusted local/lab network regardless.
+- Plain HTTP is the console's default. `--tls-self-signed` (a cached,
+  self-signed certificate generated on first run) or `--tls-cert`/`--tls-key`
+  (an operator-supplied certificate) terminate HTTPS instead. Use one of these
+  whenever `--host` binds beyond loopback — otherwise the console token and
+  every raw log byte `/api/raw/{locator}` returns cross the network in the
+  clear.
+- `/healthz` and `/readyz` are deliberately outside both the token and the
+  Origin/Host guard so an orchestrator can probe them without a secret.
+  Neither discloses event data; `/readyz` reports only pack count, vault
+  writability and schema version.
+- Treat `data/integrity/ed25519-signing.key` and `data/integrity/console.token`
+  as secrets of the same class: whoever reads the signing key can forge a
+  checkpoint, and whoever reads the token can act as the console operator.
+  Both are excluded from Git and created with owner-only permissions; back
+  them up through the team's secret-management process, not by copying them
+  into a less-restricted location.
+- Neither the vault nor the signing key is encrypted at rest — both rely on
+  filesystem permissions alone. Anyone with read access to `--vault` or
+  `--integrity-dir` on disk can read raw log content; anyone who can also
+  write there and reset permissions could tamper with the key file before the
+  next start (which the loose-permission check would then refuse to load, but
+  only after the fact). Encrypt the underlying disk/volume, or restrict
+  filesystem access, until vault/key encryption ships.
+- Pin a trusted public key out of band when verifying checkpoints; a
+  checkpoint's `verify_self_signed()` proves internal consistency, not that
+  the embedded key is who you think it is.
 - Do not run the UDP listener on an untrusted interface without network controls and capacity limits appropriate to the deployment.
 - Keep raw vaults and normalized output under the same data-classification controls as the original logs.
 - Do not commit datasets containing personal, organizational, or operational telemetry.

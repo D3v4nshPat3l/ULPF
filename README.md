@@ -279,6 +279,33 @@ the simulator and watch the console fill.
 `serve` also binds a UDP syslog receiver on `0.0.0.0:5514`, so real devices can
 point at it directly.
 
+**Console authentication.** Every `/api/*` route requires a bearer token by
+default. The first `serve` run generates one, stores it at
+`<integrity-dir>/console.token` (owner-only file permissions), and prints it
+once:
+
+```
+console token (send as `Authorization: Bearer <token>`):
+  <64 hex characters>
+```
+
+Open the browser console once and paste that token when prompted — it is
+kept in that browser's `localStorage` for this origin and attached
+automatically after that. From the command line: `curl -H "Authorization:
+Bearer <token>" http://127.0.0.1:8787/api/stats` (or the equally-accepted
+`-H "X-ULPF-Token: <token>"`). `/healthz` and `/readyz` are deliberately
+exempt, so an orchestrator's probe never needs the secret. Pass `--no-auth`
+to disable the check entirely — only for a throwaway local demo where
+anyone who can reach the port is already trusted.
+
+**TLS.** `--tls-self-signed` serves HTTPS with a certificate generated on
+first run and cached under `--integrity-dir` (the browser will warn once,
+since there is no public CA behind it — expected, not a fault). Bring a real
+certificate instead with `--tls-cert`/`--tls-key`. Plain HTTP remains the
+default on `127.0.0.1`, where the traffic never leaves the host; enable TLS
+whenever `--host 0.0.0.0` puts the console on a shared network, which the
+[3-laptop demo](docs/3-LAPTOP-DEMO.md) does.
+
 ### A file, start to finish
 
 ```bash
@@ -519,8 +546,17 @@ shaped, so both need real ingestion work rather than another pack.
 
 ### 5. Operational hardening
 
-TLS syslog (RFC 5425), backpressure signalling to senders, key rotation and a
-documented custody procedure for the signing key, and packaging as a service.
+**Done:** console bearer-token authentication (every `/api/*` route, on by
+default, generated with owner-only file permissions — `--no-auth` opts out
+for a throwaway demo), and TLS termination for the console
+(`--tls-cert`/`--tls-key`, or `--tls-self-signed` for a cached self-signed
+certificate on a network with no CA).
+
+**Remaining:** TLS syslog (RFC 5425) so the UDP intake path gets the same
+transport protection the console now has, backpressure signalling to senders,
+key rotation and a documented custody procedure for the signing key, at-rest
+encryption for the vault and the signing key (currently protected by
+filesystem permissions only, not by encryption), and packaging as a service.
 
 ---
 

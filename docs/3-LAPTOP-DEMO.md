@@ -164,11 +164,16 @@ public key path. A line like `UDP receive buffer: 8192 KB` confirms the socket
 was enlarged; a warning there means the host capped it, and sustained bursts
 above a few thousand EPS may drop.
 
-Open the console at **<http://192.168.1.102:8787>**.
+Open the console at **<http://192.168.1.102:8787>**. It prints a console
+token at startup — paste it into the browser prompt once, or use it directly
+with `curl -H "Authorization: Bearer <token>" ...`.
 
-> **The console has no authentication.** It is bound to `0.0.0.0` here only
-> because three machines share an isolated demo network. Never expose it to a
-> real network without a reverse proxy in front.
+> **Bound to `0.0.0.0` here only because three machines share an isolated
+> demo network.** The token check stops an unauthenticated client from
+> reaching `/api/*`, but add `--tls-self-signed` (or a real cert with
+> `--tls-cert`/`--tls-key`) too if this network is anything other than a
+> throwaway lab segment — plain HTTP means the token itself crosses the wire
+> unencrypted. Never expose this to a real network without both.
 
 ---
 

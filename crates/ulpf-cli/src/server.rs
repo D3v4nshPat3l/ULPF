@@ -69,7 +69,14 @@ type Shared = Arc<Mutex<AppState>>;
 /// `expected_origin` is the `scheme://host:port` the console is reachable at,
 /// and gates the browser-safety middleware below. `None` disables that guard
 /// and exists for callers that drive handlers directly.
-pub fn router(state: Shared, expected_origin: Option<String>) -> Router {
+///
+/// `auth_token` is the console's bearer secret (see `crate::auth`). `None`
+/// disables the check entirely — used by `--no-auth` and by tests that drive
+/// handlers directly without a token to present. Every other deployment
+/// should carry `Some`: this is the only thing that stops a client which can
+/// already reach the port (the Origin/Host guard below cannot, by design) from
+/// approving packs or reading raw evidence.
+pub fn router(state: Shared, expected_origin: Option<String>, auth_token: Option<Arc<str>>) -> Router {
     let probe_state = state.clone();
     let guarded = Router::new()
         .route("/", get(index))
@@ -98,6 +105,19 @@ pub fn router(state: Shared, expected_origin: Option<String>) -> Router {
         .layer(middleware::from_fn(move |request: Request, next: Next| {
             let expected = expected_origin.clone();
             async move { same_origin_only(expected, request, next).await }
+        }))
+        // Auth is the outermost layer of the two (applied last, so it runs
+        // first): a request with no token is rejected before the Origin/Host
+        // check ever inspects it, which keeps the 401 response identical
+        // whether or not a browser happened to be involved.
+        .layer(middleware::from_fn(move |request: Request, next: Next| {
+            let token = auth_token.clone();
+            async move {
+                match token {
+                    Some(token) => crate::auth::require_token(token, request, next).await,
+                    None => next.run(request).await,
+                }
+            }
         }));
 
     // Liveness and readiness are merged *after* the guard layer, not registered
@@ -123,12 +143,21 @@ pub fn router(state: Shared, expected_origin: Option<String>) -> Router {
 
 /// Refuse cross-origin and rebound requests.
 ///
-/// The console has no login. Until now that meant any page the operator had
-/// open in another tab could POST to `127.0.0.1:8787/api/approve` and install a
-/// Source Pack — the browser sends the request, the server has no way to tell
-/// it apart from the operator's own click, and a Source Pack decides how every
-/// subsequent record is interpreted. That is a control surface on a security
-/// appliance, reachable from any website.
+/// This guard predates `crate::auth` and is kept for two reasons even though
+/// the token now closes the main attack it was written for. A classic CSRF —
+/// a malicious page's `<form>` or plain `fetch` POSTing to
+/// `127.0.0.1:8787/api/approve` — cannot attach an `Authorization` header the
+/// page has no way to read, since the console token lives in *this origin's*
+/// localStorage; the browser does not attach it on the attacker's behalf the
+/// way it would a cookie. So token auth already defeats that specific attack.
+///
+/// What this guard still covers: **`--no-auth` deployments**, where it is the
+/// only control between a reachable port and an unauthenticated approval, and
+/// **defense in depth** against DNS rebinding — a hostname the attacker
+/// controls resolving to this loopback address, which would otherwise let a
+/// same-origin-looking request reach handlers this check refuses before the
+/// auth layer even runs. A Source Pack decides how every subsequent record is
+/// interpreted, and that is worth two independent checks rather than one.
 ///
 /// Two checks close it without introducing a credential to manage:
 ///
@@ -1182,6 +1211,131 @@ async fn tamper(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A minimal but real `AppState`, backed by a throwaway vault directory,
+    /// so these tests exercise the actual router — middleware stack included
+    /// — rather than the auth helper functions in isolation.
+    fn test_state() -> (Shared, tempfile_shim::TempDir) {
+        let dir = tempfile_shim::TempDir::new("ulpf-server-test");
+        let vault = ulpf_vault::VaultWriter::open(dir.path().join("vault")).unwrap();
+        let attestor = ulpf_ocsf::Attestor::new("test-authority", "test-chain");
+        let pipeline = Pipeline::new(
+            Arc::new(ulpf_pack::PackLibrary::new()),
+            vault,
+            attestor,
+        );
+        let state = Arc::new(Mutex::new(AppState {
+            pipeline,
+            recent: Vec::new(),
+            chain_anchor: None,
+            latest_checkpoint: None,
+            checkpoint_path: dir.path().join("chain.checkpoint.json"),
+            merkle_leaves_path: dir.path().join("chain.merkle-leaves.bin"),
+            public_key_path: dir.path().join("ed25519-signing.pub"),
+            vault_dir: dir.path().join("vault"),
+            packs_dir: dir.path().join("packs"),
+            drain: ulpf_generator::drain::Drain::new(),
+            simulator: crate::simulator::Simulator::new(dir.path().join("datasets"), "127.0.0.1:5514".into()),
+        }));
+        (state, dir)
+    }
+
+    async fn call(app: Router, req: Request) -> StatusCode {
+        use tower::ServiceExt;
+        app.oneshot(req).await.unwrap().status()
+    }
+
+    #[tokio::test]
+    async fn a_request_with_no_token_is_rejected() {
+        let (state, _dir) = test_state();
+        let app = router(state, None, Some(Arc::from("secret-token")));
+        let req = Request::builder().uri("/api/stats").body(axum::body::Body::empty()).unwrap();
+        assert_eq!(call(app, req).await, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn a_request_with_the_wrong_token_is_rejected() {
+        let (state, _dir) = test_state();
+        let app = router(state, None, Some(Arc::from("secret-token")));
+        let req = Request::builder()
+            .uri("/api/stats")
+            .header(header::AUTHORIZATION, "Bearer not-the-token")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(call(app, req).await, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn a_request_with_the_right_token_succeeds() {
+        let (state, _dir) = test_state();
+        let app = router(state, None, Some(Arc::from("secret-token")));
+        let req = Request::builder()
+            .uri("/api/stats")
+            .header(header::AUTHORIZATION, "Bearer secret-token")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(call(app, req).await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn the_x_ulpf_token_header_is_also_accepted() {
+        let (state, _dir) = test_state();
+        let app = router(state, None, Some(Arc::from("secret-token")));
+        let req = Request::builder()
+            .uri("/api/stats")
+            .header("x-ulpf-token", "secret-token")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(call(app, req).await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn health_and_ready_probes_need_no_token() {
+        let (state, _dir) = test_state();
+        let app = router(state, None, Some(Arc::from("secret-token")));
+        let req = Request::builder().uri("/healthz").body(axum::body::Body::empty()).unwrap();
+        assert_eq!(call(app, req).await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn no_token_configured_means_no_check_at_all() {
+        // The `--no-auth` escape hatch: `None` disables the layer entirely
+        // rather than requiring an empty string to match.
+        let (state, _dir) = test_state();
+        let app = router(state, None, None);
+        let req = Request::builder().uri("/api/stats").body(axum::body::Body::empty()).unwrap();
+        assert_eq!(call(app, req).await, StatusCode::OK);
+    }
+
+    /// A tiny self-cleaning temp directory, so these tests do not depend on a
+    /// dev-dependency the rest of the crate has no other use for.
+    mod tempfile_shim {
+        use std::path::{Path, PathBuf};
+
+        pub struct TempDir(PathBuf);
+        impl TempDir {
+            pub fn new(tag: &str) -> Self {
+                let dir = std::env::temp_dir().join(format!(
+                    "{tag}-{}-{:?}",
+                    std::process::id(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos()
+                ));
+                std::fs::create_dir_all(&dir).unwrap();
+                Self(dir)
+            }
+            pub fn path(&self) -> &Path {
+                &self.0
+            }
+        }
+        impl Drop for TempDir {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+    }
 
     /// The Host check is what stops DNS rebinding, so its edge cases matter:
     /// too strict and a hand-typed `localhost:8787` is refused, too loose and

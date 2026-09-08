@@ -1,5 +1,6 @@
 //! `ulpf` — the Universal Log Pre-processing Framework command line.
 
+mod auth;
 mod features;
 mod generator;
 mod integrity_state;
@@ -10,6 +11,7 @@ mod replay;
 mod server;
 mod simulator;
 mod sinks;
+mod tls;
 mod watcher;
 
 use std::io::{BufRead, BufWriter, Write};
@@ -313,6 +315,37 @@ enum Command {
         /// Where the /dev simulator sends its UDP traffic.
         #[arg(long, default_value = "127.0.0.1:5514")]
         sim_target: String,
+        /// Disable the console bearer-token check.
+        ///
+        /// The Origin/Host guard alone only stops a browser tab from driving
+        /// the console; it does nothing for a client that reaches the port
+        /// directly. Off (token required) is the default for exactly that
+        /// reason — pass this only for a throwaway local demo where you have
+        /// already accepted that anyone reaching the port can act as the
+        /// operator.
+        #[arg(long)]
+        no_auth: bool,
+        /// PEM certificate chain for HTTPS. Requires `--tls-key`.
+        #[arg(long, requires = "tls_key")]
+        tls_cert: Option<PathBuf>,
+        /// PEM private key for HTTPS. Requires `--tls-cert`.
+        #[arg(long, requires = "tls_cert")]
+        tls_key: Option<PathBuf>,
+        /// Serve HTTPS with a self-signed certificate generated on first run
+        /// and cached in `--integrity-dir`, instead of requiring `--tls-cert`
+        /// / `--tls-key`.
+        ///
+        /// A self-signed certificate authenticates the *connection* — nobody
+        /// on the network path can read or quietly alter traffic between the
+        /// browser and the console — but not the *server's identity*: the
+        /// browser has no chain of trust to confirm this is really the
+        /// collector you intended, so it will show a certificate warning
+        /// until the operator accepts it once. That is the correct trade-off
+        /// for a lab/demo network; a deployment with real DNS should supply a
+        /// certificate from a trusted issuer via `--tls-cert`/`--tls-key`
+        /// instead.
+        #[arg(long, conflicts_with_all = ["tls_cert", "tls_key"])]
+        tls_self_signed: bool,
     },
 
     /// Receive real RFC 5424/RFC 3164 syslog datagrams over UDP.
@@ -471,6 +504,10 @@ fn main() -> anyhow::Result<()> {
             sink_batch_size,
             datasets,
             sim_target,
+            no_auth,
+            tls_cert,
+            tls_key,
+            tls_self_signed,
         } => cmd_serve(ServeConfig {
             packs_dir: packs,
             vault_dir: vault,
@@ -488,6 +525,15 @@ fn main() -> anyhow::Result<()> {
             sink_batch_size,
             datasets_dir: datasets,
             sim_target,
+            no_auth,
+            tls: match (tls_cert, tls_key, tls_self_signed) {
+                (Some(cert), Some(key), _) => Some(TlsMode::Provided { cert, key }),
+                (None, None, true) => Some(TlsMode::SelfSigned),
+                (None, None, false) => None,
+                // `requires`/`conflicts_with_all` on the clap args already
+                // make the other combinations unreachable from the CLI.
+                _ => unreachable!("clap arg constraints guarantee cert and key arrive together"),
+            },
         }),
         Command::Replay {
             source,
@@ -763,6 +809,17 @@ pub struct ServeConfig {
     pub sink_batch_size: usize,
     pub datasets_dir: PathBuf,
     pub sim_target: String,
+    pub no_auth: bool,
+    pub tls: Option<TlsMode>,
+}
+
+/// How the console terminates TLS, if at all.
+pub enum TlsMode {
+    /// Operator-supplied certificate and key files, PEM-encoded.
+    Provided { cert: PathBuf, key: PathBuf },
+    /// Generate (or reuse, if already generated) a self-signed certificate
+    /// under `--integrity-dir`.
+    SelfSigned,
 }
 
 /// GET a readiness URL and translate it into an exit code.
@@ -813,6 +870,8 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         sink_batch_size,
         datasets_dir,
         sim_target,
+        no_auth,
+        tls,
     } = config;
     let chain = chain.as_str();
     let host = host.as_str();
@@ -848,6 +907,28 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
     }
 
     let latest_checkpoint = pipeline.checkpoint_now()?;
+
+    // `None` only when `--no-auth` was passed explicitly. Loaded before the
+    // listener binds so a token-file problem (bad permissions, unreadable
+    // directory) is reported and exits before anything starts accepting
+    // connections, rather than serving unauthenticated because the token
+    // setup silently failed.
+    let auth_token: Option<std::sync::Arc<str>> = if no_auth {
+        eprintln!("  WARNING: --no-auth is set. Any client that can reach this port can act as the console operator.");
+        None
+    } else {
+        let token_path = integrity_dir.join("console.token");
+        let (token, was_new) = auth::load_or_create(&token_path)?;
+        if was_new {
+            eprintln!();
+            eprintln!("  ================================================================");
+            eprintln!("  console token (send as `Authorization: Bearer <token>`):");
+            eprintln!("    {token}");
+            eprintln!("  saved to {} (mode 0600); this is printed only once.", token_path.display());
+            eprintln!("  ================================================================");
+        }
+        Some(std::sync::Arc::from(token.as_str()))
+    };
 
     let state = std::sync::Arc::new(std::sync::Mutex::new(server::AppState {
         pipeline,
@@ -999,26 +1080,20 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
     });
 
     runtime.block_on(async {
+        let scheme = if tls.is_some() { "https" } else { "http" };
         // The console's own origin, so the guard can tell the operator's tab
-        // apart from any other page that knows the port.
-        let app = server::router(state.clone(), Some(format!("http://{host}:{port}")));
+        // apart from any other page that knows the port. Has to match the
+        // scheme the browser actually connects with — an `http://` guard
+        // behind an HTTPS listener would refuse every real request's Origin.
+        let app = server::router(
+            state.clone(),
+            Some(format!("{scheme}://{host}:{port}")),
+            auth_token,
+        );
         let addr: std::net::SocketAddr = match format!("{host}:{port}").parse() {
             Ok(addr) => addr,
             Err(e) => {
                 eprintln!("  {host}:{port} is not a valid socket address: {e}");
-                std::process::exit(2);
-            }
-        };
-        // A taken port is an ordinary operator mistake — two collectors on one
-        // host, a console already running — and deserves a sentence, not a
-        // panic and a backtrace.
-        let listener = match tokio::net::TcpListener::bind(addr).await {
-            Ok(listener) => listener,
-            Err(e) => {
-                eprintln!("  could not bind the console to {addr}: {e}");
-                eprintln!(
-                    "  choose another port with --port, or stop the process already using it."
-                );
                 std::process::exit(2);
             }
         };
@@ -1028,15 +1103,77 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
             "  ULPF console  ·  {pack_count} packs  ·  OCSF {}",
             ulpf_ocsf::SCHEMA_VERSION
         );
-        eprintln!("  Listening on http://{host}:{port}");
+        eprintln!("  Listening on {scheme}://{host}:{port}");
         // The verifier needs this path: `ulpf verify --public-key <path>`.
         eprintln!("  trusted key   {}", public_key_path.display());
         eprintln!();
 
-        axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal())
-            .await
-            .unwrap();
+        match tls {
+            None => {
+                // A taken port is an ordinary operator mistake — two
+                // collectors on one host, a console already running — and
+                // deserves a sentence, not a panic and a backtrace.
+                let listener = match tokio::net::TcpListener::bind(addr).await {
+                    Ok(listener) => listener,
+                    Err(e) => {
+                        eprintln!("  could not bind the console to {addr}: {e}");
+                        eprintln!(
+                            "  choose another port with --port, or stop the process already using it."
+                        );
+                        std::process::exit(2);
+                    }
+                };
+                axum::serve(listener, app)
+                    .with_graceful_shutdown(shutdown_signal())
+                    .await
+                    .unwrap();
+            }
+            Some(mode) => {
+                // Same friendly-error test-bind as the plain-HTTP path above;
+                // `axum_server` binds internally and does not expose a
+                // pre-flight step, so this is done separately and dropped
+                // before the real listener claims the port.
+                if let Err(e) = std::net::TcpListener::bind(addr) {
+                    eprintln!("  could not bind the console to {addr}: {e}");
+                    eprintln!(
+                        "  choose another port with --port, or stop the process already using it."
+                    );
+                    std::process::exit(2);
+                }
+
+                let rustls_config = match mode {
+                    TlsMode::Provided { cert, key } => match tls::from_files(&cert, &key).await {
+                        Ok(c) => c,
+                        Err(e) => {
+                            eprintln!("  {e:#}");
+                            std::process::exit(2);
+                        }
+                    },
+                    TlsMode::SelfSigned => {
+                        match tls::self_signed(&integrity_dir, &[host.to_string()]).await {
+                            Ok(c) => c,
+                            Err(e) => {
+                                eprintln!("  {e:#}");
+                                std::process::exit(2);
+                            }
+                        }
+                    }
+                };
+
+                let handle = axum_server::Handle::new();
+                let shutdown_handle = handle.clone();
+                tokio::spawn(async move {
+                    shutdown_signal().await;
+                    shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
+                });
+
+                axum_server::bind_rustls(addr, rustls_config)
+                    .handle(handle)
+                    .serve(app.into_make_service())
+                    .await
+                    .unwrap();
+            }
+        }
 
         Ok::<(), anyhow::Error>(())
     })?;

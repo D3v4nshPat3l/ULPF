@@ -108,12 +108,26 @@ is a two-stage build onto distroless, read-only root, all capabilities dropped.
 
 - **One collector sustains 10,000 EPS lossless.** Reaching billions/day is a
   sharded deployment: chains are per-collector and verify independently.
-- **The console has no authentication.** It refuses cross-origin and rebound
-  requests, which is browser safety, not a login. Anyone who reaches the port
-  can write a Source Pack. Use an authenticating proxy beyond loopback.
+- **The console requires a bearer token by default** (`crate::auth`), on
+  every `/api/*` route, plus an Origin/Host guard for browser-specific
+  attacks the token does not cover (see the comment on `same_origin_only`).
+  `--no-auth` disables the token check for a throwaway demo — with it set,
+  the Origin/Host guard is the only remaining control, and it is browser
+  safety, not a login: anyone who reaches the port directly can still act as
+  the operator.
+- **Console TLS is optional, off by default.** `--tls-self-signed` or
+  `--tls-cert`/`--tls-key` terminate HTTPS at the console; plain HTTP is the
+  default on the `127.0.0.1`-only case, where the traffic never leaves the
+  host.
 - **UDP syslog only.** TCP/TLS (RFC 5425) is future work; the receive buffer is
-  raised at bind, but UDP has no backpressure.
+  raised at bind, but UDP has no backpressure. Console TLS does not extend to
+  this path — it is a separate listener with its own transport.
 - **Sinks use plain HTTP** to a trusted local endpoint; TLS termination is a
   deployment responsibility.
+- **The vault and the signing key are protected by filesystem permissions,
+  not encryption.** Anyone with read access to `--vault`/`--integrity-dir` on
+  disk can read raw log content and, if the signing key's permissions were
+  ever loosened, forge new checkpoints. Encryption at rest is tracked
+  separately from these transport-layer changes.
 - **Decoders read text.** Binary telemetry (NetFlow/IPFIX, EVTX) needs a second
   decoder contract taking `&[u8]`, not another pack.
