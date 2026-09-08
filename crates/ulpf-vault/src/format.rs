@@ -42,6 +42,14 @@ pub const INDEX_ENTRY_LEN: u64 = 24; // start(8) + ulen(4) + file_offset(8) + cl
 
 pub const FORMAT_VERSION: u16 = 1;
 
+/// Segment header `flags` bit meaning every block in this segment's payload
+/// is `nonce || AEAD-ciphertext` rather than a bare zstd frame. Kept as a
+/// per-segment flag rather than a per-vault setting recorded elsewhere, so
+/// a segment is self-describing to a reader that has no other context about
+/// it — the same reasoning that makes the block header carry its own
+/// coordinates instead of trusting the index.
+pub const ENCRYPTED_FLAG: u16 = 0x0001;
+
 /// Record framing: a little-endian `u32` length precedes each payload.
 pub const RECORD_HEADER_LEN: u64 = 4;
 

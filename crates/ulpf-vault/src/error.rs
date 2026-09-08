@@ -28,4 +28,7 @@ pub enum VaultError {
 
     #[error(transparent)]
     Io(#[from] std::io::Error),
+
+    #[error("vault encryption: {0}")]
+    Encryption(String),
 }

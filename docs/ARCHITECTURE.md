@@ -124,18 +124,26 @@ is a two-stage build onto distroless, read-only root, all capabilities dropped.
   this path — it is a separate listener with its own transport.
 - **Sinks use plain HTTP** to a trusted local endpoint; TLS termination is a
   deployment responsibility.
-- **The vault is protected by filesystem permissions, not encryption.**
-  Anyone with read access to `--vault` on disk can read raw log content.
-  Encryption for the vault itself is tracked separately from these
-  transport-layer changes.
-- **The signing key can now be encrypted at rest, but it is opt-in.**
-  `--encrypt-key` wraps a newly created key in a ChaCha20-Poly1305 envelope
-  keyed by an Argon2id-derived passphrase (`ULPF_KEY_PASSPHRASE`, or an
-  interactive hidden-input prompt); without it, the key is exactly as before
-  — hex on disk, protected by owner-only file permissions alone. It defaults
-  off because forcing a passphrase would break unattended starts (CI, the
-  `deploy/*.yaml` compose files, a scripted demo) that have no passphrase
-  wired in. Reading an existing key auto-detects its format either way, so
-  the flag only matters at creation.
+- **The signing key and the vault can each be encrypted at rest, but both
+  are opt-in.** `--encrypt-key` wraps a newly created signing key in a
+  ChaCha20-Poly1305 envelope keyed by an Argon2id-derived passphrase
+  (`ULPF_KEY_PASSPHRASE`, or an interactive hidden-input prompt).
+  `--encrypt-vault` does the same for every vault block payload, keyed by
+  an independent passphrase (`ULPF_VAULT_PASSPHRASE`) and a
+  per-vault-directory salt file (`vault.salt` — not secret, only needs to
+  be stable across reopens). Without either flag, both are exactly as
+  before: hex on disk / plain zstd frames, protected by owner-only file
+  permissions on the key and ordinary filesystem permissions on the vault
+  directory. Both default off because forcing a passphrase would break
+  unattended starts (CI, the `deploy/*.yaml` compose files, a scripted
+  demo) that have no passphrase wired in. Reading an existing key or vault
+  auto-detects its format either way — a segment records its own
+  encryption state in its header (a previously-reserved flags bit), so a
+  reader never depends on external configuration to know how to interpret
+  it, and a vault that had encryption enabled partway through its life
+  reads correctly across both kinds of segment. `crypto.rs` in `ulpf-vault`
+  and `key_crypto.rs` in `ulpf-cli` are deliberately separate, small,
+  near-identical implementations rather than shared code — the vault crate
+  must not depend on the binary crate that depends on it.
 - **Decoders read text.** Binary telemetry (NetFlow/IPFIX, EVTX) needs a second
   decoder contract taking `&[u8]`, not another pack.

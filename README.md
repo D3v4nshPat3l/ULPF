@@ -318,6 +318,20 @@ is exactly as unrecoverable as losing the key file itself. Loading an
 *existing* key auto-detects whether it is encrypted, so this flag only
 matters the moment a key is first created.
 
+**Encrypting the vault.** Also on `run`, `serve` and `listen`:
+`--encrypt-vault` encrypts every block payload with the same
+ChaCha20-Poly1305-plus-Argon2id construction, keyed by an independent
+`ULPF_VAULT_PASSPHRASE` — a separate secret from the signing key, since an
+operator may want to protect the log content without also managing a
+signing-key passphrase, or vice versa. A fresh vault directory gets a new
+salt (stored alongside it as `vault.salt`, not secret — only the passphrase
+is) and prompts with confirmation; reopening an existing encrypted vault
+unlocks it with the same passphrase. A wrong passphrase is not caught at
+startup — key derivation cannot itself tell right from wrong — only once a
+block is actually decrypted, where it fails clearly rather than silently.
+`ulpf raw` also takes `--encrypt-vault` for retrieving evidence from an
+encrypted vault directly from the command line.
+
 ### A file, start to finish
 
 ```bash
@@ -562,15 +576,14 @@ shaped, so both need real ingestion work rather than another pack.
 default, generated with owner-only file permissions — `--no-auth` opts out
 for a throwaway demo), TLS termination for the console
 (`--tls-cert`/`--tls-key`, or `--tls-self-signed` for a cached self-signed
-certificate on a network with no CA), and opt-in encryption at rest for the
-signing key (`--encrypt-key`, ChaCha20-Poly1305 keyed by an
-Argon2id-derived passphrase — see [Setup](#setup)).
+certificate on a network with no CA), and opt-in encryption at rest for both
+the signing key and the vault (`--encrypt-key` / `--encrypt-vault`, each its
+own ChaCha20-Poly1305-plus-Argon2id passphrase — see [Setup](#setup)).
 
 **Remaining:** TLS syslog (RFC 5425) so the UDP intake path gets the same
 transport protection the console now has, backpressure signalling to senders,
-key rotation and a documented custody procedure for the signing key, at-rest
-encryption for the vault itself (the signing key now has an opt-in path;
-the vault does not yet), and packaging as a service.
+key rotation and a documented custody procedure for the signing key, and
+packaging as a service.
 
 ---
 

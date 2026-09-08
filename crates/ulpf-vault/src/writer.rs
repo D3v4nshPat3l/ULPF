@@ -58,6 +58,11 @@ pub struct VaultWriter {
     /// Byte offset in the file where the next block header will be written.
     file_cursor: u64,
     index: Vec<BlockLoc>,
+    /// Set for the life of this writer by `open_encrypted`. Every block in
+    /// every segment this instance creates is encrypted under this key, and
+    /// every segment header records that fact so a reader never has to be
+    /// told separately.
+    encryption_key: Option<crate::crypto::Key32>,
 }
 
 impl VaultWriter {
@@ -67,10 +72,36 @@ impl VaultWriter {
     }
 
     pub fn open_with(dir: impl AsRef<Path>, config: VaultConfig) -> Result<Self> {
+        Self::open_internal(dir, config, None)
+    }
+
+    /// Open a vault directory, encrypting every block written under a key
+    /// derived from `passphrase`. Reopening the same directory with the same
+    /// passphrase derives the same key (see `crypto::key_for_passphrase`),
+    /// so an existing encrypted vault keeps working across restarts.
+    pub fn open_encrypted(
+        dir: impl AsRef<Path>,
+        config: VaultConfig,
+        passphrase: &str,
+    ) -> Result<Self> {
+        // The directory must exist before the salt file can be created
+        // inside it — deriving the key here, before `open_internal`'s own
+        // `create_dir_all`, meant a brand-new vault directory failed with a
+        // confusing "path not found" on its very first run.
+        std::fs::create_dir_all(dir.as_ref())?;
+        let key = crate::crypto::key_for_passphrase(dir.as_ref(), passphrase)?;
+        Self::open_internal(dir, config, Some(key))
+    }
+
+    fn open_internal(
+        dir: impl AsRef<Path>,
+        config: VaultConfig,
+        encryption_key: Option<crate::crypto::Key32>,
+    ) -> Result<Self> {
         let dir = dir.as_ref().to_path_buf();
         std::fs::create_dir_all(&dir)?;
         let segment = next_segment_number(&dir)?;
-        let (file, file_cursor) = create_segment(&dir, segment)?;
+        let (file, file_cursor) = create_segment(&dir, segment, encryption_key.is_some())?;
 
         Ok(Self {
             dir,
@@ -82,6 +113,7 @@ impl VaultWriter {
             buffer: Vec::with_capacity(config.block_size + 4096),
             file_cursor,
             index: Vec::new(),
+            encryption_key,
         })
     }
 
@@ -129,6 +161,15 @@ impl VaultWriter {
             .map_err(|_| VaultError::RecordTooLarge(self.buffer.len()))?;
         let crc = crc32(&self.buffer);
         let compressed = zstd::encode_all(self.buffer.as_slice(), self.config.level)?;
+        // Encrypt *after* compression: zstd needs to see the redundancy that
+        // encryption erases, and encrypting a smaller ciphertext costs less.
+        // `crc` above still covers the original uncompressed bytes either
+        // way — a corrupted ciphertext already fails to decrypt, so nothing
+        // downstream needs a second checksum for that case.
+        let compressed = match &self.encryption_key {
+            Some(key) => crate::crypto::encrypt_block(key, &compressed),
+            None => compressed,
+        };
         let compressed_len = u32::try_from(compressed.len())
             .map_err(|_| VaultError::RecordTooLarge(compressed.len()))?;
 
@@ -163,7 +204,8 @@ impl VaultWriter {
     fn rotate(&mut self) -> Result<()> {
         self.finish_segment()?;
         self.segment += 1;
-        let (file, file_cursor) = create_segment(&self.dir, self.segment)?;
+        let (file, file_cursor) =
+            create_segment(&self.dir, self.segment, self.encryption_key.is_some())?;
         self.file = BufWriter::new(file);
         self.file_cursor = file_cursor;
         self.block_start = 0;
@@ -204,7 +246,11 @@ fn segment_path(dir: &Path, segment: u64) -> PathBuf {
     dir.join(format!("{segment:016x}.vlt"))
 }
 
-fn create_segment(dir: &Path, segment: u64) -> Result<(File, u64)> {
+/// `encrypted` becomes bit 0 of the segment header's `flags` field — see
+/// `format::ENCRYPTED_FLAG`. A reader checks this bit per segment rather
+/// than trusting an external configuration, so a vault that had encryption
+/// turned on partway through its life reads both kinds of segment correctly.
+fn create_segment(dir: &Path, segment: u64, encrypted: bool) -> Result<(File, u64)> {
     let path = segment_path(dir, segment);
     let mut file = OpenOptions::new()
         .create_new(true)
@@ -214,9 +260,10 @@ fn create_segment(dir: &Path, segment: u64) -> Result<(File, u64)> {
             path: path.clone(),
             source: e,
         })?;
+    let flags: u16 = if encrypted { ENCRYPTED_FLAG } else { 0 };
     file.write_all(SEGMENT_MAGIC)?;
     file.write_all(&FORMAT_VERSION.to_le_bytes())?;
-    file.write_all(&0u16.to_le_bytes())?; // flags, reserved
+    file.write_all(&flags.to_le_bytes())?;
     Ok((file, SEGMENT_HEADER_LEN))
 }
 

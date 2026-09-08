@@ -24,7 +24,7 @@ use ulpf_core::{Envelope, RawRef, Transport};
 use ulpf_ocsf::types::HashAlgorithm;
 use ulpf_ocsf::OcsfEvent;
 use ulpf_pack::PackLibrary;
-use ulpf_vault::{VaultReader, VaultWriter};
+use ulpf_vault::{VaultConfig, VaultReader, VaultWriter};
 
 use pipeline::Pipeline;
 
@@ -54,6 +54,7 @@ struct RunOptions {
     splunk_token_env: String,
     sink_batch_size: usize,
     encrypt_key: bool,
+    encrypt_vault: bool,
 }
 
 struct ListenOptions {
@@ -66,6 +67,7 @@ struct ListenOptions {
     blake3: bool,
     inline_raw: bool,
     encrypt_key: bool,
+    encrypt_vault: bool,
 }
 
 #[derive(Parser)]
@@ -156,6 +158,20 @@ enum Command {
         /// the moment a new key is created.
         #[arg(long)]
         encrypt_key: bool,
+        /// Encrypt the vault's block payloads at rest with a passphrase.
+        ///
+        /// Independent of `--encrypt-key`: this is a separate secret
+        /// (`ULPF_VAULT_PASSPHRASE`), since the vault holds the actual log
+        /// content and an operator may want to protect it without also
+        /// managing a signing-key passphrase, or vice versa. A fresh vault
+        /// directory gets a new salt and prompts with confirmation; an
+        /// existing encrypted vault directory (identified by its
+        /// `vault.salt` file) is unlocked with the same passphrase used to
+        /// create it — the wrong one fails clearly the moment a block is
+        /// actually read, not at startup, since salt-based key derivation
+        /// cannot itself tell a wrong passphrase from a right one.
+        #[arg(long)]
+        encrypt_vault: bool,
     },
 
     /// Cluster dead-letter records and draft human-reviewable Source Packs.
@@ -190,6 +206,10 @@ enum Command {
         vault: PathBuf,
         /// Locator, as carried in `unmapped.ulpf_raw_locator`.
         locator: String,
+        /// This vault's blocks are encrypted; prompt for (or read
+        /// ULPF_VAULT_PASSPHRASE) the passphrase to decrypt them.
+        #[arg(long)]
+        encrypt_vault: bool,
     },
 
     /// Verify the attestation chain over a normalized NDJSON stream.
@@ -367,6 +387,10 @@ enum Command {
         /// See `ulpf run --help` for the full explanation.
         #[arg(long)]
         encrypt_key: bool,
+        /// Encrypt the vault's block payloads at rest with a passphrase.
+        /// See `ulpf run --help` for the full explanation.
+        #[arg(long)]
+        encrypt_vault: bool,
     },
 
     /// Receive real RFC 5424/RFC 3164 syslog datagrams over UDP.
@@ -392,6 +416,10 @@ enum Command {
         /// See `ulpf run --help` for the full explanation.
         #[arg(long)]
         encrypt_key: bool,
+        /// Encrypt the vault's block payloads at rest with a passphrase.
+        /// See `ulpf run --help` for the full explanation.
+        #[arg(long)]
+        encrypt_vault: bool,
     },
 
     /// List the built-in decoders a pack may use.
@@ -442,6 +470,7 @@ fn main() -> anyhow::Result<()> {
             splunk_token_env,
             sink_batch_size,
             encrypt_key,
+            encrypt_vault,
         } => cmd_run(RunOptions {
             packs_dir: packs,
             vault_dir: vault,
@@ -460,6 +489,7 @@ fn main() -> anyhow::Result<()> {
             splunk_token_env,
             sink_batch_size,
             encrypt_key,
+            encrypt_vault,
         }),
         Command::Draft {
             dead_letter,
@@ -475,7 +505,11 @@ fn main() -> anyhow::Result<()> {
             sidecar.as_deref(),
         ),
         Command::Test { packs } => cmd_test(packs),
-        Command::Raw { vault, locator } => cmd_raw(vault, &locator),
+        Command::Raw {
+            vault,
+            locator,
+            encrypt_vault,
+        } => cmd_raw(vault, &locator, encrypt_vault),
         Command::Verify {
             input,
             checkpoint,
@@ -536,6 +570,7 @@ fn main() -> anyhow::Result<()> {
             tls_key,
             tls_self_signed,
             encrypt_key,
+            encrypt_vault,
         } => cmd_serve(ServeConfig {
             packs_dir: packs,
             vault_dir: vault,
@@ -563,6 +598,7 @@ fn main() -> anyhow::Result<()> {
                 _ => unreachable!("clap arg constraints guarantee cert and key arrive together"),
             },
             encrypt_key,
+            encrypt_vault,
         }),
         Command::Replay {
             source,
@@ -580,6 +616,7 @@ fn main() -> anyhow::Result<()> {
             blake3,
             inline_raw,
             encrypt_key,
+            encrypt_vault,
         } => cmd_listen(ListenOptions {
             packs_dir: packs,
             vault_dir: vault,
@@ -590,6 +627,7 @@ fn main() -> anyhow::Result<()> {
             blake3,
             inline_raw,
             encrypt_key,
+            encrypt_vault,
         }),
         Command::Decoders => {
             for name in ulpf_decode::BUILTIN_NAMES {
@@ -598,6 +636,37 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
     }
+}
+
+/// Open the raw vault, encrypting its block payloads if `--encrypt-vault`
+/// was passed. Shared by `run`, `serve` and `listen` so the passphrase
+/// acquisition/env-var behavior can't drift between the three.
+///
+/// Also returns the derived key when encryption is on, so a caller that
+/// later needs its own independent `VaultReader` against the same directory
+/// — the console's `/api/raw/{locator}` handler — can use
+/// `VaultReader::open_with_key` instead of re-deriving from a passphrase (or
+/// worse, re-prompting for one) on every request.
+fn open_vault(
+    vault_dir: &Path,
+    encrypt_vault: bool,
+) -> anyhow::Result<(VaultWriter, Option<ulpf_vault::crypto::Key32>)> {
+    if !encrypt_vault {
+        let writer = VaultWriter::open(vault_dir)
+            .with_context(|| format!("opening vault at {}", vault_dir.display()))?;
+        return Ok((writer, None));
+    }
+    // A fresh vault directory has no salt file yet; an existing encrypted
+    // one does. Confirmation is worth asking only when a typo would
+    // otherwise silently mint a passphrase nobody can reproduce.
+    let confirm = !vault_dir.join("vault.salt").exists();
+    let passphrase = key_crypto::acquire_passphrase_for("vault", "ULPF_VAULT_PASSPHRASE", confirm)?;
+    std::fs::create_dir_all(vault_dir)?;
+    let key = ulpf_vault::crypto::key_for_passphrase(vault_dir, &passphrase)
+        .with_context(|| format!("deriving vault key for {}", vault_dir.display()))?;
+    let writer = VaultWriter::open_encrypted(vault_dir, VaultConfig::default(), &passphrase)
+        .with_context(|| format!("opening encrypted vault at {}", vault_dir.display()))?;
+    Ok((writer, Some(key)))
 }
 
 fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
@@ -619,6 +688,7 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
         splunk_token_env,
         sink_batch_size,
         encrypt_key,
+        encrypt_vault,
     } = options;
     ensure_output_paths_are_safe(&input, &output, dead_letter.as_deref(), parquet.as_deref())?;
     let (library, errors) = PackLibrary::load_dir(&packs_dir)
@@ -634,8 +704,7 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
     }
     tracing::info!(packs = library.len(), "pack library loaded");
 
-    let vault = VaultWriter::open(&vault_dir)
-        .with_context(|| format!("opening vault at {}", vault_dir.display()))?;
+    let (vault, _vault_key) = open_vault(&vault_dir, encrypt_vault)?;
 
     let hash = if blake3 {
         HashAlgorithm::Blake3
@@ -844,6 +913,7 @@ pub struct ServeConfig {
     pub no_auth: bool,
     pub tls: Option<TlsMode>,
     pub encrypt_key: bool,
+    pub encrypt_vault: bool,
 }
 
 /// How the console terminates TLS, if at all.
@@ -906,6 +976,7 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         no_auth,
         tls,
         encrypt_key,
+        encrypt_vault,
     } = config;
     let chain = chain.as_str();
     let host = host.as_str();
@@ -925,8 +996,7 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
     }
     let pack_count = library.len();
 
-    let vault = VaultWriter::open(&vault_dir)
-        .with_context(|| format!("opening vault at {}", vault_dir.display()))?;
+    let (vault, vault_key) = open_vault(&vault_dir, encrypt_vault)?;
     let integrity = integrity_state::open(
         &integrity_dir,
         "ulpf-console",
@@ -984,6 +1054,7 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         packs_dir: packs_dir.clone(),
         drain: ulpf_generator::drain::Drain::new(),
         simulator: simulator::Simulator::new(datasets_dir, sim_target),
+        vault_key,
     }));
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -1340,10 +1411,17 @@ fn cmd_test(packs_dir: PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn cmd_raw(vault_dir: PathBuf, locator: &str) -> anyhow::Result<()> {
+fn cmd_raw(vault_dir: PathBuf, locator: &str, encrypt_vault: bool) -> anyhow::Result<()> {
     let raw_ref =
         RawRef::from_locator(locator).with_context(|| format!("parsing locator `{locator}`"))?;
-    let mut reader = VaultReader::open(&vault_dir);
+    let mut reader = if encrypt_vault {
+        let passphrase =
+            key_crypto::acquire_passphrase_for("vault", "ULPF_VAULT_PASSPHRASE", false)?;
+        VaultReader::open_encrypted(&vault_dir, &passphrase)
+            .with_context(|| format!("opening encrypted vault at {}", vault_dir.display()))?
+    } else {
+        VaultReader::open(&vault_dir)
+    };
     let bytes = reader
         .get(raw_ref)
         .with_context(|| format!("retrieving {locator}"))?;
@@ -1574,6 +1652,7 @@ fn cmd_listen(options: ListenOptions) -> anyhow::Result<()> {
         blake3,
         inline_raw,
         encrypt_key,
+        encrypt_vault,
     } = options;
     let (library, errors) = PackLibrary::load_dir(&packs_dir)
         .with_context(|| format!("loading packs from {}", packs_dir.display()))?;
@@ -1594,8 +1673,7 @@ fn cmd_listen(options: ListenOptions) -> anyhow::Result<()> {
     let checkpoint_path = integrity.checkpoint_path.clone();
     let merkle_leaves_path = integrity.merkle_leaves_path.clone();
     let public_key_path = integrity.public_key_path.clone();
-    let vault = VaultWriter::open(&vault_dir)
-        .with_context(|| format!("opening vault at {}", vault_dir.display()))?;
+    let (vault, _vault_key) = open_vault(&vault_dir, encrypt_vault)?;
     let mut pipeline = Pipeline::new(std::sync::Arc::new(library), vault, integrity.attestor)
         .with_hash(hash)
         .inline_raw(inline_raw);

@@ -141,21 +141,34 @@ pub fn decrypt(passphrase: &[u8], envelope_bytes: &[u8]) -> Result<[u8; 32]> {
 
 /// Get the passphrase that guards an encrypted signing key.
 ///
-/// `ULPF_KEY_PASSPHRASE` takes priority so a scripted deployment (CI, a
-/// container entrypoint, the compose files under `deploy/`) can supply it
-/// without a TTY. Interactively, `confirm` re-prompts once on creation so a
-/// typo does not lock the operator out of a key that was just generated —
-/// there is nothing to confirm against when merely unlocking an existing one.
+/// Thin wrapper over [`acquire_passphrase_for`] fixing the env var and
+/// prompt label the signing key has always used, so existing call sites and
+/// their `ULPF_KEY_PASSPHRASE` documentation stay unchanged.
 pub fn acquire_passphrase(confirm: bool) -> Result<String> {
-    if let Ok(env) = std::env::var("ULPF_KEY_PASSPHRASE") {
+    acquire_passphrase_for("signing key", "ULPF_KEY_PASSPHRASE", confirm)
+}
+
+/// Get a passphrase for `label` (used only in prompts/errors), reading
+/// `env_var` first.
+///
+/// The env var takes priority so a scripted deployment (CI, a container
+/// entrypoint, the compose files under `deploy/`) can supply it without a
+/// TTY. Interactively, `confirm` re-prompts once on creation so a typo does
+/// not lock the operator out of a secret that was just generated — there is
+/// nothing to confirm against when merely unlocking an existing one.
+/// Separate env vars per secret (rather than one shared passphrase) so an
+/// operator can protect the signing key and the vault independently, or
+/// only one of the two.
+pub fn acquire_passphrase_for(label: &str, env_var: &str, confirm: bool) -> Result<String> {
+    if let Ok(env) = std::env::var(env_var) {
         if env.is_empty() {
-            bail!("ULPF_KEY_PASSPHRASE is set but empty");
+            bail!("{env_var} is set but empty");
         }
         return Ok(env);
     }
 
-    let passphrase = rpassword::prompt_password("signing key passphrase: ")
-        .context("reading passphrase (no TTY and ULPF_KEY_PASSPHRASE is not set)")?;
+    let passphrase = rpassword::prompt_password(format!("{label} passphrase: "))
+        .with_context(|| format!("reading passphrase (no TTY and {env_var} is not set)"))?;
     if passphrase.is_empty() {
         bail!("passphrase must not be empty");
     }

@@ -42,22 +42,29 @@ The team will acknowledge a complete report within three working days and provid
   Both are excluded from Git and created with owner-only permissions; back
   them up through the team's secret-management process, not by copying them
   into a less-restricted location.
-- The vault relies on filesystem permissions alone — anyone with read access
-  to `--vault` on disk can read raw log content. Encrypt the underlying
-  disk/volume, or restrict filesystem access, until vault encryption ships.
-- The signing key can be encrypted at rest with `--encrypt-key`, but this is
-  **opt-in, not the default** — without it the key is hex on disk, protected
-  only by the owner-only permission the loose-permission check enforces at
-  every load. With `--encrypt-key`, a newly created key is wrapped in a
-  ChaCha20-Poly1305 envelope keyed by an Argon2id-derived passphrase; read
-  `ULPF_KEY_PASSPHRASE` from the environment for a scripted/CI start, or
-  answer the hidden-input prompt interactively. A wrong passphrase and a
-  corrupted file are refused with the same error on purpose — an AEAD
-  decrypt failure gives an attacker no way to distinguish "you guessed wrong"
-  from "the file is damaged." Losing the passphrase means losing the key
-  exactly as if the file itself were destroyed; there is no recovery path,
-  so treat it as carefully as the key file itself. Reading an existing key
-  auto-detects its format regardless of the current run's flags.
+- Both the signing key and the vault can be encrypted at rest, each with its
+  own flag, and both are **opt-in, not the default** — without them, the key
+  is hex on disk and the vault's block payloads are plain zstd frames,
+  protected only by the owner-only permission the loose-permission check
+  enforces on the key at every load (the vault directory has no equivalent
+  check; ordinary filesystem permissions are all that guard it unencrypted).
+  `--encrypt-key` wraps a newly created signing key in a ChaCha20-Poly1305
+  envelope keyed by an Argon2id-derived passphrase (`ULPF_KEY_PASSPHRASE`, or
+  a hidden-input prompt). `--encrypt-vault` does the same for every block
+  payload, keyed by an independent passphrase (`ULPF_VAULT_PASSPHRASE`) and
+  a per-vault-directory salt (`vault.salt`, not itself secret — only stable
+  across reopens, so a passphrase always re-derives the same key). Use one,
+  both, or neither, depending on which secret an operator wants to manage.
+  A wrong passphrase and a corrupted file are refused with the identical
+  error on purpose, for both — an AEAD decrypt failure gives an attacker no
+  way to distinguish "you guessed wrong" from "the file is damaged." Losing
+  either passphrase means losing that secret exactly as if the file itself
+  were destroyed; there is no recovery path, so treat both as carefully as
+  the plaintext they replace. Reading an existing key or vault
+  auto-detects its format regardless of the current run's flags — a vault
+  that had encryption turned on partway through its life is read correctly
+  either way, since each segment declares its own encryption state in its
+  header rather than trusting external configuration.
 - Pin a trusted public key out of band when verifying checkpoints; a
   checkpoint's `verify_self_signed()` proves internal consistency, not that
   the embedded key is who you think it is.

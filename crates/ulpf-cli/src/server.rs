@@ -52,6 +52,10 @@ pub struct AppState {
     pub packs_dir: std::path::PathBuf,
     pub drain: ulpf_generator::drain::Drain,
     pub simulator: crate::simulator::Simulator,
+    /// Set when `serve` was started with `--encrypt-vault`. The `raw`
+    /// handler needs this to build its own `VaultReader` against the same
+    /// encrypted vault the pipeline's `VaultWriter` is already using.
+    pub vault_key: Option<ulpf_vault::crypto::Key32>,
 }
 
 #[derive(Clone)]
@@ -1085,9 +1089,15 @@ async fn raw(
 ) -> Result<Json<Value>, ApiError> {
     let raw_ref = RawRef::from_locator(&locator)
         .map_err(|e| ApiError(StatusCode::BAD_REQUEST, e.to_string()))?;
-    let dir = lock(&state).vault_dir.clone();
+    let (dir, vault_key) = {
+        let s = lock(&state);
+        (s.vault_dir.clone(), s.vault_key)
+    };
 
-    let mut reader = VaultReader::open(&dir);
+    let mut reader = match vault_key {
+        Some(key) => VaultReader::open_with_key(&dir, key),
+        None => VaultReader::open(&dir),
+    };
     let bytes = reader
         .get(raw_ref)
         .map_err(|e| ApiError(StatusCode::NOT_FOUND, e.to_string()))?;
@@ -1239,6 +1249,7 @@ mod tests {
                 dir.path().join("datasets"),
                 "127.0.0.1:5514".into(),
             ),
+            vault_key: None,
         }));
         (state, dir)
     }

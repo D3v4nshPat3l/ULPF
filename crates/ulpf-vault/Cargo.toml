@@ -11,6 +11,14 @@ ulpf-core = { workspace = true }
 thiserror = { workspace = true }
 zstd = { workspace = true }
 tracing = { workspace = true }
+rand = { workspace = true }
+# Optional encryption at rest for vault blocks. AEAD cipher for the block
+# payload; Argon2id to turn an operator passphrase into a key the cipher can
+# use. Same choice ulpf-cli makes for the signing key — kept as a separate
+# declaration here rather than a shared dependency on ulpf-cli, since the
+# vault must not depend on the binary crate that depends on it.
+chacha20poly1305 = "0.10"
+argon2 = "0.5"
 
 [dev-dependencies]
 tempfile = "3"

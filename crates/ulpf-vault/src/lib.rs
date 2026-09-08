@@ -31,6 +31,7 @@
 //! # }
 //! ```
 
+pub mod crypto;
 pub mod error;
 pub mod format;
 mod reader;
@@ -307,6 +308,87 @@ mod tests {
         let mut reader = VaultReader::open(dir.path());
         assert_eq!(reader.get(first).unwrap(), b"from first run");
         assert_eq!(reader.get(second).unwrap(), b"from second run");
+    }
+
+    #[test]
+    fn round_trips_through_an_encrypted_vault() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut w =
+            VaultWriter::open_encrypted(dir.path(), small_blocks(), "correct horse battery staple")
+                .unwrap();
+        let mut refs = Vec::new();
+        for i in 0..200 {
+            let line = format!("encrypted event {i} srcip=10.0.0.{}", i % 256);
+            refs.push((w.append(line.as_bytes()).unwrap(), line));
+        }
+        w.close().unwrap();
+
+        // The salt sidecar is the one new artifact on disk for an encrypted
+        // vault; its presence is what lets a later reopen derive the same key.
+        assert!(dir.path().join("vault.salt").exists());
+
+        let mut reader =
+            VaultReader::open_encrypted(dir.path(), "correct horse battery staple").unwrap();
+        for (r, expected) in &refs {
+            assert_eq!(reader.get(*r).unwrap(), expected.as_bytes());
+        }
+    }
+
+    #[test]
+    fn an_encrypted_vault_refuses_the_wrong_passphrase() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut w =
+            VaultWriter::open_encrypted(dir.path(), small_blocks(), "the right one").unwrap();
+        let r = w.append(b"secret payload").unwrap();
+        w.close().unwrap();
+
+        // The salt is shared (it is not secret), so key derivation itself
+        // succeeds with any passphrase; the failure surfaces only once the
+        // wrong key is asked to decrypt an actual block.
+        let mut reader = VaultReader::open_encrypted(dir.path(), "not the right one").unwrap();
+        assert!(matches!(reader.get(r), Err(VaultError::Encryption(_))));
+    }
+
+    #[test]
+    fn a_plain_reader_refuses_an_encrypted_segment_instead_of_garbling_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut w = VaultWriter::open_encrypted(dir.path(), small_blocks(), "passphrase").unwrap();
+        let r = w.append(b"payload").unwrap();
+        w.close().unwrap();
+
+        let mut reader = VaultReader::open(dir.path());
+        let error = reader.get(r).unwrap_err();
+        assert!(
+            matches!(&error, VaultError::Encryption(msg) if msg.contains("open_encrypted")),
+            "expected a clear open_encrypted hint, got: {error:?}"
+        );
+    }
+
+    #[test]
+    fn recovers_an_unsealed_encrypted_segment_by_scanning() {
+        // The encrypted twin of `recovers_an_unsealed_segment_by_scanning`:
+        // a kill -9 leaves blocks flushed but no footer written, and the
+        // scan-recovery path has to reconstruct the index from block headers
+        // alone, then still decrypt each block correctly.
+        let dir = tempfile::tempdir().unwrap();
+        let mut w =
+            VaultWriter::open_encrypted(dir.path(), small_blocks(), "recovery passphrase").unwrap();
+        let mut refs = Vec::new();
+        for i in 0..50 {
+            let line = format!("encrypted survivor {i}");
+            refs.push((w.append(line.as_bytes()).unwrap(), line));
+        }
+        w.flush().unwrap();
+        drop(w); // no close(): no index, no footer
+
+        let mut reader = VaultReader::open_encrypted(dir.path(), "recovery passphrase").unwrap();
+        for (r, expected) in &refs {
+            assert_eq!(
+                reader.get(*r).unwrap(),
+                expected.as_bytes(),
+                "encrypted record lost after unclean shutdown"
+            );
+        }
     }
 
     #[test]

@@ -16,12 +16,28 @@ use crate::format::*;
 /// work regardless of how many events the vault holds. That is what turns
 /// requirement (d) from "we could search for it" into "click the event, get the
 /// original".
+/// One segment's block index, plus whether its blocks are encrypted.
+///
+/// Recorded per segment rather than assumed from how this `VaultReader` was
+/// opened, because a vault that had encryption turned on partway through its
+/// life has both kinds of segment on disk at once — each one says which it
+/// is in its own header (`format::ENCRYPTED_FLAG`), and a reader trusts that
+/// over any external assumption.
+struct SegmentIndex {
+    encrypted: bool,
+    blocks: Vec<BlockLoc>,
+}
+
 pub struct VaultReader {
     dir: PathBuf,
     /// Block indexes, loaded lazily per segment and then cached.
-    segments: HashMap<u64, Vec<BlockLoc>>,
+    segments: HashMap<u64, SegmentIndex>,
     /// Most recently decompressed block, keyed by (segment, block start).
     cache: Option<((u64, u64), Vec<u8>)>,
+    /// Set by `open_encrypted`. Required to read any segment whose header
+    /// declares itself encrypted; a plain `open()` reader that meets one
+    /// fails with a clear error rather than feeding ciphertext to zstd.
+    key: Option<crate::crypto::Key32>,
 }
 
 impl VaultReader {
@@ -30,6 +46,35 @@ impl VaultReader {
             dir: dir.as_ref().to_path_buf(),
             segments: HashMap::new(),
             cache: None,
+            key: None,
+        }
+    }
+
+    /// Open a vault directory whose blocks may be encrypted, deriving the
+    /// key from `passphrase` against the salt `VaultWriter::open_encrypted`
+    /// stored in this same directory. Fallible, unlike `open()`: deriving a
+    /// key requires that salt file to already exist.
+    pub fn open_encrypted(dir: impl AsRef<Path>, passphrase: &str) -> Result<Self> {
+        let dir = dir.as_ref().to_path_buf();
+        let key = crate::crypto::key_for_passphrase(&dir, passphrase)?;
+        Ok(Self::open_with_key(dir, key))
+    }
+
+    /// Open a vault directory with an already-derived key, skipping
+    /// passphrase/salt lookup entirely.
+    ///
+    /// For a caller that already holds the key from opening the
+    /// `VaultWriter` for this same directory in this same process — the
+    /// console's `/api/raw/{locator}` handler is the motivating case — so it
+    /// is not asked to re-derive it (which would mean re-reading the salt
+    /// file and re-running Argon2id) or, worse, re-prompt for a passphrase
+    /// on every request.
+    pub fn open_with_key(dir: impl AsRef<Path>, key: crate::crypto::Key32) -> Self {
+        Self {
+            dir: dir.as_ref().to_path_buf(),
+            segments: HashMap::new(),
+            cache: None,
+            key: Some(key),
         }
     }
 
@@ -79,7 +124,7 @@ impl VaultReader {
 
     /// Read every record in a segment, in write order.
     pub fn scan_segment(&mut self, segment: u64) -> Result<Vec<Vec<u8>>> {
-        let blocks = self.index_for(segment)?.clone();
+        let blocks = self.index_for(segment)?.blocks.clone();
         let mut out = Vec::new();
         for block in blocks {
             let data = self.block_bytes(segment, block)?;
@@ -117,7 +162,7 @@ impl VaultReader {
     }
 
     fn locate_block(&mut self, raw_ref: RawRef) -> Result<BlockLoc> {
-        let blocks = self.index_for(raw_ref.segment)?;
+        let blocks = &self.index_for(raw_ref.segment)?.blocks;
         // Blocks are written in ascending order, so binary search applies.
         let idx = blocks
             .binary_search_by(|b| {
@@ -134,11 +179,23 @@ impl VaultReader {
     }
 
     fn block_bytes(&mut self, segment: u64, block: BlockLoc) -> Result<Vec<u8>> {
-        let key = (segment, block.uncompressed_start);
+        let cache_key = (segment, block.uncompressed_start);
         if let Some((cached_key, data)) = &self.cache {
-            if *cached_key == key {
+            if *cached_key == cache_key {
                 return Ok(data.clone());
             }
+        }
+
+        // Populates `self.segments` if this is the first block touched in
+        // this segment; cheap after that. Fetched before the file read below
+        // so a segment declaring itself encrypted with no key configured
+        // fails with a specific message instead of a confusing zstd error.
+        let encrypted = self.index_for(segment)?.encrypted;
+        if encrypted && self.key.is_none() {
+            return Err(VaultError::Encryption(format!(
+                "segment {segment} is encrypted; open this vault with VaultReader::open_encrypted \
+                 and the correct passphrase"
+            )));
         }
 
         let path = self.segment_path(segment);
@@ -174,6 +231,16 @@ impl VaultReader {
         let mut compressed = vec![0u8; block.compressed_len as usize];
         file.read_exact(&mut compressed)?;
 
+        // Decrypt before decompression — the mirror image of `flush_block`
+        // compressing before encrypting. `self.key` is guaranteed `Some`
+        // here: the check above already returned for `encrypted && key ==
+        // None`.
+        let compressed = if encrypted {
+            crate::crypto::decrypt_block(self.key.as_ref().expect("checked above"), &compressed)?
+        } else {
+            compressed
+        };
+
         let data = zstd::decode_all(compressed.as_slice())?;
         if data.len() != block.uncompressed_len as usize {
             return Err(VaultError::CorruptBlock {
@@ -195,11 +262,11 @@ impl VaultReader {
             });
         }
 
-        self.cache = Some((key, data.clone()));
+        self.cache = Some((cache_key, data.clone()));
         Ok(data)
     }
 
-    fn index_for(&mut self, segment: u64) -> Result<&Vec<BlockLoc>> {
+    fn index_for(&mut self, segment: u64) -> Result<&SegmentIndex> {
         if !self.segments.contains_key(&segment) {
             let index = self.load_index(segment)?;
             self.segments.insert(segment, index);
@@ -208,7 +275,7 @@ impl VaultReader {
     }
 
     /// Load a segment's block index, falling back to a forward scan.
-    fn load_index(&self, segment: u64) -> Result<Vec<BlockLoc>> {
+    fn load_index(&self, segment: u64) -> Result<SegmentIndex> {
         let path = self.segment_path(segment);
         let mut file = File::open(&path).map_err(|e| VaultError::Segment {
             path: path.clone(),
@@ -232,9 +299,18 @@ impl VaultReader {
             });
         }
 
+        // version(2) + flags(2), written by `writer::create_segment`.
+        // Neither `read_footer_index` nor `recover_index` depend on the
+        // file's cursor position — both seek explicitly — so reading these
+        // four bytes here does not disturb either path.
+        let mut version_and_flags = [0u8; 4];
+        file.read_exact(&mut version_and_flags)?;
+        let flags = u16::from_le_bytes(version_and_flags[2..4].try_into().expect("two bytes"));
+        let encrypted = flags & ENCRYPTED_FLAG != 0;
+
         if size >= SEGMENT_HEADER_LEN + FOOTER_LEN {
-            if let Some(index) = read_footer_index(&mut file, size, segment)? {
-                return Ok(index);
+            if let Some(blocks) = read_footer_index(&mut file, size, segment)? {
+                return Ok(SegmentIndex { encrypted, blocks });
             }
         }
 
@@ -244,7 +320,8 @@ impl VaultReader {
             segment,
             "vault segment has no footer; rebuilding index by scan (unclean shutdown)"
         );
-        recover_index(&mut file, size, segment)
+        let blocks = recover_index(&mut file, size, segment)?;
+        Ok(SegmentIndex { encrypted, blocks })
     }
 
     fn segment_path(&self, segment: u64) -> PathBuf {
