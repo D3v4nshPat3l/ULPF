@@ -31,6 +31,32 @@ pub struct Cluster {
     pub samples: Vec<String>,
 }
 
+impl Cluster {
+    /// Fraction of template positions that are still a literal token rather
+    /// than a `<*>` wildcard.
+    ///
+    /// A cluster count says how much traffic a template covers; it says
+    /// nothing about how much the template still describes. Two clusters
+    /// with count 500 are not equally useful to an operator: one might have
+    /// generalized only its trailing timestamp (`kernel: INBOUND TCP
+    /// SRC=<*> DPT=445`, specificity 0.8), the other might have merged
+    /// genuinely different shapes under a loose similarity match until
+    /// almost nothing but the token *count* is left in common (specificity
+    /// near 0). The second is a weaker signal for "write a pack for this,"
+    /// even at equal volume, and this is the number that says so.
+    ///
+    /// An empty template (should not occur — `Drain::process` rejects empty
+    /// tokenizations before a cluster is created) reports 0.0 rather than
+    /// dividing by zero.
+    pub fn specificity(&self) -> f64 {
+        if self.template.is_empty() {
+            return 0.0;
+        }
+        let literal = self.template.iter().filter(|t| *t != "<*>").count();
+        literal as f64 / self.template.len() as f64
+    }
+}
+
 /// Maximum sample lines retained per cluster.
 ///
 /// The generator reads at most a handful; the rest are for the operator to
@@ -270,5 +296,38 @@ mod tests {
         let mut d = Drain::new();
         assert!(d.process("   ").is_none());
         assert!(d.is_empty());
+    }
+
+    #[test]
+    fn identical_lines_produce_full_specificity() {
+        let mut d = Drain::new();
+        d.process("kernel: INBOUND TCP SRC=1.2.3.4 DPT=445");
+        d.process("kernel: INBOUND TCP SRC=1.2.3.4 DPT=445");
+        assert_eq!(d.ranked_clusters()[0].specificity(), 1.0);
+    }
+
+    #[test]
+    fn one_varying_position_out_of_five_gives_specificity_four_fifths() {
+        let mut d = Drain::new();
+        d.process("kernel: INBOUND TCP SRC=1.2.3.4 DPT=445");
+        d.process("kernel: INBOUND TCP SRC=5.6.7.8 DPT=445");
+        assert_eq!(d.ranked_clusters()[0].specificity(), 0.8);
+    }
+
+    #[test]
+    fn a_loosely_matched_cluster_reports_lower_specificity_than_a_tight_one() {
+        // Same count, different structural agreement: the tight cluster
+        // varies one of four tokens, the loose one varies two - equal
+        // volume must not read as equally trustworthy. Both still clear the
+        // 0.4 similarity threshold to land in one cluster each.
+        let mut tight = Drain::new();
+        tight.process("a b c d");
+        tight.process("a b c x");
+        let mut loose = Drain::new();
+        loose.process("a b c d");
+        loose.process("a x y d");
+        assert!(
+            tight.ranked_clusters()[0].specificity() > loose.ranked_clusters()[0].specificity()
+        );
     }
 }

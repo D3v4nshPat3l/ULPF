@@ -1419,6 +1419,17 @@ function renderClusters(list, overflow) {
     tr.append(countCell);
     const t = el("td", "mono", c.template.length > 110 ? c.template.slice(0, 110) + "…" : c.template);
     t.title = c.template;
+    if (typeof c.specificity === "number") {
+      const specPct = Math.round(c.specificity * 100);
+      // Below half the template positions are still literal: a loose match
+      // like this merged more variety than an operator should trust at a
+      // glance, whatever the count says.
+      const specPill = pill(c.specificity < 0.5 ? "warn" : "neutral", specPct + "% literal");
+      specPill.title = "Share of the template that is still a fixed token rather than a <*> wildcard.";
+      const specWrap = el("div"); specWrap.style.marginTop = "4px";
+      specWrap.append(specPill);
+      t.append(specWrap);
+    }
     tr.append(t);
     const actions = el("td");
     const ai = el("button", "btn sm", "AI Copilot");

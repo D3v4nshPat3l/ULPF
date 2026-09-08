@@ -140,8 +140,14 @@ invented data.
 
 ![Unparsed clusters](docs/screenshots/console-clusters.png)
 
-Dead-letter records are grouped into templates ranked by volume. Each offers
-two ways to draft a Source Pack:
+Dead-letter records are grouped into templates ranked by volume, each labelled
+with a specificity — the share of the template that is still a literal token
+rather than a `<*>` wildcard. Two clusters at equal count are not equally
+trustworthy: one may have generalized only a trailing timestamp, another may
+have merged genuinely different shapes under a loose match until little but
+the token count is shared. A low-specificity cluster with a high count is
+worth a second look before drafting a pack from it. Each cluster offers two
+ways to draft one:
 
 - **AI Copilot** — a local model (Ollama) drafts the pack.
 - **Heuristic** — a deterministic, rules-based generator. No model, no GPU,

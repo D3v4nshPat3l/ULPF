@@ -381,6 +381,10 @@ async fn clusters(State(state): State<Shared>) -> Json<Value> {
                 "count": c.count,
                 "template": c.template.join(" "),
                 "samples": c.samples,
+                // Fraction of the template that is still a literal token
+                // rather than a wildcard. Two clusters at equal count are
+                // not equally trustworthy: this is the number that says so.
+                "specificity": c.specificity(),
             })
         })
         .collect();
