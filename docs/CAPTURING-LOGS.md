@@ -31,15 +31,32 @@ need to find someone else's logs; run the real program and it writes real logs.
 That output is genuine vendor output — it came from the program that writes
 that format, not from a manual.
 
-### Suricata
+### Suricata — done
 
 ```bash
-sudo apt install suricata          # or: brew install suricata
-suricata -r capture.pcap -l ./out  # produces out/eve.json
+sudo apt install suricata          # or: brew install suricata, or docker pull jasonish/suricata
+suricata-update                    # fetches the real ~68,600-rule Emerging Threats Open ruleset
+suricata -r capture.pcap -l ./out -S ./rules/suricata.rules  # produces out/eve.json
 ```
 
 `eve.json` is exactly what the `suricata-eve-alert` pack expects. Any public
 capture works; see the PCAP sources below.
+
+Done, via `jasonish/suricata` in Docker against
+`chrissanders/packets`' `ek_to_cryptowall4.pcapng` (real 2016 exploit-kit
+traffic, github.com/chrissanders/packets) with a real `suricata-update`
+ruleset. Two named PCAPs from that same small, individually-downloadable
+repository are worth remembering as a source for other packs needing a raw
+capture rather than pre-parsed logs: most files there are named for what
+they contain (`synscan.pcapng`, `http_dvwa_sqlinjection.pcapng`,
+`aurora.pcapng`, `ratinfected.pcapng`, ...), and are small enough (KB to
+low tens of MB) to not need the byte-range-prefix treatment Blue Coat and
+`zeek-conn.log` need. Note that a scan-only capture (`synscan.pcapng`)
+produced *zero* alerts against the real ruleset — ET Open is much more
+weighted toward payload/malware signatures than bare port-scan detection —
+so pick a capture with real attack/malware payload content, not just
+anomalous connection patterns, when looking for a pack that needs alert
+output specifically.
 
 ### Zeek
 

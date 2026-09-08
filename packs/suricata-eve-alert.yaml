@@ -3,6 +3,18 @@
 # Suricata emits JSON-per-line (EVE format). Each record has an event_type
 # field. This pack handles "alert" events and maps them to OCSF Detection
 # Finding (2004), similar to Snort but from JSON rather than syslog text.
+#
+# Confirmed against real output: `chrissanders/packets`' `ek_to_cryptowall4`
+# capture (genuine 2016 exploit-kit-to-ransomware traffic, a public GitHub
+# capture, not self-generated) replayed through Suricata 8.0.6 with the real
+# Emerging Threats Open ruleset (`suricata-update`, ~68,600 rules) —
+#
+#   suricata -r ek_to_cryptowall4.pcapng -l out/ -S out/rules/suricata.rules
+#
+# produced 5 real alerts and every field this pack maps — src/dst
+# endpoints, protocol, severity, rule id, signature name — came out correct
+# against the source JSON with no changes needed to the pack itself. Two of
+# those alerts are the fixtures below, replacing hand-typed ones.
 identity:
   id: suricata-eve-alert
   vendor: OISF
@@ -61,27 +73,35 @@ enums:
     "4": 2     # Low
 
 fixtures:
-  - note: Suricata EVE alert — ET SCAN Suspicious inbound.
-    raw: '{"timestamp":"2026-08-31T10:23:45.000000+0000","flow_id":123456789,"event_type":"alert","src_ip":"203.0.113.50","src_port":12345,"dest_ip":"10.0.0.5","dest_port":22,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2001219,"rev":19,"signature":"ET SCAN Potential SSH Scan","category":"Attempted Information Leak","severity":2}}'
+  - note: >
+      Real Suricata alert, from the real ek_to_cryptowall4 capture replayed
+      through Suricata 8.0.6 with the real ET Open ruleset (see the pack
+      header comment). Genuine 2016 exploit-kit HTTP traffic to a real
+      malicious .top domain.
+    raw: '{"timestamp":"2016-01-04T16:26:00.126782+0000","flow_id":1756756647993636,"pcap_cnt":38,"event_type":"alert","src_ip":"192.168.122.145","src_port":49328,"dest_ip":"45.32.238.202","dest_port":80,"proto":"TCP","ip_v":4,"pkt_src":"wire/pcap","metadata":{"flowbits":["ET.SuspExeTLDs"]},"tx_id":0,"alert":{"action":"allowed","gid":1,"signature_id":2023882,"rev":5,"signature":"ET INFO HTTP Request to a *.top domain","category":"Potentially Bad Traffic","severity":2,"metadata":{"confidence":["High"],"created_at":["2017_02_07"],"signature_severity":["Informational"],"updated_at":["2022_11_21"]}},"ts_progress":"request_complete","tc_progress":"response_complete","http":{"hostname":"xktzjm.topcentc.top","url":"/contrary/1653873/quite-someone-visitor-nonsense-tonight-sweet-await-gigantic-dance-third","http_method":"GET","protocol":"HTTP/1.1","status":200,"length":586},"app_proto":"http","direction":"to_server"}'
     expect:
       class_uid: 2004
       activity_id: 1
       severity_id: 4
-      finding_info.uid: "2001219"
-      finding_info.title: ET SCAN Potential SSH Scan
-      src_endpoint.ip: 203.0.113.50
-      src_endpoint.port: 12345
-      dst_endpoint.ip: 10.0.0.5
-      dst_endpoint.port: 22
+      finding_info.uid: "2023882"
+      finding_info.title: ET INFO HTTP Request to a *.top domain
+      src_endpoint.ip: 192.168.122.145
+      src_endpoint.port: 49328
+      dst_endpoint.ip: 45.32.238.202
+      dst_endpoint.port: 80
       connection_info.protocol_name: TCP
 
-  - note: Suricata EVE alert — DNS query to known malware domain.
-    raw: '{"timestamp":"2026-08-31T10:24:00.000000+0000","flow_id":987654321,"event_type":"alert","src_ip":"10.0.0.10","src_port":53421,"dest_ip":"8.8.8.8","dest_port":53,"proto":"UDP","alert":{"action":"allowed","gid":1,"signature_id":2013926,"rev":5,"signature":"ET POLICY DNS Query to .bit TLD","category":"Potentially Bad Traffic","severity":3}}'
+  - note: >
+      Real Suricata alert from the same capture — the exploit-kit
+      redirector rule (severity 1, the highest on Suricata's 1-4 scale)
+      firing on the actual compromised-site response traffic.
+    raw: '{"timestamp":"2016-01-04T16:25:54.239580+0000","flow_id":747514573842258,"event_type":"alert","src_ip":"113.20.11.49","src_port":80,"dest_ip":"192.168.122.145","dest_port":49314,"proto":"TCP","ip_v":4,"pkt_src":"stream (flow timeout)","tx_id":0,"alert":{"action":"allowed","gid":1,"signature_id":2022290,"rev":4,"signature":"ET EXPLOIT_KIT Evil Redirector Leading to EK Mon Dec 21 2015 5","category":"Exploit Kit Activity Detected","severity":1,"metadata":{"confidence":["High"],"created_at":["2015_12_21"],"signature_severity":["Major"],"updated_at":["2024_03_14"]}},"ts_progress":"request_complete","tc_progress":"response_complete","http":{"hostname":"www.sydneygroup.com.au","url":"/index.php/services","http_method":"GET","protocol":"HTTP/1.1","status":200,"length":16584},"app_proto":"http","direction":"to_client"}'
     expect:
       class_uid: 2004
-      severity_id: 3
-      finding_info.uid: "2013926"
-      src_endpoint.ip: 10.0.0.10
-      dst_endpoint.ip: 8.8.8.8
-      dst_endpoint.port: 53
-      connection_info.protocol_name: UDP
+      severity_id: 5
+      finding_info.uid: "2022290"
+      finding_info.title: ET EXPLOIT_KIT Evil Redirector Leading to EK Mon Dec 21 2015 5
+      src_endpoint.ip: 113.20.11.49
+      dst_endpoint.ip: 192.168.122.145
+      dst_endpoint.port: 49314
+      connection_info.protocol_name: TCP

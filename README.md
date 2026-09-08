@@ -607,8 +607,8 @@ Stated plainly, because a reviewer will find them anyway.
 - **Coverage is 99.82%, not 100%.** The remainder is enumerated in
   `docs/DATASETS.md`. Unparsed records are still vaulted, fingerprinted and
   emitted.
-- **Eight of the 34 packs have no real-corpus evidence.** Cisco ASA, FortiGate,
-  PAN-OS, Check Point, Juniper, Suricata, generic CEF and pfSense pass
+- **Seven of the 34 packs have no real-corpus evidence.** Cisco ASA,
+  FortiGate, PAN-OS, Check Point, Juniper, generic CEF and pfSense pass
   fixtures written from vendor documentation. Treat them as unproven: real
   data has repeatedly broken packs that passed documentation-derived tests —
   most recently `zeek-conn`, whose documentation-derived column order put
@@ -618,13 +618,18 @@ Stated plainly, because a reviewer will find them anyway.
   2012 capture (`docs/DATASETS.md`) caught it and corrected the pack; before
   that, Blue Coat's manual-derived field order matched none of 8.1 million
   real records until the corpus's own `#Fields:` header corrected it.
-  `modsecurity-waf-alert`'s fixtures are now genuine ModSecurity/OWASP-CRS
-  output (captured by actually running `owasp/modsecurity-crs:nginx` and
-  sending it real attack payloads) rather than hand-typed from documentation
-  — a real step up, but self-generated traffic against a lab container is
-  still the weakest of this project's own three evidence classes
-  (`docs/CAPTURING-LOGS.md`), not a bulk real-corpus coverage measurement, so
-  it stays out of this list without being counted as fully proven either.
+  `suricata-eve-alert` was checked the same way — real 2016 exploit-kit
+  traffic (a public capture, not self-generated) replayed through Suricata
+  with the real ~68,600-rule Emerging Threats Open ruleset — and needed no
+  changes at all: every field it maps came out correct against 5 genuine
+  alerts. `modsecurity-waf-alert`'s fixtures are now genuine
+  ModSecurity/OWASP-CRS output (captured by actually running
+  `owasp/modsecurity-crs:nginx` and sending it real attack payloads) rather
+  than hand-typed from documentation — a real step up, but self-generated
+  traffic against a lab container is a weaker evidence class than
+  `suricata-eve-alert`'s real-capture-plus-real-tool result (see the three
+  classes in `docs/CAPTURING-LOGS.md`), so it stays out of this list without
+  being counted as fully proven either.
 - **The Assistant's answer quality is limited by a 1.5B model.** It reads live
   context correctly but reasons loosely. The screenshot above is a real,
   unedited exchange, including its hedging.
