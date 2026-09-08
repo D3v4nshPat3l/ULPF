@@ -144,8 +144,8 @@ tool does.
 ## Checks before you submit the file
 
 - Under two minutes.
-- Every number spoken matches [README.md](../README.md): 838,779 perimeter
-  records, 99.9219%, 10,000 EPS per collector, 35 packs, 75/75 fixtures,
+- Every number spoken matches [README.md](../README.md): 2,964,087 perimeter
+  records, 99.9679%, 10,000 EPS per collector, 35 packs, 75/75 fixtures,
   11 of 11 requirements.
 - No slide, no logo animation, no stock music over the terminal audio.
 - Readable when played at half size — check on a phone before submitting.

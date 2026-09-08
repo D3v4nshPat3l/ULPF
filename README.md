@@ -424,7 +424,7 @@ and no `curl`.
 
 ## Measured results
 
-### Coverage — 838,779 real perimeter records
+### Coverage — 2,964,087 real perimeter records
 
 Reproducible with `python tools/measure_coverage.py`. Every figure comes from
 unmodified public capture data; nothing here is synthesised.
@@ -434,6 +434,7 @@ unmodified public capture data; nothing here is synthesised.
 | Firewall | `iptables.log` | Honeynet SotM34 | 179,752 | 100.0000% |
 | IDS | `snort.log` | Honeynet SotM34 | 69,039 | 99.9986% |
 | IDS | `dragon-nids.log` | Honeynet Dragon | 42,899 | 100.0000% |
+| Network | `zeek-conn.log` | secrepo MACCDC 2012, prefix | 2,125,308 | 99.9861% |
 | Proxy | `squid-access.log` | Honeynet | 533,197 | 99.9771% |
 | Web | `apache-access.log` | Honeynet SotM34 | 3,554 | 99.9719% |
 | Web | `Apache_2k.log` | Loghub | 2,000 | 100.0000% |
@@ -442,7 +443,7 @@ unmodified public capture data; nothing here is synthesised.
 | Host | `Linux_2k.log` | Loghub | 2,000 | 96.4500% |
 | Mail | `sendmail.log` | Honeynet SotM34 | 1,172 | 98.7201% |
 | Proxy | `Proxifier_2k.log` | Loghub | 2,000 | 81.1000% |
-| **Total** | | | **838,779** | **99.9219%** |
+| **Total** | | | **2,964,087** | **99.9679%** |
 
 A Blue Coat ProxySG capture of 8,130,590 records is also fetched; a
 398,380-record prefix scores 99.0148%. It is excluded from the total above
@@ -452,8 +453,8 @@ extrapolation.
 Twelve further corpora outside the problem statement's perimeter scope — HDFS,
 Hadoop, Spark, ZooKeeper, Blue Gene/L, Thunderbird, HPC, OpenStack, Windows,
 macOS, Android, HealthApp — are measured separately and reported in
-[docs/DATASETS.md](docs/DATASETS.md). Combined across all 23 corpora:
-**862,779 records at 99.7175%**.
+[docs/DATASETS.md](docs/DATASETS.md). Combined across all 24 corpora:
+**2,988,087 records at 99.9085%**.
 
 The iptables figure is genuine cross-validation: that pack was written against
 a *different* 307,524-record capture (SotM30) and never tuned on SotM34.
@@ -536,7 +537,7 @@ review-and-approve gate; provenance recorded on generated packs.
 vault, assistant, deep-linkable views, and a simulator that drives ten real
 corpora.
 
-**Evidence.** 838,779 real perimeter records at 99.9219% coverage; throughput measured
+**Evidence.** 2,964,087 real perimeter records at 99.9679% coverage; throughput measured
 and published with its losses; scripts to reproduce both.
 
 ---
@@ -604,7 +605,7 @@ Stated plainly, because a reviewer will find them anyway.
 - **One collector does not reach 1B/day.** 10,000 EPS lossless is 86% of the
   target. Claiming otherwise would require the 12,000 EPS figure, which drops
   1.7% of records.
-- **Coverage is 99.82%, not 100%.** The remainder is enumerated in
+- **Coverage is 99.9679%, not 100%.** The remainder is enumerated in
   `docs/DATASETS.md`. Unparsed records are still vaulted, fingerprinted and
   emitted.
 - **Three of the 35 packs have no real-corpus evidence.** Generic CEF,

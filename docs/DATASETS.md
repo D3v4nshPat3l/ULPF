@@ -39,8 +39,8 @@ non-perimeter source move the headline number.
 | IDS | `snort.log` | Honeynet SotM34 | 69,039 | 99.9986% |
 | IDS | `dragon-nids.log` | Honeynet Dragon | 42,899 | 100.0000% |
 | Proxy | `squid-access.log` | Honeynet | 533,197 | 99.9771% |
-| Proxy | `bluecoat-proxy.log` | Honeynet | 8,130,590 | see note |
-| Network | `zeek-conn.log` | SecRepo (MACCDC 2012) | 2,125,308 | see note |
+| Proxy | `bluecoat-proxy.log` | Honeynet | 8,130,590 | see note, not yet fetched |
+| Network | `zeek-conn.log` | SecRepo (MACCDC 2012) | 2,125,308 | 99.9861% |
 | Web | `apache-access.log` | Honeynet SotM34 | 3,554 | 99.9719% |
 | Web | `Apache_2k.log` | Loghub | 2,000 | 100.0000% |
 | Auth | `OpenSSH_2k.log` | Loghub | 2,000 | 100.0000% |
@@ -48,7 +48,13 @@ non-perimeter source move the headline number.
 | Host | `Linux_2k.log` | Loghub | 2,000 | 96.4500% |
 | Mail | `sendmail.log` | Honeynet SotM34 | 1,172 | 98.7201% |
 | Proxy | `Proxifier_2k.log` | Loghub | 2,000 | 81.1000% |
-| **Total (excl. Blue Coat)** | | | **838,779** | **99.9219%** |
+| **Total (excl. Blue Coat)** | | | **2,964,087** | **99.9679%** |
+
+`zeek-conn.log` is counted in the total above — it has been fetched and
+measured, unlike Blue Coat, which has not (see note). Both are `OPTIONAL_CORPORA`
+in `tools/measure_coverage.py`: counted when present, silently excluded from
+the denominator when absent, so the total above is exactly what
+`python tools/measure_coverage.py` prints right now, not a fixed constant.
 
 **Blue Coat note.** The ProxySG capture is 8,130,590 records and ~2.6 GB
 extracted, so it sits in the `large` tier rather than `standard`: putting it in
@@ -101,7 +107,7 @@ lines — are fetched with `--tier large` or `--tier xl`.
 | Host | macOS system | 2,000 | 77.1500% |
 | Mobile | Android logcat | 2,000 | 99.8500% |
 | Mobile | HealthApp | 2,000 | 93.8000% |
-| **Combined, all sources** | | **862,779** | **99.7175%** |
+| **Combined, all sources** | | **2,988,087** | **99.9085%** |
 
 A separate 307,524-record iptables capture (`SotM30-anton.log`) is used for
 pack development. The SotM34 iptables figure above is therefore genuine
