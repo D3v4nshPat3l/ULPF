@@ -43,6 +43,15 @@ pub const DEFAULT_MODEL: &str = "qwen2.5:1.5b-instruct";
 /// OCSF attributes the drafter may target. Keeping the list short keeps the
 /// model on paths that actually exist in the schema, and lets an out-of-range
 /// suggestion be rejected rather than compiled into a broken pack.
+///
+/// `url` was here until it was checked against `schema/ocsf/objects/url.json`:
+/// `url` is an *object* (with its own `url_string`, `hostname`, `path`, ...
+/// attributes), so mapping a source field directly onto it would have set an
+/// object-typed attribute to a bare string — compiles fine, passes a fixture
+/// that only checks the string survived, and produces an event no OCSF
+/// consumer reads correctly. `crate::ocsf_paths` now checks every path this
+/// module can produce against the vendored schema so this class of mistake
+/// gets caught before a candidate reaches approval, not after.
 const ALLOWED_FIELDS: &[&str] = &[
     "src_endpoint.ip",
     "src_endpoint.port",
@@ -51,7 +60,7 @@ const ALLOWED_FIELDS: &[&str] = &[
     "connection_info.protocol_name",
     "device.hostname",
     "actor.user.name",
-    "url",
+    "url.url_string",
     "message",
 ];
 
@@ -848,7 +857,10 @@ pub fn infer_field_map(available: &[String]) -> BTreeMap<String, String> {
             "actor.user.name",
             &["user", "username", "usr", "suser", "srcuser", "account"],
         ),
-        ("url", &["url", "request", "uri", "requesturl", "cs_uri"]),
+        (
+            "url.url_string",
+            &["url", "request", "uri", "requesturl", "cs_uri"],
+        ),
         (
             "message",
             &["msg", "message", "evt", "event", "reason", "description"],

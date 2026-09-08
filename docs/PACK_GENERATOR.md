@@ -55,6 +55,20 @@ Before enabling a candidate:
   timestamps, enums, and observables;
 - add fixtures covering accepted, rejected, missing, and malformed variants;
 - run `ulpf test --packs packs` and inspect the candidate's field accuracy;
+- check `unknown_ocsf_paths` in the candidate's generation response (empty in
+  the console UI, non-empty and shown as a warning pill otherwise) — a path
+  compiling and passing its own fixture proves a value reached that path, not
+  that the path is a real OCSF attribute of the right type. This caught a
+  real bug: an earlier version of both generators mapped a URL-like field
+  straight to `url`, which is an *object* in OCSF (`url.url_string`,
+  `.hostname`, `.path`, ...), not a string — the mapping compiled, the
+  fixture passed, and the resulting event was still wrong. `ocsf_paths.rs`
+  checks the fixed set of paths either generator can produce against the
+  vendored schema; it is not wired into this approval gate as a hard
+  rejection, because a hand-written pack may correctly use OCSF paths
+  neither generator has ever been taught (`linux-iptables-firewall.yaml`'s
+  `src_endpoint.interface_name` and class-specific `count`, for example) —
+  read the warning, do not assume its absence covers every mistake;
 - set `provenance.approved_by` and record the review in the pull request;
 - copy the approved YAML into `packs/`, then restart ULPF.
 

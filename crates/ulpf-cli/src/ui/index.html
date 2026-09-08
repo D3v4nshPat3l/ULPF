@@ -410,6 +410,7 @@
             <div class="right">
               <span class="pill neutral" id="rev-fixtures">0/0 fixtures</span>
               <span class="pill neutral" id="rev-accuracy">0% fields</span>
+              <span class="pill bad" id="rev-ocsf-warning" hidden></span>
               <button class="btn primary sm" type="button" id="btn-approve" hidden>Approve and deploy</button>
             </div>
           </div>
@@ -1456,6 +1457,14 @@ async function generatePack(clusterId, mode, buttons) {
     $("review-sub").textContent = "Drafted by the " + via + "." + fellBack;
     $("rev-fixtures").textContent = data.fixtures_passed + "/" + data.fixtures + " fixtures";
     $("rev-accuracy").textContent = Math.round((data.field_accuracy || 0) * 100) + "% fields";
+    const unknownPaths = data.unknown_ocsf_paths || [];
+    const warnEl = $("rev-ocsf-warning");
+    if (unknownPaths.length > 0) {
+      warnEl.hidden = false;
+      warnEl.textContent = unknownPaths.length + " unrecognized OCSF path" + (unknownPaths.length > 1 ? "s" : "") + ": " + unknownPaths.join(", ");
+    } else {
+      warnEl.hidden = true;
+    }
     $("rev-yaml").textContent = data.pack_yaml;
     $("btn-approve").hidden = false;
   } catch (e) {

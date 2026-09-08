@@ -494,6 +494,10 @@ async fn generate(
     // Grade the candidate against the samples it was drafted from, before a
     // human is asked to approve it.
     let score = ulpf_generator::scorer::Scorer::score(&pack);
+    // A fixture only checks that a value reached the path the pack named; it
+    // says nothing about whether that path is a real OCSF attribute. A model
+    // is exactly the kind of author that invents a plausible-looking one.
+    let unknown_ocsf_paths = ulpf_generator::ocsf_paths::unknown_paths(&pack);
     let pack_yaml = serde_yaml::to_string(&pack)
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -505,6 +509,7 @@ async fn generate(
         "fixtures": score.total,
         "fixtures_passed": score.passed,
         "field_accuracy": score.field_accuracy(),
+        "unknown_ocsf_paths": unknown_ocsf_paths,
     })))
 }
 
@@ -529,6 +534,7 @@ fn heuristic_draft(samples: &[String], reason: &str) -> Result<Json<Value>, ApiE
         "fixtures": draft.fixtures,
         "fixtures_passed": draft.fixtures_passed,
         "field_accuracy": draft.field_accuracy,
+        "unknown_ocsf_paths": draft.unknown_ocsf_paths,
     })))
 }
 

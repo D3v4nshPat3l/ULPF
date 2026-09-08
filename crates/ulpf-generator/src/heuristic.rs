@@ -12,6 +12,12 @@ pub struct DraftResult {
     /// scorer already computes this; reporting 0.0 next to a passing fixture
     /// count told a reviewer the draft was worthless when it was not.
     pub field_accuracy: f64,
+    /// Mapped OCSF paths this draft targets that `ocsf_paths` does not
+    /// recognize. Empty on a healthy draft; a non-empty list is worth a
+    /// reviewer's attention even though every fixture can still pass — a
+    /// fixture only checks a value survived to that path, not that the path
+    /// means what the pack author thinks it means.
+    pub unknown_ocsf_paths: Vec<String>,
 }
 
 pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
@@ -154,6 +160,7 @@ pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
     // perfectly good draft still reported a failing score and a reviewer had no
     // signal to act on.
     let report = crate::scorer::Scorer::score(&pack);
+    let unknown_ocsf_paths = crate::ocsf_paths::unknown_paths(&pack);
 
     Ok(DraftResult {
         pack_yaml,
@@ -161,6 +168,7 @@ pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
         fixtures: report.total,
         fixtures_passed: report.passed,
         field_accuracy: report.field_accuracy(),
+        unknown_ocsf_paths,
     })
 }
 
