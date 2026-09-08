@@ -1,0 +1,1482 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ULPF — The Complete Guide</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 16mm 16mm; }
+
+  :root{
+    --ink:#15181f; --ink2:#3d4453; --ink3:#6b7280;
+    --rule:#d8dce5; --soft:#f2f4f8; --accent:#0a5ca8; --accent-bg:#e8f0f9;
+    --good:#0f6b4f; --good-bg:#e3f2ec;
+    --warn:#8a5a00; --warn-bg:#fbf1de;
+    --bad:#a52f22;  --bad-bg:#fae9e6;
+  }
+  *{box-sizing:border-box}
+  body{
+    font:11pt/1.55 "Georgia","Times New Roman",serif;
+    color:var(--ink); margin:0; -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  h1,h2,h3,h4,.sans{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif}
+
+  /* ---------- cover ---------- */
+  .cover{height:247mm; display:flex; flex-direction:column; justify-content:center; page-break-after:always}
+  .cover .eyebrow{font:600 10pt/1 sans-serif; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); margin-bottom:14mm}
+  .cover h1{font-size:34pt; line-height:1.1; margin:0 0 6mm; letter-spacing:-.5pt}
+  .cover .sub{font-size:14pt; color:var(--ink2); margin:0 0 14mm; max-width:135mm}
+  .cover .meta{border-top:1.5pt solid var(--ink); padding-top:5mm; font:10.5pt/1.7 sans-serif; color:var(--ink2)}
+  .cover .meta b{color:var(--ink)}
+  .cover .stats{display:flex; gap:10mm; margin-top:12mm; flex-wrap:wrap}
+  .cover .stats div{border-left:2.5pt solid var(--accent); padding-left:4mm}
+  .cover .stats .n{font:700 17pt/1 sans-serif; color:var(--ink)}
+  .cover .stats .l{font:9pt/1.4 sans-serif; color:var(--ink3); text-transform:uppercase; letter-spacing:.06em}
+
+  /* ---------- structure ---------- */
+  .part{page-break-before:always; border-top:3pt solid var(--ink); padding-top:5mm; margin-top:0}
+  .part .pnum{font:600 9.5pt/1 sans-serif; letter-spacing:.16em; text-transform:uppercase; color:var(--accent)}
+  .part h1{font-size:23pt; margin:3mm 0 3mm; line-height:1.15}
+  .part .intro{font-size:11.5pt; color:var(--ink2); margin:0 0 3mm; max-width:150mm}
+
+  h2{font-size:14pt; margin:9mm 0 2mm; page-break-after:avoid; line-height:1.25}
+  h3{font-size:11.5pt; margin:6mm 0 1.5mm; page-break-after:avoid}
+  h4{font-size:10.5pt; margin:4mm 0 1mm; color:var(--ink2); page-break-after:avoid}
+  p{margin:0 0 3mm}
+  ul,ol{margin:0 0 3mm; padding-left:6mm}
+  li{margin-bottom:1.5mm}
+  strong{font-weight:700}
+  em.t{font-style:normal; font-weight:700; color:var(--accent)}
+  code{font:9.5pt/1.4 "SF Mono",Menlo,Consolas,monospace; background:var(--soft); padding:.5mm 1mm; border-radius:1mm}
+  a{color:var(--accent); text-decoration:none}
+
+  pre{
+    font:9pt/1.5 "SF Mono",Menlo,Consolas,monospace; background:var(--soft);
+    border-left:2.5pt solid var(--accent); padding:3mm 4mm; margin:3mm 0;
+    white-space:pre-wrap; word-wrap:break-word; page-break-inside:avoid; border-radius:0 1mm 1mm 0;
+  }
+  pre b{font-weight:700; color:var(--accent)}
+
+  table{border-collapse:collapse; width:100%; margin:3mm 0; font-size:9.5pt; page-break-inside:avoid}
+  th{background:var(--soft); text-align:left; padding:2mm 2.5mm; border-bottom:1.2pt solid var(--rule); font-family:sans-serif; font-size:9pt}
+  td{padding:2mm 2.5mm; border-bottom:.6pt solid var(--rule); vertical-align:top}
+  td.n{text-align:right; font-family:"SF Mono",Menlo,monospace}
+  .wide td:first-child{width:32%}
+
+  .box{border:1pt solid var(--rule); border-left:3pt solid var(--accent); background:#fbfcfe; padding:3mm 4mm; margin:4mm 0; page-break-inside:avoid; border-radius:0 1.5mm 1.5mm 0}
+  .box .lbl{font:600 8.5pt/1 sans-serif; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); display:block; margin-bottom:2mm}
+  .box p:last-child{margin-bottom:0}
+  .box.good{border-left-color:var(--good); background:var(--good-bg)} .box.good .lbl{color:var(--good)}
+  .box.warn{border-left-color:var(--warn); background:var(--warn-bg)} .box.warn .lbl{color:var(--warn)}
+  .box.bad{border-left-color:var(--bad); background:var(--bad-bg)}   .box.bad .lbl{color:var(--bad)}
+
+  .qa{page-break-inside:avoid; margin:0 0 5mm; padding-bottom:4mm; border-bottom:.6pt solid var(--rule)}
+  .qa .q{font:700 11pt/1.35 sans-serif; color:var(--ink); margin:0 0 2mm}
+  .qa .q span{color:var(--accent); margin-right:2mm}
+  .qa .trap{font-size:9.5pt; color:var(--bad); margin:0 0 1.5mm}
+  .qa .trap b{font-family:sans-serif; font-size:8.5pt; letter-spacing:.06em; text-transform:uppercase}
+  .qa .ans{background:var(--soft); padding:2.5mm 3mm; border-radius:1.5mm; margin:0}
+  .qa .ans b.lbl2{font-family:sans-serif; font-size:8.5pt; letter-spacing:.06em; text-transform:uppercase; color:var(--good); display:block; margin-bottom:1mm}
+
+  .toc{page-break-after:always}
+  .toc h1{font-size:20pt; margin:0 0 6mm}
+  .toc ol{list-style:none; padding:0; margin:0; font-family:sans-serif; font-size:10.5pt}
+  .toc>ol>li{margin-bottom:3mm; padding-bottom:2mm; border-bottom:.6pt solid var(--rule)}
+  .toc>ol>li>b{color:var(--accent); margin-right:3mm}
+  .toc .sub2{font-size:9.5pt; color:var(--ink3); margin-top:1mm; padding-left:9mm}
+
+  .kv{display:grid; grid-template-columns:38mm 1fr; gap:1.5mm 4mm; font-size:10pt; margin:3mm 0}
+  .kv dt{font-family:sans-serif; font-weight:600; color:var(--ink2)}
+  .kv dd{margin:0}
+
+  .diagram{font:8.5pt/1.4 "SF Mono",Menlo,monospace; background:#fff; border:1pt solid var(--rule);
+           padding:4mm; margin:4mm 0; white-space:pre; page-break-inside:avoid; text-align:center; overflow:hidden}
+  .nobreak{page-break-inside:avoid}
+</style>
+</head>
+<body>
+
+<!-- ============================ COVER ============================ -->
+<section class="cover">
+  <div class="eyebrow">Smart India Hackathon 2026 · Problem Statement 26156 · NTRO</div>
+  <h1>ULPF<br>The Complete Guide</h1>
+  <p class="sub">Everything about this project, explained from zero — the problem, the market,
+  the technology, the code, and every question a judge is likely to ask.</p>
+
+  <div class="meta">
+    <b>Universal Log Pre-processing Framework</b><br>
+    Theme: Blockchain &amp; Cybersecurity &nbsp;·&nbsp; Category: Software<br>
+    Written for readers with no programming background.
+  </div>
+
+  <div class="stats">
+    <div><div class="n">34</div><div class="l">Source Packs</div></div>
+    <div><div class="n">838,779</div><div class="l">Real records tested</div></div>
+    <div><div class="n">99.92%</div><div class="l">Coverage</div></div>
+    <div><div class="n">10,000</div><div class="l">Events / second</div></div>
+    <div><div class="n">7</div><div class="l">Rust crates</div></div>
+  </div>
+</section>
+
+<!-- ============================ TOC ============================ -->
+<section class="toc">
+  <h1>What is in this guide</h1>
+  <ol>
+    <li><b>1</b>The problem, in plain English
+      <div class="sub2">What a log is · why this is hard · who is asking and why it changes everything</div></li>
+    <li><b>2</b>What we actually built
+      <div class="sub2">The five stages · the journey of one log line · what comes out</div></li>
+    <li><b>3</b>How the world solves this today
+      <div class="sub2">Market research · the seven commercial platforms · what every one of them misses</div></li>
+    <li><b>4</b>The technology, and why we chose it
+      <div class="sub2">Rust · OCSF · YAML parsers · no database · the cryptography</div></li>
+    <li><b>5</b>Just enough Rust to defend the project
+      <div class="sub2">Ownership · borrowing · Result · traits · reading our real code</div></li>
+    <li><b>6</b>Concepts you will be asked about
+      <div class="sub2">Hashing · hash chains · Merkle trees · signatures · how a web request works · the algorithms we use</div></li>
+    <li><b>7</b>Every feature: what, why, how</li>
+    <li><b>8</b>Problems we hit, and how we found them
+      <div class="sub2">The real war stories — the most useful section for the jury round</div></li>
+    <li><b>9</b>The numbers, and what each one means</li>
+    <li><b>10</b>Judge questions and our answers
+      <div class="sub2">31 questions researched from SIH juries and hackathon panels</div></li>
+    <li><b>11</b>Our honest weaknesses</li>
+    <li><b>12</b>One-page cheat sheet</li>
+  </ol>
+
+  <div class="box">
+    <span class="lbl">How to read this</span>
+    <p>Read it three times, not once. The first pass gives you the story. The second
+    pass makes the technology stick. The third pass is Part&nbsp;10 alone — the questions —
+    read out loud, answering before you look.</p>
+    <p>Nothing here needs another source. Every number in it was measured on this project,
+    and every claim about other products came from research done specifically for this document.</p>
+  </div>
+</section>
+
+<!-- ============================ PART 1 ============================ -->
+<section class="part">
+  <div class="pnum">Part 1</div>
+  <h1>The problem, in plain English</h1>
+  <p class="intro">Before any technology: what is actually broken in the world, and why does
+  anybody care enough to run a national hackathon about it?</p>
+
+  <h2>1.1 What is a log?</h2>
+  <p>Every machine on a network writes a diary. Each time something happens — a connection
+  allowed, a password rejected, a website fetched — the machine writes one line describing it.
+  That line is a <em class="t">log record</em>. A day's diary is a <em class="t">log file</em>.</p>
+
+  <p>Here is one real line from a firewall in our test data:</p>
+<pre>Feb  1 00:00:02 bridge kernel: INBOUND TCP: IN=br0 PHYSIN=eth0 OUT=br0
+SRC=192.150.249.87 DST=11.11.11.84 LEN=40 PROTO=TCP SPT=220 DPT=6129 SYN</pre>
+  <p>Translated: on 1 February at 2 seconds past midnight, a machine at address
+  <code>192.150.249.87</code> tried to open a connection to <code>11.11.11.84</code> on port
+  6129. Port 6129 was used by a well-known worm. This single line is potential evidence of
+  an attack.</p>
+
+  <h2>1.2 The scale of it</h2>
+  <p>One firewall writes millions of these a day. A bank or a power grid operator runs
+  thousands of devices. The problem statement asks for a system that can handle
+  <strong>billions of events per day</strong>. To make that concrete:</p>
+
+  <table class="wide">
+    <tr><th>Target</th><th>Meaning</th></tr>
+    <tr><td>1 billion events/day</td><td>11,574 events <em>every second</em>, without stopping</td></tr>
+    <tr><td>One event</td><td>roughly 150 characters</td></tr>
+    <tr><td>One day of them</td><td>about 150 gigabytes of pure text</td></tr>
+  </table>
+
+  <h2>1.3 Problem A — every device speaks a different language</h2>
+  <p>There is no standard. Each manufacturer invented their own way of writing the same idea.
+  Here are three devices describing <em>the same kind of event</em> — a connection:</p>
+
+<pre><b>Fortinet firewall:</b>
+  srcip=10.2.4.7 srcport=40589 dstip=8.8.8.8 action=accept
+
+<b>Squid web proxy:</b>
+  1756636800.123 152 10.0.0.50 TCP_MISS/200 12345 GET http://example.com
+
+<b>Suricata intrusion detector:</b>
+  {"src_ip":"10.0.0.5","dest_port":443,"event_type":"alert"}</pre>
+
+  <p>Same meaning. Three completely different shapes. A security analyst who wants to ask
+  "show me everything from address 10.2.4.7" has to know all three formats — and the other
+  forty formats in the building.</p>
+
+  <p>The usual fix is to write a small program (a <em class="t">parser</em>) for each device.
+  That is slow, it must be written by a programmer, and it breaks whenever the manufacturer
+  changes the format in a firmware update. The problem statement names this cost directly:
+  <em>"Security teams often spend substantial effort developing source-specific parsers."</em></p>
+
+  <h2>1.4 Problem B — normal tools throw the evidence away</h2>
+  <p>This is the deeper problem, and the one most people miss.</p>
+
+  <p>A normal log tool reads a line, pulls out the fields somebody thought of in advance, and
+  stores those. Everything else is discarded. It looks harmless — until it matters.</p>
+
+  <div class="box bad">
+    <span class="lbl">Why that is dangerous</span>
+    <p>Six months later there is an investigation. The tidy record in the dashboard says
+    "connection from 10.2.4.7 was blocked." A lawyer asks: <em>how do you know the device
+    actually said that, and that nobody edited it since?</em></p>
+    <p>With a normal tool there is no answer. The original line is gone. All that remains is
+    somebody's summary of it, sitting in a database that any administrator could have changed.</p>
+  </div>
+
+  <p>Two separate failures are hiding in there:</p>
+  <ul>
+    <li><strong>Loss.</strong> The original is gone, so anything the parser did not extract is
+    gone forever — including the part that turns out to matter.</li>
+    <li><strong>No proof.</strong> Even the part that was kept has nothing showing it is
+    unaltered. A stored record and a tampered record look identical.</li>
+  </ul>
+
+  <h2>1.5 Who is asking — and why it changes everything</h2>
+  <p>The problem statement comes from <strong>NTRO</strong>, India's technical intelligence
+  agency. The contact address on it belongs to <strong>NCIIPC</strong> — the National Critical
+  Information Infrastructure Protection Centre, which protects power grids, banking, telecom,
+  transport and defence.</p>
+
+  <p>That single fact explains three requirements that would otherwise look like
+  over-engineering:</p>
+
+  <table class="wide">
+    <tr><th>Requirement</th><th>Why this customer demands it</th></tr>
+    <tr><td><strong>Air-gapped</strong><br>(no internet, at all)</td>
+        <td>Critical networks are physically disconnected by policy. Software that phones home,
+        downloads a font, or calls a cloud AI simply cannot be installed.</td></tr>
+    <tr><td><strong>Forensic preservation</strong></td>
+        <td>Logs from a power grid become evidence — in an investigation, and possibly in court.
+        "This is what the device said" has to be provable, not asserted.</td></tr>
+    <tr><td><strong>Massive scale</strong></td>
+        <td>National infrastructure produces billions of events daily.</td></tr>
+  </table>
+
+  <div class="box">
+    <span class="lbl">The sentence that defines our scope</span>
+    <p>The statement's Background lists every kind of computer. But its <strong>Current
+    Scope</strong> narrows it: <em>"converts any <strong>perimeter network device</strong>-generated
+    log or event — regardless of source, format, vendor, or technology."</em></p>
+    <p><strong>Perimeter devices</strong> are the machines at the edge of a network, where it
+    meets the outside world: firewalls, intrusion detectors, proxies, VPNs, web servers. That is
+    what we built for, and it is why our headline number counts only those.</p>
+  </div>
+</section>
+
+<!-- ============================ PART 2 ============================ -->
+<section class="part">
+  <div class="pnum">Part 2</div>
+  <h1>What we actually built</h1>
+  <p class="intro">One program. Logs go in, one standard format comes out, and nothing is
+  lost or unprovable on the way.</p>
+
+  <h2>2.1 The one-paragraph version</h2>
+  <div class="box good">
+    <span class="lbl">If you remember one thing</span>
+    <p><strong>ULPF takes logs from any security device, converts them all into one standard
+    format, and keeps mathematical proof that nothing was altered.</strong> It stores the
+    original bytes <em>before</em> it tries to understand them, so nothing is ever lost. Adding
+    support for a new device means writing a small text file, not a program. And it runs on a
+    machine with no internet connection.</p>
+  </div>
+
+  <h2>2.2 The journey of one log line</h2>
+  <p>Every record goes through five stages, always in this order. <strong>The order is the
+  design</strong> — it is the single most important thing to understand about the project.</p>
+
+  <div class="diagram">
+  raw bytes arrive
+        │
+   ┌────▼────┐   ┌──────────┐   ┌─────────┐   ┌───────────┐   ┌──────────────┐
+   │ 1 VAULT │──▶│ 2 DETECT │──▶│ 3 READ  │──▶│ 4 CONVERT │──▶│ 5 SEAL       │
+   │  store  │   │  which   │   │ pull out│   │ to the    │   │ fingerprint  │
+   │  first  │   │  device? │   │ fields  │   │ standard  │   │ + chain      │
+   └─────────┘   └──────────┘   └─────────┘   └───────────┘   └──────────────┘
+        │             │                                              │
+        │             └── nobody recognises it ──▶ still saved,      │
+        │                 still sealed, still searchable             │
+        └── a receipt: exact bytes retrievable forever ──────────────┘
+  </div>
+
+  <h3>Stage 1 — Vault (store it before understanding it)</h3>
+  <p>The exact bytes are written to a compressed, <em class="t">append-only</em> file. Append-only
+  means you can add to the end but never edit what is already there — like a bank ledger written
+  in pen.</p>
+  <p>You get back a <em class="t">locator</em>, which is a receipt:</p>
+<pre>ulpf:raw:0000000000000000:0000000000000000:0000008b
+          ↑ which file      ↑ position        ↑ length</pre>
+  <p>Every record produced later carries this receipt, so the original can be fetched back in
+  one step at any time.</p>
+
+  <div class="box">
+    <span class="lbl">Why store first, before parsing?</span>
+    <p>Because everything after this point <em>can fail</em>. An unknown device, a corrupted
+    line, a bug in our own code — none of them can lose the original, because the original was
+    already safe before we touched it.</p>
+    <p>Most tools do this backwards: they parse first and store what they understood. We store
+    first and understand second. That one reversal is what makes "nothing is lost" true rather
+    than aspirational.</p>
+  </div>
+
+  <h3>Stage 2 — Detect (which device is this?)</h3>
+  <p>We check the text against a list of recognisers. A Fortinet firewall always writes
+  <code>devname=</code>; a Squid proxy always writes <code>TCP_</code>. The first recogniser that
+  matches wins. This is a simple text search, so it is very fast.</p>
+
+  <h3>Stage 3 — Read (pull the fields out)</h3>
+  <p>Ten small readers do the actual work. The insight that keeps the number at ten: devices
+  do not each invent a format — they wrap one of about six <em>bodies</em> inside one of about
+  two <em>envelopes</em>. So we combine readers in a chain instead of writing one parser per
+  device.</p>
+
+  <table>
+    <tr><th>Device</th><th>Chain used</th></tr>
+    <tr><td>Fortinet firewall</td><td>syslog → key=value</td></tr>
+    <tr><td>Palo Alto firewall</td><td>syslog → csv</td></tr>
+    <tr><td>Suricata detector</td><td>json</td></tr>
+    <tr><td>Snort detector</td><td>syslog → regex</td></tr>
+  </table>
+  <p>Same ten readers, different orders. That is why device number 35 needs no new code.</p>
+
+  <h3>Stage 4 — Convert (into one standard shape)</h3>
+  <p>The fields are mapped onto <strong>OCSF</strong>, an open industry standard. Fortinet's
+  <code>srcip</code> and Palo Alto's <code>col.7</code> both become <code>src_endpoint.ip</code>.
+  Anything we extracted but had no home for is kept in a section called <code>unmapped</code>
+  rather than thrown away.</p>
+
+  <h3>Stage 5 — Seal (make tampering detectable)</h3>
+  <p>The finished record is fingerprinted, linked to the record before it, and added to a
+  structure that allows proving a single record later. Part 6 explains exactly how.</p>
+
+  <h2>2.3 And if nobody recognises the device?</h2>
+  <p>This is the case the problem statement cares most about, and where most tools give up.
+  Three things still happen:</p>
+  <ol>
+    <li><strong>It is still saved</strong> — the vault already has it.</li>
+    <li><strong>It is still sealed</strong> — it gets a fingerprint and joins the chain.</li>
+    <li><strong>It is still searchable.</strong> Our <em class="t">salvage</em> feature reads
+    <em>any</em> text and pulls out addresses, ports, web links, email addresses and machine
+    names — with no parser at all.</li>
+  </ol>
+
+  <p>Here is a completely invented device format that no parser knows, and what ULPF recovered
+  from it anyway:</p>
+<pre><b>Input (a format we made up on the spot):</b>
+ZORPFW-9000 flow-end 10.2.4.7:44321 -> 93.184.216.34:443
+            verdict=allow user=jdoe@corp.example.com
+
+<b>Recovered with no parser:</b>
+  IP address   10.2.4.7
+  IP address   93.184.216.34
+  Port         44321
+  Port         443
+  Email        jdoe@corp.example.com</pre>
+
+  <p>An analyst hunting that address will now find this record. Before we built salvage, this
+  record was a meaningless blob of text.</p>
+</section>
+
+<!-- ============================ PART 3 ============================ -->
+<section class="part">
+  <div class="pnum">Part 3</div>
+  <h1>How the world solves this today</h1>
+  <p class="intro">Researched specifically for this document. If a judge asks "does this
+  already exist?", this is the honest answer — including where we are behind.</p>
+
+  <h2>3.1 Yes, there is an industry for this</h2>
+  <p>The category is called <strong>Security Data Pipeline Platforms</strong> (SDPP). It exists
+  for a commercial reason: most SIEMs (the big security dashboards) charge <em>per gigabyte
+  ingested</em>. Log volume grows faster than budgets, so companies now put a filtering layer in
+  front to cut what reaches the expensive system.</p>
+
+  <p>Note what that means: <strong>the industry was built to reduce cost, not to preserve
+  evidence.</strong> That difference explains almost everything in this section.</p>
+
+  <h2>3.2 The main players</h2>
+  <table>
+    <tr><th>Product</th><th>What it is</th><th>Known weakness</th></tr>
+    <tr><td><strong>Cribl</strong></td><td>The category leader. Founded 2018, roughly half the
+      Fortune 100 as customers, crossed $300M annual revenue in early 2026.</td>
+      <td>Its storage layer is <strong>cloud-only</strong>, at about double raw S3 cost.</td></tr>
+    <tr><td><strong>DataBahn</strong></td><td>Founded 2023. Markets an "Agentic Data Control
+      Plane" — heavy use of AI for mapping.</td><td>No storage layer at all.</td></tr>
+    <tr><td><strong>Axoflow</strong></td><td>Founded by the creator of syslog-ng. The one
+      competitor that runs <strong>on-premises and air-gapped</strong>.</td>
+      <td>Smallest of the group; no integrity story.</td></tr>
+    <tr><td><strong>Monad</strong></td><td>Routes to external platforms.</td>
+      <td>Poor fit for on-premises deployments.</td></tr>
+    <tr><td><strong>VirtualMetric</strong></td><td>Specialised for Microsoft Sentinel.</td>
+      <td>Narrow outside the Microsoft world.</td></tr>
+    <tr><td><strong>Falcon Onum</strong></td><td>Acquired by CrowdStrike.</td>
+      <td>No longer independent.</td></tr>
+    <tr><td><strong>Vector, Fluent Bit,<br>Logstash</strong></td><td>Free, open-source, very
+      mature, and <strong>faster than us</strong>.</td>
+      <td>None of them does integrity. None fingerprints or chains a record.</td></tr>
+  </table>
+
+  <h2>3.3 The finding that matters most</h2>
+  <p>The most thorough market comparison published in 2026 is Axoflow's own review of the seven
+  platforms. It argues the other reviews miss two decisive criteria:</p>
+  <ol>
+    <li>Whether the platform can keep data <strong>on-premises</strong>;</li>
+    <li>Whether normalization is <strong>deterministic or probabilistic</strong> — fixed rules
+    versus AI guessing.</li>
+  </ol>
+
+  <div class="box good">
+    <span class="lbl">The gap in the whole category</span>
+    <p>That review — the most detailed analysis of this market that exists — <strong>does not
+    mention data integrity, tamper-evidence, or chain of custody once.</strong> The category
+    does not even have a column for it.</p>
+    <p>That is not because it is unimportant. It is because these products were built to reduce
+    SIEM bills, and nobody buying them was asking "can you prove this record is unaltered?"
+    NCIIPC is asking exactly that.</p>
+  </div>
+
+  <h2>3.4 On the AI question — we agree with the critique</h2>
+  <p>Several competitors now put AI in the live data path to guess field mappings. The published
+  critique is blunt, and it is worth memorising because a judge may ask why we did not use more AI:</p>
+  <p><em>"AI autonomy is appropriate for tasks where errors are recoverable. Normalization is
+  not one of them."</em></p>
+  <p>If an AI guesses wrong about which field is the source address, every detection rule built
+  on that field silently breaks. Our design takes the opposite position: <strong>a model may
+  help write a parser, but no model ever runs while records are being processed.</strong> Once a
+  human approves a parser, its behaviour is fixed and reproducible forever.</p>
+
+  <h2>3.5 So where are we genuinely different?</h2>
+  <table>
+    <tr><th>Capability</th><th>Them</th><th>Us</th></tr>
+    <tr><td>Normalize many formats to one schema</td><td>Yes — mature</td><td>Yes</td></tr>
+    <tr><td>Runs fully air-gapped</td><td>Only Axoflow</td><td>Yes, proved in CI</td></tr>
+    <tr><td>Stores original bytes before parsing</td><td>No</td><td><strong>Yes</strong></td></tr>
+    <tr><td>Every record fingerprinted and chained</td><td>No</td><td><strong>Yes</strong></td></tr>
+    <tr><td>Prove one record without revealing the rest</td><td>No</td><td><strong>Yes</strong></td></tr>
+    <tr><td>Raw throughput</td><td><strong>Faster</strong></td><td>10,000/sec per collector</td></tr>
+    <tr><td>Number of supported devices</td><td><strong>Hundreds</strong></td><td>34</td></tr>
+    <tr><td>Maturity, support, ecosystem</td><td><strong>Years ahead</strong></td><td>A hackathon project</td></tr>
+  </table>
+
+  <div class="box warn">
+    <span class="lbl">Say this honestly if asked</span>
+    <p>The individual pieces all exist somewhere. Hash chains are old. Merkle trees come from
+    Certificate Transparency. OCSF is an open standard we did not invent. Two products —
+    AuditKit and Caver — do tamper-evident evidence handling, though neither is a log
+    normalization framework.</p>
+    <p><strong>The combination is what we did not find anywhere:</strong> store-before-parse,
+    plus parsers as data files, plus a vendor-neutral schema, plus per-record proofs, in one
+    air-gapped binary. Claiming the parts are novel would be false. Claiming the combination is
+    rare is true, and it is a stronger position because it survives scrutiny.</p>
+  </div>
+</section>
+
+<!-- ============================ PART 4 ============================ -->
+<section class="part">
+  <div class="pnum">Part 4</div>
+  <h1>The technology, and why we chose it</h1>
+  <p class="intro">Judges reliably ask "why this language / why this database". The winning
+  answer names the <em>constraint</em> that forced the choice — never popularity.</p>
+
+  <h2>4.1 Why Rust?</h2>
+  <p>Rust is a programming language built for software that must be both fast and safe. Three
+  constraints in this project pointed at it:</p>
+
+  <table class="wide">
+    <tr><th>Constraint</th><th>Why Rust answers it</th></tr>
+    <tr><td><strong>Speed</strong> — 10,000+ records/second</td>
+        <td>Rust compiles to machine code, like C. There is no interpreter and no pause to clean
+        up memory, so speed is steady rather than jumpy.</td></tr>
+    <tr><td><strong>Safety</strong> — we read data attackers control</td>
+        <td>Log records arrive from the network. In C, a mistake reading attacker-controlled
+        bytes becomes a security hole. Rust makes whole classes of that impossible at compile
+        time.</td></tr>
+    <tr><td><strong>One file, no installer</strong></td>
+        <td>Rust produces a single executable with nothing to install alongside it. On an
+        air-gapped machine that matters enormously.</td></tr>
+  </table>
+
+  <h4>Why not the obvious alternatives</h4>
+  <table class="wide">
+    <tr><th>Language</th><th>Why not</th></tr>
+    <tr><td><strong>Python</strong></td><td>Roughly 10–100× slower here, and needs an interpreter
+      plus libraries installed on the target machine.</td></tr>
+    <tr><td><strong>Java</strong></td><td>Fast enough, but needs a Java runtime installed, and its
+      automatic memory cleanup causes pauses — bad when records arrive continuously.</td></tr>
+    <tr><td><strong>Go</strong></td><td>Genuinely a reasonable choice — single binary, fast. We
+      chose Rust for stricter safety guarantees and no cleanup pauses. This is the one comparison
+      where the honest answer is "Go would also have worked."</td></tr>
+    <tr><td><strong>C / C++</strong></td><td>Fast, but a memory mistake while reading hostile
+      input is a vulnerability. Not acceptable for a security tool.</td></tr>
+  </table>
+
+  <h2>4.2 Why OCSF as the standard format?</h2>
+  <p>OCSF — Open Cybersecurity Schema Framework — is an open standard, originally from AWS, that
+  defines what a security event looks like: which fields exist and what the numbers mean.</p>
+  <p>The alternatives are all controlled by one vendor:</p>
+  <table>
+    <tr><th>Standard</th><th>Owner</th><th>Problem</th></tr>
+    <tr><td><strong>OCSF</strong></td><td>Open / vendor-neutral</td><td>— <em>chosen</em></td></tr>
+    <tr><td>ECS</td><td>Elastic</td><td>Tied to one company's products</td></tr>
+    <tr><td>CIM</td><td>Splunk</td><td>Tied to Splunk</td></tr>
+    <tr><td>ASIM</td><td>Microsoft</td><td>Tied to Sentinel</td></tr>
+    <tr><td>UDM</td><td>Google</td><td>Tied to Chronicle</td></tr>
+  </table>
+
+  <div class="box">
+    <span class="lbl">The second reason, and the better one</span>
+    <p>OCSF defines a <code>record_integrity</code> profile — an official, standard place to put
+    fingerprints and chain links. Our entire integrity design hangs on that hook. We are not
+    bolting on a private invention; we are using a part of the standard that already exists,
+    which means anyone else's OCSF tool can read our records.</p>
+    <p>We ship a copy of the standard inside the repository, unmodified, at a named version. Any
+    reviewer can download the original and compare — proving we did not quietly edit a
+    definition to make our output look correct.</p>
+  </div>
+
+  <h2>4.3 Why are parsers text files instead of code?</h2>
+  <p>A parser in ULPF is a <em class="t">Source Pack</em> — one YAML file. YAML is a plain-text
+  format designed to be readable by people. Here is a real, complete section from ours:</p>
+
+<pre><b>identity:</b>
+  id: openssh-auth
+  detect:
+    - contains_all: ["sshd["]        <b># how to recognise it</b>
+
+<b>extract:</b>
+  - decoder: syslog                  <b># which readers, in order</b>
+  - decoder: regex
+
+<b>map:</b>
+  class_uid: 3002                    <b># it is an Authentication event</b>
+  src_endpoint.ip:
+    from: src                        <b># their field  →  the standard field</b>
+    observable: ip</pre>
+
+  <p>Four consequences, and each answers a different requirement:</p>
+  <ul>
+    <li><strong>No programmer needed.</strong> A security analyst can add a device.</li>
+    <li><strong>No rebuild, no restart.</strong> A file-watcher notices the new file and loads it
+    within a second, while the system is running.</li>
+    <li><strong>It can be reviewed.</strong> A human reads the recognition rules and the mapping
+    before approving it — impossible with compiled code.</li>
+    <li><strong>It carries its own tests.</strong> Each pack embeds real sample lines and the
+    values they must produce.</li>
+  </ul>
+
+  <h2>4.4 Why no database?</h2>
+  <p>A normal system of this kind would store records in PostgreSQL or Elasticsearch. We
+  deliberately use plain files. Three reasons:</p>
+  <ul>
+    <li><strong>Air-gap.</strong> A database is another thing to install, license, patch and
+    back up on an isolated machine.</li>
+    <li><strong>Append-only is the point.</strong> A database is designed to let you
+    <code>UPDATE</code> rows. For evidence, being able to edit is the opposite of what we
+    want.</li>
+    <li><strong>Speed.</strong> Appending to a file is about as fast as a computer can write.</li>
+  </ul>
+  <p>Instead we wrote a purpose-built store: records grouped into roughly 1&nbsp;MB blocks,
+  compressed with zstd, each block carrying a checksum, and an index so any single record can be
+  fetched in one disk seek.</p>
+
+  <h2>4.5 The cryptography, and why each piece</h2>
+  <table class="wide">
+    <tr><th>Tool</th><th>Job</th><th>Why this one</th></tr>
+    <tr><td><strong>SHA-256</strong></td><td>Fingerprints a record</td>
+        <td>The only fast option OCSF names explicitly, so any third party can verify our records
+        with standard software and no special knowledge.</td></tr>
+    <tr><td><strong>BLAKE3</strong></td><td>Optional faster fingerprint</td>
+        <td>Faster, but not in the OCSF list, so it must declare itself as "Other" — a real
+        trade-off we made visible rather than hiding.</td></tr>
+    <tr><td><strong>Ed25519</strong></td><td>Signs checkpoints</td>
+        <td>Modern, small, fast signatures. Signing is what turns "you can detect tampering" into
+        "you cannot forge a replacement."</td></tr>
+    <tr><td><strong>Merkle tree</strong><br>(RFC 6962)</td><td>Prove one record</td>
+        <td>The exact construction used by Certificate Transparency, which secures HTTPS
+        worldwide. We did not invent a scheme; we used the proven one.</td></tr>
+    <tr><td><strong>RFC 8785 (JCS)</strong></td><td>Makes fingerprints reproducible</td>
+        <td>Guarantees two different programs turn the same record into the same exact bytes,
+        so they compute the same fingerprint.</td></tr>
+    <tr><td><strong>zstd</strong></td><td>Compression</td>
+        <td>Fast, and log data repeats heavily — we measure better than 4:1 on real firewall
+        logs.</td></tr>
+  </table>
+</section>
+
+<!-- ============================ PART 5 ============================ -->
+<section class="part">
+  <div class="pnum">Part 5</div>
+  <h1>Just enough Rust to defend the project</h1>
+  <p class="intro">You do not need to write Rust. You need to read a screen of it and explain
+  what it does. This part gives you exactly that, using our real code.</p>
+
+  <h2>5.1 The one big idea: ownership</h2>
+  <p>Every other language handles memory in one of two ways. Rust invented a third.</p>
+
+  <table class="wide">
+    <tr><th>Approach</th><th>Used by</th><th>Cost</th></tr>
+    <tr><td>Programmer frees memory manually</td><td>C, C++</td><td>Forget once → crash or security hole</td></tr>
+    <tr><td>Automatic cleaner runs in background</td><td>Java, Python, Go</td><td>Safe, but pauses and slower</td></tr>
+    <tr><td><strong>Compiler proves it at build time</strong></td><td><strong>Rust</strong></td>
+        <td><strong>Safe and fast — but the compiler refuses bad code</strong></td></tr>
+  </table>
+
+  <p>The rule: <strong>every value has exactly one owner, and when the owner finishes, the value
+  is freed.</strong> The compiler checks this before the program ever runs.</p>
+
+  <div class="box">
+    <span class="lbl">Say it like this</span>
+    <p>"Rust checks memory correctness while compiling, so bugs that would be crashes or
+    vulnerabilities in C become compile errors we have to fix before the program can even be
+    built. For software that reads attacker-controlled input, that is worth the strictness."</p>
+  </div>
+
+  <h2>5.2 Borrowing</h2>
+  <p>If a value has one owner, how do two parts of the program use it? They <em class="t">borrow</em>
+  it — marked with <code>&amp;</code>.</p>
+<pre>fn decode(&amp;self, input: <b>&amp;str</b>) -&gt; Result&lt;Decoded&gt;</pre>
+  <p><code>&amp;str</code> means "I am <em>borrowing</em> some text; I will read it, not own it,
+  and I will not keep it after I return." This is why ULPF is fast: reading a field does not copy
+  the text, it just points into the original line.</p>
+
+  <h2>5.3 No exceptions — <code>Result</code> and <code>Option</code></h2>
+  <p>Rust has no exceptions. A function that can fail says so in its type, and the caller
+  <em>must</em> handle it.</p>
+<pre><b>Result&lt;T, E&gt;</b>   →  either Ok(value) or Err(problem)
+<b>Option&lt;T&gt;</b>      →  either Some(value) or None</pre>
+  <p>You cannot forget to check. The compiler will not build the program.</p>
+
+  <div class="box good">
+    <span class="lbl">Why this matters for us specifically</span>
+    <p>Our release build is configured to <strong>abort on panic</strong> — any unexpected crash
+    kills the whole collector. So every decoder is written to return <code>Err</code> rather than
+    crash, and we have a test that throws deliberately hostile input at all ten of them to prove
+    it. This is not theoretical: a real crash bug hid in our XML reader until somebody fed it a
+    Japanese log line.</p>
+  </div>
+
+  <h2>5.4 Traits — the plug socket</h2>
+  <p>A <em class="t">trait</em> is a contract: "anything that implements this must provide these
+  functions." Ours:</p>
+<pre>pub trait Decoder {
+    fn name(&amp;self) -&gt; &amp;'static str;
+    fn decode&lt;'a&gt;(&amp;self, input: &amp;'a str) -&gt; Result&lt;Decoded&lt;'a&gt;&gt;;
+}</pre>
+  <p>All ten readers implement this. The rest of the program does not care which one it holds —
+  it just calls <code>decode</code>. That is how a Source Pack can name any chain of readers and
+  the pipeline works without changes.</p>
+
+  <h2>5.5 Crates and Cargo</h2>
+  <p>A <em class="t">crate</em> is a Rust package. <em class="t">Cargo</em> is the build tool.
+  Our project is seven crates, each with one job:</p>
+  <table class="wide">
+    <tr><th>Crate</th><th>Its one job</th></tr>
+    <tr><td><code>ulpf-core</code></td><td>The shared vocabulary — the basic types everything passes around</td></tr>
+    <tr><td><code>ulpf-vault</code></td><td>The evidence store — append-only, compressed, retrievable</td></tr>
+    <tr><td><code>ulpf-decode</code></td><td>The ten readers, plus salvage extraction</td></tr>
+    <tr><td><code>ulpf-pack</code></td><td>Source Packs — the file format and how to run one</td></tr>
+    <tr><td><code>ulpf-ocsf</code></td><td>The standard output shape, and all the cryptography</td></tr>
+    <tr><td><code>ulpf-generator</code></td><td>Grouping unknown logs and drafting new parsers</td></tr>
+    <tr><td><code>ulpf-cli</code></td><td>The actual program: commands, web console, outputs</td></tr>
+  </table>
+  <p>Splitting like this means the cryptography crate cannot accidentally depend on the web
+  console, and each part can be tested alone.</p>
+
+  <h2>5.6 Reading real code from our project</h2>
+  <p>This is the heart of the whole system — the function that processes one record. If you can
+  explain this screen, you can defend the architecture.</p>
+
+<pre>pub fn process(&amp;mut self, raw: &amp;[u8], envelope: &amp;Envelope)
+    -&gt; anyhow::Result&lt;Processed&gt; {
+
+    <b>// Stage 1: preserve. Nothing below this line can lose the original.</b>
+    let raw_ref = self.vault.append(raw)?;
+
+    let text = String::from_utf8_lossy(raw);
+
+    <b>// Stage 2 + 3 + 4</b>
+    let (mut event, disposition) = match active_packs.identify(&amp;text) {
+        None =&gt; (self.minimal_event(raw, envelope, &amp;event_uid)?,
+                 Disposition::Unidentified),
+        Some(pack) =&gt; match pack.extract(&amp;text) { ... }
+    };
+
+    <b>// Stage 5: attest, linking this event to its predecessor.</b>
+    self.attestor.attest(&amp;mut event)?;
+
+    Ok(Processed { event, disposition, raw_ref })
+}</pre>
+
+  <dl class="kv">
+    <dt><code>&amp;mut self</code></dt><dd>this function changes the pipeline's own state (the vault grows, the chain advances)</dd>
+    <dt><code>raw: &amp;[u8]</code></dt><dd>borrowed raw bytes — <em>not</em> text, because a log may contain invalid characters</dd>
+    <dt><code>?</code></dt><dd>"if this failed, stop and return the error" — the whole error-handling style in one character</dd>
+    <dt><code>match</code></dt><dd>handle every possible case; the compiler checks none is missed</dd>
+    <dt><code>None =&gt;</code></dt><dd>no parser recognised it — and note it still produces an event rather than dropping it</dd>
+  </dl>
+
+  <div class="box good">
+    <span class="lbl">The line that proves the design</span>
+    <p><code>let raw_ref = self.vault.append(raw)?;</code> comes <strong>before</strong> any
+    attempt to understand the record. If a judge asks "how do you know nothing is lost?", point
+    at this line. Everything after it is allowed to fail.</p>
+  </div>
+</section>
+
+<!-- ============================ PART 6 ============================ -->
+<section class="part">
+  <div class="pnum">Part 6</div>
+  <h1>Concepts you will be asked about</h1>
+  <p class="intro">The cryptography, the web layer, and the algorithms — each explained from
+  zero, with the version of the answer you can say out loud.</p>
+
+  <h2>6.1 Hashing — the digital fingerprint</h2>
+  <p>A <em class="t">hash function</em> takes any amount of data and produces a fixed-length code.
+  SHA-256 always produces 64 characters, whether you feed it one word or a whole book.</p>
+<pre>"hello"        →  2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e7304336
+"hellp"        →  9c8f0f6b1c1e2b0d4a9f5e3c7d2a1b8e4f6c9d0a3b5e7f1c4d8a2b6e
+      ↑ one letter different  →  a completely different fingerprint</pre>
+
+  <p>Three properties make it useful as evidence:</p>
+  <ul>
+    <li><strong>Same input always gives the same output.</strong> Recompute it later and compare.</li>
+    <li><strong>Any change gives a wildly different output.</strong> Even one character.</li>
+    <li><strong>You cannot work backwards</strong> from the fingerprint to the data.</li>
+  </ul>
+
+  <h2>6.2 Hash chain — making order tamper-evident</h2>
+  <p>A fingerprint proves one record is unaltered. A <em class="t">chain</em> proves the sequence is.
+  Each record's fingerprint is computed over its own content <strong>plus the fingerprint of the
+  record before it</strong>.</p>
+
+  <div class="diagram">
+ Record 1        Record 2               Record 3
+ ┌───────┐      ┌────────────────┐     ┌────────────────┐
+ │ data  │      │ data           │     │ data           │
+ │ hash: │─────▶│ prev: abc123   │────▶│ prev: def456   │
+ │ abc123│      │ hash: def456   │     │ hash: ghi789   │
+ └───────┘      └────────────────┘     └────────────────┘
+
+ Change Record 1  →  its hash changes  →  Record 2's "prev" no longer
+ matches  →  and so does every record after it, forever.
+  </div>
+
+  <p><strong>Say it like this:</strong> "Each record contains the fingerprint of the one before
+  it, so altering any record breaks every record that follows. You cannot quietly edit the middle
+  of the log."</p>
+
+  <h2>6.3 Merkle tree — proving one record without showing the rest</h2>
+  <p>This is our strongest technical feature, and the clearest answer to the Blockchain theme.</p>
+
+  <p><strong>The problem it solves:</strong> a chain proves the whole log is intact, but only by
+  replaying all of it. Suppose you need to prove <em>one</em> record out of a million — in court,
+  to an auditor. Handing over all million records is slow, and for a classified log it is simply
+  not permitted.</p>
+
+  <p>A Merkle tree pairs up fingerprints and hashes each pair, repeatedly, until one value
+  remains at the top — the <em class="t">root</em>.</p>
+
+  <div class="diagram">
+                      ROOT  (signed)
+                     ╱          ╲
+                 H(1,2)          H(3,4)
+                ╱     ╲         ╱     ╲
+              R1       R2     R3       R4
+              ▲        ──             ──
+        prove this   ← these two hashes are all you need to send
+  </div>
+
+  <p>To prove record 1 belongs: send record 1 plus the fingerprints of R2 and H(3,4). The verifier
+  recomputes upward and checks the root matches the signed one. <strong>They learn nothing about
+  records 2, 3 or 4.</strong></p>
+
+  <table>
+    <tr><th>Records in log</th><th>Hashes needed to prove one</th></tr>
+    <tr><td>1,000</td><td>10</td></tr>
+    <tr><td>1,000,000</td><td>20</td></tr>
+    <tr><td>1,000,000,000</td><td>30</td></tr>
+  </table>
+  <p>Measured on our system: <strong>11 hashes, 352 bytes.</strong></p>
+
+  <div class="box good">
+    <span class="lbl">Why this answers "Blockchain &amp; Cybersecurity"</span>
+    <p>A Merkle tree is the data structure underneath every blockchain. We use the version defined
+    in RFC 6962, the standard behind Certificate Transparency, which protects HTTPS across the
+    whole internet.</p>
+    <p>We did <strong>not</strong> build a cryptocurrency or a distributed ledger — that would be
+    absurd for a log collector. We took the part of the technology that genuinely applies:
+    append-only records, hash chaining, signed commitments, and proofs of membership.</p>
+  </div>
+
+  <h2>6.4 Digital signatures — from "detectable" to "unforgeable"</h2>
+  <p>A hash chain has one weakness: an attacker who replaces the <em>entire</em> log can
+  recompute all the fingerprints, and it will look perfectly consistent.</p>
+  <p>A <em class="t">signature</em> closes that. There are two keys: a <strong>private key</strong>
+  that only the collector holds and signs with, and a <strong>public key</strong> anyone can use to
+  check. Without the private key you cannot produce a valid signature.</p>
+
+  <h4>Why we sign periodically, not per record</h4>
+  <p>Two reasons, and both are worth knowing:</p>
+  <ul>
+    <li><strong>The standard has nowhere to put it.</strong> OCSF's signature object describes a
+    signature but has no field to carry the bytes.</li>
+    <li><strong>Cost.</strong> We measured it: signing every record gave <strong>102 records per
+    second</strong>. Signing every 500 records instead gives 10,000 — a 100× difference for the
+    same guarantee, because the per-record chain already detects tampering.</li>
+  </ul>
+
+  <h2>6.5 How a web request works (our console)</h2>
+  <p>The console is the web page an operator looks at. Here is the full round trip:</p>
+
+  <div class="diagram">
+ 1  Browser: user opens http://127.0.0.1:8787
+ 2  Browser sends an HTTP GET request to that address
+ 3  Our program (the "server") receives it
+ 4  Server checks: is this request allowed?  (see below)
+ 5  Server sends back HTML  →  the page appears
+ 6  The page's JavaScript asks for data: GET /api/stats
+ 7  Server replies with JSON  →  numbers update on screen
+  </div>
+
+  <p><strong>HTTP</strong> is the language browsers speak. <strong>GET</strong> means "give me
+  something"; <strong>POST</strong> means "here is something, do it." <strong>JSON</strong> is a
+  text format for structured data. The console repeats step 6 on a timer, which is why the
+  numbers update live.</p>
+
+  <h4>The security check at step 4</h4>
+  <p>Our console has no login. So we check two things on every request:</p>
+  <ul>
+    <li><strong>Origin</strong> — browsers attach this to requests coming from another website, and
+    a web page cannot fake it. This stops a malicious site you have open in another tab from
+    silently installing a parser.</li>
+    <li><strong>Host</strong> — must be an address we actually listen on. This stops a trick called
+    DNS rebinding.</li>
+  </ul>
+  <p><strong>Be honest about this one:</strong> it is browser safety, not authentication. Anyone
+  who can reach the port can use it. That is why it listens only on the local machine by default.</p>
+
+  <h2>6.6 The data structures and algorithms we actually use</h2>
+  <table class="wide">
+    <tr><th>Technique</th><th>Where</th><th>Why that one</th></tr>
+    <tr><td><strong>Binary search</strong><br><em>O(log n)</em></td>
+        <td>Finding which block holds a record</td>
+        <td>Blocks are in order, so we halve the search each step. 1,000,000 blocks → 20 steps.</td></tr>
+    <tr><td><strong>Array with linear scan</strong><br><em>O(n)</em></td>
+        <td>The extracted fields of one record</td>
+        <td>Deliberately <em>not</em> a hash map. A record has tens of fields, not thousands, and at
+        that size scanning a contiguous list is faster than hashing.</td></tr>
+    <tr><td><strong>Merkle tree</strong><br><em>O(log n)</em></td>
+        <td>Proving one record</td>
+        <td>Turns a million-record proof into twenty hashes.</td></tr>
+    <tr><td><strong>Drain clustering</strong></td>
+        <td>Grouping unknown logs</td>
+        <td>Buckets lines by word count, then compares position by position. Turns 4,812 unknown
+        lines into one reviewable pattern.</td></tr>
+    <tr><td><strong>Greedy farthest-point</strong></td>
+        <td>Choosing example lines</td>
+        <td>Picks the <em>most different</em> examples rather than the first few. Taken from two
+        research papers (LILAC, MicLog).</td></tr>
+    <tr><td><strong>Sorted map (BTreeMap)</strong></td>
+        <td>Fields inside a record</td>
+        <td>Order must be identical every time, or the fingerprint would change for identical
+        data and verification would break.</td></tr>
+  </table>
+</section>
+
+<!-- ============================ PART 7 ============================ -->
+<section class="part">
+  <div class="pnum">Part 7</div>
+  <h1>Every feature: what, why, how</h1>
+  <p class="intro">Each feature exists because a specific requirement demanded it. This is the
+  mapping.</p>
+
+  <table class="wide">
+    <tr><th>Feature</th><th>Requirement</th><th>How it works</th></tr>
+    <tr><td><strong>Raw vault</strong></td><td>(a) preserve without loss</td>
+      <td>Append-only file, ~1&nbsp;MB compressed blocks, checksum per block, index for one-seek
+      retrieval. Written <em>before</em> parsing. Survives a power cut: a crash costs the last
+      block, not the archive.</td></tr>
+    <tr><td><strong>Ten decoders</strong></td><td>(b) extract attributes</td>
+      <td>syslog (2 dialects), key=value, CSV, CEF, LEEF, JSON, XML, regex. Composed into chains
+      by each pack.</td></tr>
+    <tr><td><strong>OCSF mapping</strong></td><td>(c) common taxonomy</td>
+      <td>Each pack maps its fields onto standard names. Unmapped fields are kept, not dropped.</td></tr>
+    <tr><td><strong>Locator + fingerprint<br>+ chain + Merkle proofs</strong></td><td>(d) traceability</td>
+      <td>Four layers: a receipt to fetch the original, a fingerprint proving it is unaltered, a
+      link to the previous record, and a proof for any single record.</td></tr>
+    <tr><td><strong>Source Packs<br>+ hot reload</strong></td><td>(e) plug-and-play</td>
+      <td>YAML files in a folder. A watcher reloads within a second. A broken file is skipped and
+      logged; the working set stays live.</td></tr>
+    <tr><td><strong>Web console</strong></td><td>(f) unified visibility</td>
+      <td>Live view, event inspector, unknown-log clusters, parser list, integrity page. Compiled
+      into the binary — no internet needed.</td></tr>
+    <tr><td><strong>Output sinks</strong></td><td>(g) SIEM / data lake</td>
+      <td>NDJSON by default; Parquet, OpenSearch and Splunk as options, all batched.</td></tr>
+    <tr><td><strong>Feature table</strong></td><td>(h) AI/ML-ready</td>
+      <td>A fixed 24-column table for machine learning. The columns never change when a parser
+      changes — so a model trained last month still reads this month's data.</td></tr>
+    <tr><td><strong>Clustering +<br>two generators</strong></td><td>(i) reduce parser effort</td>
+      <td>Unknown logs are grouped; a candidate parser is drafted (with or without AI), scored
+      against real samples, and activated only after a human approves.</td></tr>
+    <tr><td><strong>Salvage extraction</strong></td><td>(i) + Current Scope</td>
+      <td>Pulls addresses, ports, links and names out of <em>any</em> record, even one no parser
+      claimed. Deterministic — no model.</td></tr>
+    <tr><td><strong>Everything compiled in</strong></td><td>(j) air-gapped</td>
+      <td>No CDN, no web font, no telemetry, no cloud AI. Proved in CI by building and testing
+      with the network disabled.</td></tr>
+    <tr><td><strong>Container</strong></td><td>(k) platform independent</td>
+      <td>Two-stage build onto a minimal image with no shell, read-only filesystem, all privileges
+      dropped. 65&nbsp;MB.</td></tr>
+  </table>
+
+  <h2>7.1 The one feature worth demonstrating live</h2>
+  <div class="box good">
+    <span class="lbl">The tamper test</span>
+    <p>On the Integrity page, one button alters a single field on one stored record — changing a
+    source IP address. Verification immediately reports:</p>
+    <pre style="margin:2mm 0 0">fingerprint mismatch: event content has been altered</pre>
+    <p>Crucially the vault is <em>not</em> touched, which is the whole point: the original bytes
+    remain retrievable and provably different from the altered version. This is a live test on
+    real data, not a slide.</p>
+  </div>
+</section>
+
+<!-- ============================ PART 8 ============================ -->
+<section class="part">
+  <div class="pnum">Part 8</div>
+  <h1>Problems we hit, and how we found them</h1>
+  <p class="intro">Judges ask "what was the hardest bug?" and "what did you get wrong?". These are
+  real, and each one taught us something worth saying out loud.</p>
+
+  <h2>8.1 The vendor manual was wrong</h2>
+  <p>We wrote a parser for the Blue Coat proxy from the manufacturer's official documentation.
+  It passed 100% of its own tests. Then we fed it 8.1 million real Blue Coat records.</p>
+  <p><strong>It matched zero of them.</strong></p>
+  <p>The real log file contains a header line listing its own field order — and it disagreed with
+  the manual in two places. We rewrote the parser from the file's own header: <strong>0% →
+  99.01%.</strong></p>
+  <div class="box">
+    <span class="lbl">The lesson</span>
+    <p>A test written by the same person who wrote the parser proves only that they agree with
+    themselves. This is why we insist on real captured data, and why we list which parsers still
+    lack it.</p>
+  </div>
+
+  <h2>8.2 Tests passing while the system silently broke</h2>
+  <p>We added a parser for the Thunderbird supercomputer logs. It recognised lines containing
+  <code>(pam_unix)</code>. Every test passed.</p>
+  <p>But ordinary Linux logs contain <code>(pam_unix)</code> too. The new parser grabbed them
+  first, then failed to read them. <strong>Linux coverage fell from 94% to 19% — with a
+  completely green test run.</strong></p>
+  <p><strong>The fix was not just the parser.</strong> We added a permanent check to the test
+  suite: for every sample line, confirm that <em>this</em> parser claims it and not a different
+  one. It immediately found two more cases we did not know about.</p>
+
+  <h2>8.3 A parser generator that produced useless parsers</h2>
+  <p>Our system can draft a parser automatically from unknown logs. It reported "drafted 20
+  candidates" and looked like it worked.</p>
+  <p>Every one contained a <strong>timestamp</strong> in its recognition rule:</p>
+<pre>contains_all: ["20171223-22:15:29:606|Step_LSC|..."]</pre>
+  <p>A timestamp happens once and never again, so each parser could match exactly one line —
+  ever. It looked like progress and was worth nothing.</p>
+  <p>We also found the grouping split lines on spaces only, so formats separated by <code>|</code>
+  never grouped: 2,000 records became clusters of four. After fixing both, the top 20 clusters
+  covered <strong>1,902 of 2,000 records</strong>.</p>
+
+  <h2>8.4 Full coverage that was actually blindness</h2>
+  <p>We removed the firewall parser to see what would happen. The generic syslog parser claimed
+  100% of the lines and reported <strong>full coverage</strong>.</p>
+  <p>But it extracted almost nothing — a firewall log full of IP addresses had become
+  unsearchable while the dashboard showed success. Salvage had not run, because the record was
+  technically "parsed."</p>
+  <p>We changed salvage to run on <em>every</em> record, adding only what the parser missed.
+  Result on that same data: <strong>0% → 100% of records carrying searchable indicators.</strong></p>
+  <div class="box warn">
+    <span class="lbl">The lesson worth repeating</span>
+    <p>"A parser claiming a record is not the same as a parser understanding it." Our coverage
+    number counts recognition. We now measure extraction separately, because the first number can
+    look perfect while the system is useless.</p>
+  </div>
+
+  <h2>8.5 A crash hiding in the XML reader</h2>
+  <p>Our XML reader stepped through text one byte at a time. That works for English. It crashes on
+  Japanese, where one character occupies several bytes — and the release build is set to abort on
+  any crash, meaning the whole collector would die.</p>
+  <p>There was a fuzzing tool meant to catch this, but it required a special compiler and so had
+  never actually run. We replaced it with a test that runs on every commit, feeding deliberately
+  hostile input — multi-byte characters at every position, truncated records, nested structures —
+  to all ten readers.</p>
+
+  <h2>8.6 A false claim in our own README</h2>
+  <p>Our README stated: <em>"no log line anywhere in this project is synthesised."</em></p>
+  <p>It was not true. A sample file contained 7,319 invented lines. We found it by checking
+  ourselves and corrected the claim to the one that is actually true — <em>no coverage or
+  throughput figure comes from synthesised data</em> — and labelled the file clearly.</p>
+  <div class="box">
+    <span class="lbl">Worth saying to a judge</span>
+    <p>"We audited our own claims and found one that was false, so we corrected it." That answers
+    the honesty question better than never having had a problem.</p>
+  </div>
+</section>
+
+<!-- ============================ PART 9 ============================ -->
+<section class="part">
+  <div class="pnum">Part 9</div>
+  <h1>The numbers, and what each one means</h1>
+  <p class="intro">Know these. Judges test whether you understand your own figures or merely
+  memorised them.</p>
+
+  <h2>9.1 Coverage</h2>
+  <table>
+    <tr><th>Source</th><th>Origin</th><th class="n">Records</th><th class="n">Coverage</th></tr>
+    <tr><td>iptables firewall</td><td>Honeynet</td><td class="n">179,752</td><td class="n">100.0000%</td></tr>
+    <tr><td>Snort detector</td><td>Honeynet</td><td class="n">69,039</td><td class="n">99.9986%</td></tr>
+    <tr><td>Dragon detector</td><td>Honeynet</td><td class="n">42,899</td><td class="n">100.0000%</td></tr>
+    <tr><td>Squid proxy</td><td>Honeynet</td><td class="n">533,197</td><td class="n">99.9771%</td></tr>
+    <tr><td>Apache web</td><td>Honeynet</td><td class="n">3,554</td><td class="n">99.9719%</td></tr>
+    <tr><td>Linux, SSH, mail, Proxifier</td><td>Honeynet + Loghub</td><td class="n">10,338</td><td class="n">81–100%</td></tr>
+    <tr><td><strong>Total (perimeter)</strong></td><td></td><td class="n"><strong>838,779</strong></td><td class="n"><strong>99.9219%</strong></td></tr>
+  </table>
+  <p>A further twelve corpora outside the perimeter scope are measured separately:
+  <strong>862,779 records at 99.7175%</strong> across all 23.</p>
+
+  <div class="box">
+    <span class="lbl">The number to lead with</span>
+    <p>The <strong>iptables 100%</strong> figure is genuine cross-validation. That parser was
+    written against a <em>completely different</em> 307,524-record capture and never adjusted for
+    this one. It is the strongest single fact we have, because it rules out the obvious criticism
+    that we tuned the parser to the test.</p>
+  </div>
+
+  <h2>9.2 Speed</h2>
+  <table>
+    <tr><th>Offered rate</th><th class="n">Sent</th><th class="n">Received</th><th class="n">Loss</th></tr>
+    <tr><td>10,000 /sec</td><td class="n">100,000</td><td class="n">100,000</td><td class="n">0%</td></tr>
+    <tr><td>12,000 /sec</td><td class="n">120,000</td><td class="n">118,000</td><td class="n">1.7%</td></tr>
+    <tr><td>15,000 /sec</td><td class="n">150,000</td><td class="n">125,000</td><td class="n">16.7%</td></tr>
+  </table>
+  <p><strong>10,000 per second is our honest sustained figure</strong> — 864 million a day.
+  The billion-a-day target needs 11,574, so one collector reaches 86% of it.</p>
+  <p>We do not quote the 12,000 figure, because it drops 1.7% of records. For a log collector,
+  that is not a rounding error — it is the exact failure the whole design exists to prevent.</p>
+
+  <h4>How we get past it</h4>
+  <p>Run more collectors. Each is independent — own port, own store, own key, own chain.
+  Measured: two collectors, 120,000 events, <strong>zero loss</strong>, each chain verifying
+  separately. Five collectors would reach 50,000/sec.</p>
+
+  <h2>9.3 Everything else</h2>
+  <table class="wide">
+    <tr><td>Source Packs</td><td class="n">34</td></tr>
+    <tr><td>Embedded tests, all passing</td><td class="n">64</td></tr>
+    <tr><td>Decoders</td><td class="n">10</td></tr>
+    <tr><td>Lines of Rust</td><td class="n">~18,400</td></tr>
+    <tr><td>Container image size</td><td class="n">65.4 MB</td></tr>
+    <tr><td>Proof size for one record</td><td class="n">11 hashes / 352 bytes</td></tr>
+    <tr><td>Compression on real firewall logs</td><td class="n">better than 4:1</td></tr>
+    <tr><td>Parsers with real-data proof</td><td class="n">25 of 34</td></tr>
+  </table>
+</section>
+
+<!-- ============================ PART 10 ============================ -->
+<section class="part">
+  <div class="pnum">Part 10</div>
+  <h1>Judge questions and our answers</h1>
+  <p class="intro">Researched from SIH jury guidance and hackathon panels. The questions are real
+  and recurring; the answers are specific to this project. Practise saying them aloud.</p>
+
+  <h2>A. About the demo</h2>
+
+  <div class="qa">
+    <p class="q"><span>Q1</span>Which part of what we just saw is real, and which is mocked?</p>
+    <p class="trap"><b>Trap:</b> vagueness. Judges reward honesty and punish discovered mocks.</p>
+    <p class="ans"><b class="lbl2">Our answer</b>All of it is real. The log data comes from public
+    research archives — Honeynet and Loghub — and is used unmodified. The coverage figure is
+    measured by a script anyone can re-run. One file in the project is synthetic and it is
+    labelled as such: a sample file for trying the system without downloading 200&nbsp;MB. It is
+    never measured and appears in no published number.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q2</span>Show me this running. Not the slides.</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Start the console, switch on two live sources,
+    then go straight to the Integrity page: verify the chain, then press the tamper test. It
+    alters one IP address on one record and verification immediately reports
+    <em>"fingerprint mismatch: event content has been altered."</em> Sixty seconds, live, on real
+    data.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q3</span>Can you try it with this input?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Yes — paste any log line into the Event
+    inspector. If no parser recognises it, that is the interesting case: it is still stored, still
+    fingerprinted, and salvage still pulls out the addresses and ports. We have demonstrated this
+    with formats invented on the spot.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q4</span>What happens when a dependency is down or slow?</p>
+    <p class="trap"><b>Trap:</b> "It wouldn't be."</p>
+    <p class="ans"><b class="lbl2">Our answer</b>We have almost none by design. There is no cloud
+    service, no database, no internet. The one optional dependency is a local AI model: if it is
+    unreachable, the system falls back automatically to the rules-based generator and reports the
+    model as offline. If a SIEM we forward to is down, records are still stored and still sealed —
+    forwarding is a fan-out, never the system of record.</p>
+  </div>
+
+  <h2>B. About the technology</h2>
+
+  <div class="qa">
+    <p class="q"><span>Q5</span>Why Rust? Why not Python or Java?</p>
+    <p class="trap"><b>Trap:</b> "It's fast and modern." Name the constraint instead.</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Three constraints. We need 10,000+ records per
+    second, so an interpreted language is out. We read attacker-controlled bytes from the network,
+    and Rust makes memory bugs compile errors instead of vulnerabilities. And it produces one file
+    with nothing to install, which matters enormously on an air-gapped machine. Go would also have
+    been a reasonable choice; we preferred Rust's stricter guarantees and lack of collection
+    pauses.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q6</span>Why OCSF and not Elastic ECS or Splunk CIM?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Every alternative is controlled by one vendor —
+    ECS by Elastic, CIM by Splunk, ASIM by Microsoft, UDM by Google. Choosing any of them ties a
+    national agency to one company. OCSF is genuinely vendor-neutral. It also defines a
+    <code>record_integrity</code> profile, which is the standard hook our whole integrity design
+    uses — so we are not inventing a private scheme.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q7</span>Why no database?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Three reasons. A database is another thing to
+    install and patch on an isolated machine. Databases are built to let you update rows, and for
+    evidence that is exactly what we do not want. And appending to a file is about as fast as a
+    computer can write. We wrote a purpose-built append-only store instead: compressed blocks,
+    checksums, one-seek retrieval.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q8</span>Why not use AI to do the parsing directly?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Because a wrong field mapping silently breaks
+    every detection rule built on it. The published critique of this market puts it well: AI
+    autonomy suits tasks where errors are recoverable, and normalization is not one of them. Our
+    hot path is entirely deterministic — no model runs while records are processed. A model may
+    <em>draft</em> a parser, but it is scored against real samples and approved by a human, and
+    from that moment its behaviour is fixed.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q9</span>What was the hardest bug, and how did you find it?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>A parser we added recognised lines containing
+    <code>(pam_unix)</code>. Ordinary Linux logs contain that too, so it claimed them and then
+    failed to read them — Linux coverage fell from 94% to 19% <em>with every test passing</em>.
+    We found it because we re-measure against real data after every change. The fix was not just
+    the parser: we added a permanent check that verifies each sample line is claimed by its own
+    parser and not a different one. It immediately found two more cases.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q10</span>How did you test the AI part?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>By holding a parser out and measuring whether the
+    generator could rediscover it. We removed one, fed the system that device's logs, let it draft
+    parsers automatically, and measured coverage: 0% → 47.6% with no human writing anything. We
+    also measured extraction quality separately and found the drafted parsers were producing zero
+    OCSF fields on some formats, which we then fixed.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q11</span>Where does the data sit, and who can see it?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Entirely on the operator's own machine — there is
+    no cloud component. The console listens on the local machine only by default. Being honest: it
+    has no login. It blocks requests from other websites and rebound addresses, but anyone who can
+    reach the port can use it, so any wider exposure needs an authenticating proxy in front. That
+    is documented in our security notes rather than hidden.</p>
+  </div>
+
+  <h2>C. About the problem and users</h2>
+
+  <div class="qa">
+    <p class="q"><span>Q12</span>How does the user do this today, without you?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>They write a parser per device, by hand, in code —
+    which is exactly the cost the problem statement complains about. Commercial products like
+    Cribl automate the normalization, but they were built to cut SIEM bills, so they filter and
+    discard by design, most keep data in the cloud, and none of them preserve the original bytes
+    or prove a record is unaltered.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q13</span>Twelve other teams picked this statement. Why yours?</p>
+    <p class="trap"><b>Trap:</b> listing features. Name one constraint you took seriously.</p>
+    <p class="ans"><b class="lbl2">Our answer</b>We took the word <em>lossless</em> literally. Most
+    teams will normalize logs — that is the obvious reading. We noticed the statement says
+    preserve raw event data <em>without information loss</em>, and that this comes from an agency
+    whose logs become evidence. So we store the original bytes before parsing, and we can prove
+    any single record is unaltered without revealing the rest of the log. That is a different
+    system, not a better dashboard.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q14</span>Does this already exist? What is genuinely new?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>The category exists — seven commercial platforms,
+    Cribl being the leader at over $300M revenue. The individual techniques are all older than us:
+    hash chains, Merkle trees from Certificate Transparency, OCSF. What we did not find anywhere is
+    the combination: store-before-parse, parsers as reviewable data files, a vendor-neutral schema,
+    and per-record cryptographic proofs, in one air-gapped binary. The most detailed market
+    comparison published this year does not mention integrity or chain of custody once — the
+    category has no column for it.</p>
+  </div>
+
+  <h2>D. About deployment and reality</h2>
+
+  <div class="qa">
+    <p class="q"><span>Q15</span>What is the smallest version you could deploy next month?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>One collector on one machine, receiving syslog
+    from a single building's firewalls on port 5514, writing to local disk and forwarding to the
+    existing SIEM. That is one command and no changes to the devices beyond adding a syslog
+    destination. Everything else — sharding, proofs, the console — is already there and can be
+    used when they are ready.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q16</span>This works on your laptop. What breaks in the field?</p>
+    <p class="trap"><b>Trap:</b> "Nothing, it's production ready."</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Three things, and we know each one. <strong>One:</strong>
+    above 10,000 records/second, UDP drops records in the kernel before we see them — we raise the
+    buffer and print what the system granted, but UDP has no backpressure; TCP is future work.
+    <strong>Two:</strong> nine of our 34 parsers have never seen real traffic from that vendor, and
+    real data has broken parsers before. <strong>Three:</strong> the console has no authentication,
+    so it must sit behind a proxy if exposed.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q17</span>How does it scale to billions of events a day?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Honestly: one collector does not. We measure
+    10,000/sec lossless, which is 864 million a day — 86% of a billion. We do not quote a higher
+    number because the next step up drops 1.7% of records. The answer is more collectors, not a
+    faster one, because the store and the chain are single-writer by design and that is what makes
+    the proofs meaningful. Each collector is fully independent; we have tested two together with
+    zero loss and each chain verifying separately.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q18</span>What law or policy does this have to comply with?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>For evidence, the relevant idea is chain of
+    custody — showing an item is what it claims to be and was not altered. Courts increasingly
+    expect cryptographic verification rather than operator testimony. Our fingerprint plus proof
+    gives that for the data itself. We are honest about the gap: we do not yet record <em>who
+    read</em> a record, which a complete custody procedure also requires.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q19</span>Which of our existing systems would this talk to?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>It sits <em>in front</em> of whatever SIEM they
+    already run, so it does not replace anything. Devices point their syslog at us instead of
+    directly at the SIEM, and we forward normalized records onward — we support OpenSearch and
+    Splunk directly, plus Parquet files for a data lake. The original bytes stay with us, which is
+    the part their current setup does not have.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q20</span>Who owns this on day one?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>The SOC team that already operates the SIEM —
+    they are the ones writing parsers today, so this removes work they currently do. The person
+    who benefits most immediately is the analyst who approves a new parser: what takes a developer
+    hours becomes a review of a text file.</p>
+  </div>
+
+  <h2>E. About the team and the code</h2>
+
+  <div class="qa">
+    <p class="q"><span>Q21</span>Open the code for the feature you just showed me.</p>
+    <p class="trap"><b>Trap:</b> hunting through folders while they watch.</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Have the repository already open. Know these four:
+    <code>crates/ulpf-cli/src/pipeline.rs</code> (the five stages, 251 lines),
+    <code>crates/ulpf-ocsf/src/merkle.rs</code> (proofs),
+    <code>crates/ulpf-vault/src/format.rs</code> (the store),
+    <code>packs/openssh-auth.yaml</code> (a readable parser).</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q22</span>How much is from an existing open-source project?</p>
+    <p class="trap"><b>Trap:</b> saying none of it.</p>
+    <p class="ans"><b class="lbl2">Our answer</b>The OCSF schema is Apache-licensed and vendored
+    unmodified — we credit it and did not write it. We use standard Rust libraries for compression,
+    hashing, signatures and the web server. The pipeline, the store format, the Source Pack system,
+    the integrity design and the generator are ours. The Drain clustering idea comes from a
+    published algorithm; the sample-selection method comes from two research papers we cite in the
+    code.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q23</span>You have not spoken yet. What did you build?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Every member must be able to answer for their own
+    area <em>and</em> the one next to it. Split it before the event: store and integrity; decoders
+    and packs; console and outputs; generator and measurement. Do not let one person answer
+    everything — judges specifically test for this.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q24</span>What did you cut, and why?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Three things. Binary formats like NetFlow, because
+    our decoders read text and supporting them needs a second interface, not another parser. TCP
+    and TLS syslog, because UDP covers the demonstrable case and we removed the unused code rather
+    than advertise a capability we did not have. And a login for the console, which we documented
+    as a limitation instead of half-building.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q25</span>What did you get wrong and change?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Several, and they are in Part 8. The clearest: we
+    believed our parsers were good because they passed their own tests. Then real data showed
+    parsers scoring 100% on their own tests and 5%, 29% and 37% on real logs — and one at 0%
+    because the vendor's manual was wrong. We changed how we work: measure against real captures
+    before believing anything.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q26</span>What would you do with another week?</p>
+    <p class="trap"><b>Trap:</b> grand vague plans.</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Two specific things. Generate real logs for four
+    of our nine unproven parsers — Suricata, Zeek, ModSecurity and pfSense are open source, so we
+    can run the actual software over public network captures and get genuine output. And run a real
+    multi-machine throughput test, which is the one claim we currently support with arithmetic
+    rather than measurement.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q27</span>If we gave you three months and a budget, what would you fix first?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Cross-collector witness co-signing — two collectors
+    counter-signing each other's checkpoints. It removes the last single point of trust, it is
+    genuinely distributed without needing a blockchain, and nothing in the commercial market does
+    it. Second would be authentication on the console, because that is our most obvious gap.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q28</span>What did you learn that you did not expect?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>That passing tests means almost nothing. Every
+    serious bug we found was invisible to a green test run — a parser stealing another's traffic,
+    a generator producing parsers that could never match, full coverage on a log that had become
+    unsearchable. What caught all of them was measuring against real data we did not create.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q29</span>How long would it take an operator to learn this?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>To use the console and read events: about ten
+    minutes. To approve a machine-drafted parser: roughly an afternoon, because they need to
+    understand what the recognition rules and field mappings mean. To write one from scratch: a day
+    with an existing parser as a template.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q30</span>What does it cost to run for a year?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Almost nothing in licensing — it is one binary
+    with no per-gigabyte fee, which is itself the argument, since that fee is why this market
+    exists. The real cost is storage: at a billion events a day, roughly 150&nbsp;GB of text daily,
+    compressed better than 4:1, so about 35–40&nbsp;GB a day of retained originals. Five collectors
+    on commodity servers. The largest line item is disk, not compute.</p>
+  </div>
+
+  <div class="qa">
+    <p class="q"><span>Q31</span>Would you keep working on this?</p>
+    <p class="ans"><b class="lbl2">Our answer</b>Only say yes if it is true. If it is, be specific
+    about which part — the integrity work is the piece with genuine research value, and the gap we
+    found in the commercial market is real.</p>
+  </div>
+</section>
+
+<!-- ============================ PART 11 ============================ -->
+<section class="part">
+  <div class="pnum">Part 11</div>
+  <h1>Our honest weaknesses</h1>
+  <p class="intro">Know these before a judge finds them. Volunteering a weakness with a mitigation
+  reads as competence; being caught hiding one does the opposite.</p>
+
+  <table class="wide">
+    <tr><th>Weakness</th><th>What we say</th></tr>
+    <tr><td><strong>Nine of 34 parsers have no real-data proof</strong></td>
+      <td>Cisco ASA, FortiGate, PAN-OS, Check Point, Juniper, Suricata, ModSecurity, generic CEF and
+      pfSense. They pass tests written from vendor manuals — and we have seen a manual be wrong.
+      We list them openly. Four are open-source software we can generate real logs from.</td></tr>
+    <tr><td><strong>One collector does not reach a billion a day</strong></td>
+      <td>10,000/sec is 86% of the target. Sharding is built and tested on one machine; a genuine
+      multi-machine measurement has not been run.</td></tr>
+    <tr><td><strong>The console has no login</strong></td>
+      <td>It blocks cross-site and rebound requests, but that is browser safety, not
+      authentication. Needs a proxy in front for any wider exposure.</td></tr>
+    <tr><td><strong>No binary formats</strong></td>
+      <td>NetFlow and Windows Event Log are not supported. Our decoders read text; these need a
+      second interface. NetFlow is genuinely in scope, so this is a real gap.</td></tr>
+    <tr><td><strong>Outputs use plain HTTP</strong></td>
+      <td>Forwarding to a SIEM assumes a trusted local endpoint; TLS is the deployment's job.</td></tr>
+    <tr><td><strong>The AI assistant is weak</strong></td>
+      <td>It runs a small model so it works on any hardware, and it shows — it hedges and
+      occasionally invents details. That is exactly why the rules-based generator exists and why
+      no model ever runs in the processing path.</td></tr>
+    <tr><td><strong>Coverage is 99.92%, not 100%</strong></td>
+      <td>The remainder is listed by name in our dataset notes. Unparsed records are still stored,
+      still sealed, and still searchable through salvage.</td></tr>
+  </table>
+
+  <div class="box good">
+    <span class="lbl">The framing that works</span>
+    <p>"We would rather show you a number we can defend than a rounder one we cannot." Every
+    weakness above is already written in our README. A judge who goes looking will find that we
+    got there first — which is worth more than a perfect-sounding claim.</p>
+  </div>
+</section>
+
+<!-- ============================ PART 12 ============================ -->
+<section class="part">
+  <div class="pnum">Part 12</div>
+  <h1>One-page cheat sheet</h1>
+  <p class="intro">The last thing to read before you walk in.</p>
+
+  <h2>The pitch, in thirty seconds</h2>
+  <div class="box">
+    <p>"Security teams get logs from dozens of devices in incompatible formats, and normal tools
+    throw away the original while converting them — so when an investigation needs the evidence,
+    it is gone. ULPF stores the exact original bytes <em>before</em> parsing, converts everything
+    to one open standard, and keeps cryptographic proof that no record has been altered. Adding a
+    new device is a text file, not code. It runs with no internet connection at all."</p>
+  </div>
+
+  <h2>Numbers to know cold</h2>
+  <table>
+    <tr><td>Real records tested</td><td class="n"><strong>838,779</strong></td>
+        <td>Coverage</td><td class="n"><strong>99.9219%</strong></td></tr>
+    <tr><td>Source Packs</td><td class="n"><strong>34</strong></td>
+        <td>Tests passing</td><td class="n"><strong>64 / 64</strong></td></tr>
+    <tr><td>Speed, lossless</td><td class="n"><strong>10,000/sec</strong></td>
+        <td>Per day</td><td class="n"><strong>864 million</strong></td></tr>
+    <tr><td>Proof size</td><td class="n"><strong>352 bytes</strong></td>
+        <td>Container</td><td class="n"><strong>65.4 MB</strong></td></tr>
+  </table>
+
+  <h2>The five stages</h2>
+  <p class="sans"><strong>Vault → Detect → Read → Convert → Seal.</strong> The vault comes first,
+  and that ordering is the whole design.</p>
+
+  <h2>Three things that make us different</h2>
+  <ol>
+    <li><strong>Store before parsing.</strong> Nothing after that line can lose the original.</li>
+    <li><strong>Parsers are data, not code.</strong> A text file, reviewed and hot-loaded.</li>
+    <li><strong>Prove one record without showing the rest.</strong> 352 bytes, verified by someone
+    holding no other part of the log.</li>
+  </ol>
+
+  <h2>If you only rehearse three answers</h2>
+  <ul>
+    <li><strong>Why Rust?</strong> Speed, memory safety on attacker-controlled input, single file
+    for air-gapped machines.</li>
+    <li><strong>Does it already exist?</strong> The category does; the combination does not. The
+    biggest 2026 market comparison has no column for integrity.</li>
+    <li><strong>What breaks in the field?</strong> UDP loss above 10,000/sec; nine parsers without
+    real-data proof; no login on the console.</li>
+  </ul>
+
+  <div class="box good">
+    <span class="lbl">Last thing</span>
+    <p>Lead with the running system, not the slides. Sixty seconds: live events, then the tamper
+    test. Then let them ask.</p>
+  </div>
+</section>
+
+</body>
+</html>
