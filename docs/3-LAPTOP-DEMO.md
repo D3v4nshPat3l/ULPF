@@ -111,6 +111,89 @@ The single most common failure is a firewall rule that was never tested.
 
 ---
 
+## Wazuh comparison variant — new, not yet rehearsed
+
+Everything above has been run against the current build. **This section has
+not** — it is a plan, written up so it can be tested rather than improvised
+live. Rehearse it fully at least once before showing it to a judge.
+
+**The moment this is built for:** show the same real traffic arriving at a
+real, widely-deployed SIEM (Wazuh) two ways — once with nothing in front of
+it, once with ULPF in front of it — so the value of normalization is
+visible, not asserted.
+
+**A technical constraint found while planning this, worth knowing before
+building on it:** ULPF's `--opensearch` sink deliberately speaks plain HTTP
+with a bearer token only (see [SINKS.md](SINKS.md); there is even a unit
+test that rejects an `https://` URL). Wazuh's own indexer needs HTTPS plus
+username/password auth. **Do not try to point `--opensearch` straight at
+Wazuh's indexer** — it will not authenticate, and discovering that live is
+exactly the kind of failure this document exists to prevent. The plan below
+avoids the mismatch entirely by giving Wazuh its own independent raw feed,
+rather than trying to feed ULPF's normalized output into Wazuh's storage.
+
+### Machine roles for this variant
+
+| Machine | Role |
+|---|---|
+| **A — "dev dashboard"** | Runs `ulpf serve --sim-target ...`, its `/dev` page fans out realistic multi-device, multi-IP traffic (see the existing "Or drive it from a browser" section above) |
+| **B — "main dashboard"** | Runs the real ULPF collector, console on `:8787`, forwarding to its own OpenSearch demo stack (`deploy/opensearch-compose.yaml`, already tested) |
+| **C — "Wazuh"** | Runs Wazuh's official single-node Docker stack (manager + indexer + dashboard), listening for the *same* raw traffic independently |
+
+### The before/after moment
+
+1. **Before.** Point machine A's simulator at Wazuh's own remote-syslog
+   listener on machine C (configure a `<remote>` block in Wazuh's
+   `ossec.conf`, or its syslog input — this is Wazuh's own decoders doing
+   the work, ULPF is not involved at all). Open Wazuh's dashboard: expect an
+   inconsistent picture — some vendors partially decoded by Wazuh's built-in
+   rules, none of them sharing one schema, and critically, **no raw-byte
+   preservation and no tamper-evidence of any kind** — Wazuh has nothing
+   equivalent to the vault or the integrity chain, regardless of how well it
+   parses the fields.
+2. **Switch.** Repoint machine A's `--sim-target` at machine B (ULPF)
+   instead of machine C. No restart of the simulator needed — it is a
+   server-side flag on A.
+3. **After.** On machine B's console and its own OpenSearch Dashboards,
+   show the same devices now arriving as one unified OCSF schema, each
+   event traceable back to its exact original bytes, each one provable with
+   `ulpf prove`/`verify-proof` without exposing any other event. This is the
+   part Wazuh cannot do at all, independent of how good its own decoders
+   are — say that difference out loud rather than relying on Wazuh looking
+   bad on formats it happens to handle poorly, which is a weaker and more
+   fragile argument if Wazuh's decoder for that particular vendor turns out
+   to be decent.
+
+### Combining with the scale story
+
+Run this same before/after on one pair of machines while a second and
+third independent collector (see [Machine A — the log sources](#machine-a--the-log-sources)
+above) replay other corpora at their own sustained rate simultaneously.
+Summing the three collectors' measured EPS is the honest way to talk about
+progress toward 1B/day — state the sum, and state plainly that it is three
+independent per-collector chains added together, not one collector
+measured three times.
+
+### Before doing this for real
+
+- Wazuh's official Docker install: `git clone https://github.com/wazuh/wazuh-docker.git`,
+  check out the tag matching the Wazuh version wanted, then
+  `docker-compose -f single-node/docker-compose.yml up -d` (per Wazuh's own
+  docs — verify current exact steps there, they change between versions).
+- Confirm Wazuh's manager can actually be configured for remote syslog
+  input on the version pulled — this differs across Wazuh releases and is
+  the main thing to verify before rehearsing.
+- Decide in advance which specific corpus/device best demonstrates the
+  contrast, and check what Wazuh actually does with it ahead of time —
+  do not discover Wazuh's behavior on that format for the first time in
+  front of a judge.
+- This adds a fourth machine (or a fourth process) and a new dependency
+  (Docker, a Wazuh image pull) — budget real setup and rehearsal time for
+  it, and have the plain OpenSearch-only demo above as a fallback if this
+  variant isn't solid by showtime.
+
+---
+
 ## Machine C — the SIEM (optional, set up first)
 
 So it is already accepting writes when B starts forwarding.
