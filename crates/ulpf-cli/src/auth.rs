@@ -108,7 +108,9 @@ pub fn load_or_create(path: &Path) -> anyhow::Result<(String, bool)> {
                 }
                 // A concurrent `serve` (two collectors racing to start against
                 // the same integrity dir) lost the create race; read what won.
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => load_or_create(path),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    load_or_create(path)
+                }
                 Err(error) => Err(error).with_context(|| format!("creating {}", path.display())),
             }
         }
@@ -134,11 +136,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 fn unauthorized(message: &str) -> Response {
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(json!({ "error": message })),
-    )
-        .into_response()
+    (StatusCode::UNAUTHORIZED, Json(json!({ "error": message }))).into_response()
 }
 
 /// Extract the presented token from either header form the console/CLI use.
@@ -150,7 +148,10 @@ fn unauthorized(message: &str) -> Response {
 /// get slightly wrong while copying a command under demo pressure.
 fn presented_token(request: &Request) -> Option<String> {
     let headers = request.headers();
-    if let Some(value) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
+    if let Some(value) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    {
         if let Some(token) = value.strip_prefix("Bearer ") {
             return Some(token.trim().to_string());
         }
@@ -168,14 +169,18 @@ fn presented_token(request: &Request) -> Option<String> {
 /// probe, which has no way to carry a secret and no need to, is never blocked
 /// by it. See the comment on `server::router` for why probes sit outside the
 /// same-origin guard for the identical reason.
-pub async fn require_token(expected: std::sync::Arc<str>, request: Request, next: Next) -> Response {
+pub async fn require_token(
+    expected: std::sync::Arc<str>,
+    request: Request,
+    next: Next,
+) -> Response {
     match presented_token(&request) {
         Some(presented) if constant_time_eq(presented.as_bytes(), expected.as_bytes()) => {
             next.run(request).await
         }
-        Some(_) => unauthorized(
-            "the token presented does not match this collector's console token",
-        ),
+        Some(_) => {
+            unauthorized("the token presented does not match this collector's console token")
+        }
         None => unauthorized(
             "this endpoint requires a console token: send `Authorization: Bearer <token>` \
              or `X-ULPF-Token: <token>`. The token is printed at startup and stored in the \

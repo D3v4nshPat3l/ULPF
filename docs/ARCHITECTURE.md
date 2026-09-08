@@ -124,10 +124,18 @@ is a two-stage build onto distroless, read-only root, all capabilities dropped.
   this path — it is a separate listener with its own transport.
 - **Sinks use plain HTTP** to a trusted local endpoint; TLS termination is a
   deployment responsibility.
-- **The vault and the signing key are protected by filesystem permissions,
-  not encryption.** Anyone with read access to `--vault`/`--integrity-dir` on
-  disk can read raw log content and, if the signing key's permissions were
-  ever loosened, forge new checkpoints. Encryption at rest is tracked
-  separately from these transport-layer changes.
+- **The vault is protected by filesystem permissions, not encryption.**
+  Anyone with read access to `--vault` on disk can read raw log content.
+  Encryption for the vault itself is tracked separately from these
+  transport-layer changes.
+- **The signing key can now be encrypted at rest, but it is opt-in.**
+  `--encrypt-key` wraps a newly created key in a ChaCha20-Poly1305 envelope
+  keyed by an Argon2id-derived passphrase (`ULPF_KEY_PASSPHRASE`, or an
+  interactive hidden-input prompt); without it, the key is exactly as before
+  — hex on disk, protected by owner-only file permissions alone. It defaults
+  off because forcing a passphrase would break unattended starts (CI, the
+  `deploy/*.yaml` compose files, a scripted demo) that have no passphrase
+  wired in. Reading an existing key auto-detects its format either way, so
+  the flag only matters at creation.
 - **Decoders read text.** Binary telemetry (NetFlow/IPFIX, EVTX) needs a second
   decoder contract taking `&[u8]`, not another pack.

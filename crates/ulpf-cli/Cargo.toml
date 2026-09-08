@@ -43,6 +43,14 @@ axum-server = { version = "0.7", features = ["tls-rustls"] }
 # Generates the optional self-signed certificate. Pure Rust, no OpenSSL, so it
 # does not change what has to be present on an air-gapped build host.
 rcgen = "0.13"
+# Encryption at rest for the Ed25519 signing key (--encrypt-key). AEAD cipher
+# for the key bytes; Argon2id to turn an operator passphrase into a key the
+# cipher can use. Both pure Rust, same reasoning as the TLS crates above.
+chacha20poly1305 = "0.10"
+argon2 = "0.5"
+# Hides passphrase input at the terminal instead of echoing it. Only used
+# interactively; ULPF_KEY_PASSPHRASE bypasses it for scripted/CI runs.
+rpassword = "7"
 
 [dev-dependencies]
 criterion = "0.7.0"

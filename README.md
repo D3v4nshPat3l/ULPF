@@ -306,6 +306,18 @@ default on `127.0.0.1`, where the traffic never leaves the host; enable TLS
 whenever `--host 0.0.0.0` puts the console on a shared network, which the
 [3-laptop demo](docs/3-LAPTOP-DEMO.md) does.
 
+**Encrypting the signing key.** Available on `run`, `serve` and `listen`:
+`--encrypt-key` wraps a *newly created* signing key in a ChaCha20-Poly1305
+envelope keyed by an Argon2id-derived passphrase, instead of the plain hex
+file protected only by owner-only permissions. Off by default, because
+forcing a passphrase would break an unattended start (CI, the `deploy/`
+compose files, a scripted demo run) that has nowhere to type one. Set
+`ULPF_KEY_PASSPHRASE` for exactly that case, or answer the hidden-input
+prompt interactively. There is no recovery path for a lost passphrase — it
+is exactly as unrecoverable as losing the key file itself. Loading an
+*existing* key auto-detects whether it is encrypted, so this flag only
+matters the moment a key is first created.
+
 ### A file, start to finish
 
 ```bash
@@ -548,15 +560,17 @@ shaped, so both need real ingestion work rather than another pack.
 
 **Done:** console bearer-token authentication (every `/api/*` route, on by
 default, generated with owner-only file permissions — `--no-auth` opts out
-for a throwaway demo), and TLS termination for the console
+for a throwaway demo), TLS termination for the console
 (`--tls-cert`/`--tls-key`, or `--tls-self-signed` for a cached self-signed
-certificate on a network with no CA).
+certificate on a network with no CA), and opt-in encryption at rest for the
+signing key (`--encrypt-key`, ChaCha20-Poly1305 keyed by an
+Argon2id-derived passphrase — see [Setup](#setup)).
 
 **Remaining:** TLS syslog (RFC 5425) so the UDP intake path gets the same
 transport protection the console now has, backpressure signalling to senders,
 key rotation and a documented custody procedure for the signing key, at-rest
-encryption for the vault and the signing key (currently protected by
-filesystem permissions only, not by encryption), and packaging as a service.
+encryption for the vault itself (the signing key now has an opt-in path;
+the vault does not yet), and packaging as a service.
 
 ---
 

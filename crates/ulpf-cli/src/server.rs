@@ -76,7 +76,11 @@ type Shared = Arc<Mutex<AppState>>;
 /// should carry `Some`: this is the only thing that stops a client which can
 /// already reach the port (the Origin/Host guard below cannot, by design) from
 /// approving packs or reading raw evidence.
-pub fn router(state: Shared, expected_origin: Option<String>, auth_token: Option<Arc<str>>) -> Router {
+pub fn router(
+    state: Shared,
+    expected_origin: Option<String>,
+    auth_token: Option<Arc<str>>,
+) -> Router {
     let probe_state = state.clone();
     let guarded = Router::new()
         .route("/", get(index))
@@ -1219,11 +1223,7 @@ mod tests {
         let dir = tempfile_shim::TempDir::new("ulpf-server-test");
         let vault = ulpf_vault::VaultWriter::open(dir.path().join("vault")).unwrap();
         let attestor = ulpf_ocsf::Attestor::new("test-authority", "test-chain");
-        let pipeline = Pipeline::new(
-            Arc::new(ulpf_pack::PackLibrary::new()),
-            vault,
-            attestor,
-        );
+        let pipeline = Pipeline::new(Arc::new(ulpf_pack::PackLibrary::new()), vault, attestor);
         let state = Arc::new(Mutex::new(AppState {
             pipeline,
             recent: Vec::new(),
@@ -1235,7 +1235,10 @@ mod tests {
             vault_dir: dir.path().join("vault"),
             packs_dir: dir.path().join("packs"),
             drain: ulpf_generator::drain::Drain::new(),
-            simulator: crate::simulator::Simulator::new(dir.path().join("datasets"), "127.0.0.1:5514".into()),
+            simulator: crate::simulator::Simulator::new(
+                dir.path().join("datasets"),
+                "127.0.0.1:5514".into(),
+            ),
         }));
         (state, dir)
     }
@@ -1249,7 +1252,10 @@ mod tests {
     async fn a_request_with_no_token_is_rejected() {
         let (state, _dir) = test_state();
         let app = router(state, None, Some(Arc::from("secret-token")));
-        let req = Request::builder().uri("/api/stats").body(axum::body::Body::empty()).unwrap();
+        let req = Request::builder()
+            .uri("/api/stats")
+            .body(axum::body::Body::empty())
+            .unwrap();
         assert_eq!(call(app, req).await, StatusCode::UNAUTHORIZED);
     }
 
@@ -1293,7 +1299,10 @@ mod tests {
     async fn health_and_ready_probes_need_no_token() {
         let (state, _dir) = test_state();
         let app = router(state, None, Some(Arc::from("secret-token")));
-        let req = Request::builder().uri("/healthz").body(axum::body::Body::empty()).unwrap();
+        let req = Request::builder()
+            .uri("/healthz")
+            .body(axum::body::Body::empty())
+            .unwrap();
         assert_eq!(call(app, req).await, StatusCode::OK);
     }
 
@@ -1303,7 +1312,10 @@ mod tests {
         // rather than requiring an empty string to match.
         let (state, _dir) = test_state();
         let app = router(state, None, None);
-        let req = Request::builder().uri("/api/stats").body(axum::body::Body::empty()).unwrap();
+        let req = Request::builder()
+            .uri("/api/stats")
+            .body(axum::body::Body::empty())
+            .unwrap();
         assert_eq!(call(app, req).await, StatusCode::OK);
     }
 

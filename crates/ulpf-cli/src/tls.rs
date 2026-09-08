@@ -14,20 +14,22 @@
 //! network has no CA to issue from, and "no TLS" is a worse default than "TLS
 //! with a certificate the browser has to click through once."
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use axum_server::tls_rustls::RustlsConfig;
 
 /// Build the TLS config for the operator-supplied certificate and key.
 pub async fn from_files(cert: &Path, key: &Path) -> Result<RustlsConfig> {
-    RustlsConfig::from_pem_file(cert, key).await.with_context(|| {
-        format!(
-            "loading TLS certificate {} / key {}",
-            cert.display(),
-            key.display()
-        )
-    })
+    RustlsConfig::from_pem_file(cert, key)
+        .await
+        .with_context(|| {
+            format!(
+                "loading TLS certificate {} / key {}",
+                cert.display(),
+                key.display()
+            )
+        })
 }
 
 /// Load a cached self-signed certificate under `dir`, generating one on first
@@ -48,7 +50,10 @@ pub async fn self_signed(dir: &Path, hosts: &[String]) -> Result<RustlsConfig> {
 
     if !cert_path.exists() || !key_path.exists() {
         generate_and_write(&cert_path, &key_path, hosts)?;
-        eprintln!("  generated a self-signed TLS certificate: {}", cert_path.display());
+        eprintln!(
+            "  generated a self-signed TLS certificate: {}",
+            cert_path.display()
+        );
         eprintln!(
             "  the browser will warn about it once; that is expected for a certificate with \
              no public CA behind it, not a sign anything is wrong."
@@ -58,14 +63,14 @@ pub async fn self_signed(dir: &Path, hosts: &[String]) -> Result<RustlsConfig> {
     from_files(&cert_path, &key_path).await
 }
 
-fn generate_and_write(cert_path: &PathBuf, key_path: &PathBuf, hosts: &[String]) -> Result<()> {
+fn generate_and_write(cert_path: &Path, key_path: &Path, hosts: &[String]) -> Result<()> {
     let names: Vec<String> = if hosts.is_empty() {
         vec!["localhost".to_string()]
     } else {
         hosts.to_vec()
     };
-    let rcgen::CertifiedKey { cert, key_pair } = rcgen::generate_simple_self_signed(names)
-        .context("generating self-signed certificate")?;
+    let rcgen::CertifiedKey { cert, key_pair } =
+        rcgen::generate_simple_self_signed(names).context("generating self-signed certificate")?;
 
     write_owner_only(cert_path, cert.pem().as_bytes())?;
     write_owner_only(key_path, key_pair.serialize_pem().as_bytes())?;

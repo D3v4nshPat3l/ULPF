@@ -27,6 +27,7 @@ pub fn open(
     authority_uid: &str,
     chain_uid: &str,
     hash: HashAlgorithm,
+    encrypt_key: bool,
 ) -> anyhow::Result<IntegrityRuntime> {
     std::fs::create_dir_all(dir)
         .with_context(|| format!("creating integrity state directory {}", dir.display()))?;
@@ -35,7 +36,7 @@ pub fn open(
     let public_key_path = dir.join("ed25519-signing.pub");
     let checkpoint_path = dir.join(format!("{}.checkpoint.json", safe_name(chain_uid)));
     let merkle_leaves_path = dir.join(format!("{}.merkle-leaves.bin", safe_name(chain_uid)));
-    let key = load_or_create_key(&key_path)?;
+    let key = load_or_create_key(&key_path, encrypt_key)?;
     write_synced(
         &public_key_path,
         hex::encode(key.verifying_key().to_bytes()).as_bytes(),
@@ -253,27 +254,49 @@ fn ensure_key_is_private(_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn load_or_create_key(path: &Path) -> anyhow::Result<SigningKey> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => {
+/// Load the signing key at `path`, or generate one if absent.
+///
+/// Reading is format-sniffed, not flag-controlled: whatever is actually on
+/// disk — the plain hex this project has always written, or an encrypted
+/// envelope from `key_crypto` — is what gets decoded. `encrypt_key` only
+/// decides the format used the one time a *new* key is created, so flipping
+/// `--encrypt-key` on or off between runs can never lock an existing key out
+/// or silently misinterpret it.
+fn load_or_create_key(path: &Path, encrypt_key: bool) -> anyhow::Result<SigningKey> {
+    match std::fs::read(path) {
+        Ok(bytes) => {
             ensure_key_is_private(path)?;
-            let bytes: [u8; 32] = hex::decode(text.trim())
-                .context("signing key is not hex")?
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("signing key must contain exactly 32 bytes"))?;
-            Ok(SigningKey::from_bytes(&bytes))
+            if crate::key_crypto::is_encrypted_format(&bytes) {
+                let passphrase = crate::key_crypto::acquire_passphrase(false)
+                    .context("this signing key is encrypted and needs its passphrase")?;
+                let key_bytes = crate::key_crypto::decrypt(passphrase.as_bytes(), &bytes)?;
+                Ok(SigningKey::from_bytes(&key_bytes))
+            } else {
+                let text = std::str::from_utf8(&bytes).context("signing key is not valid UTF-8")?;
+                let key_bytes: [u8; 32] = hex::decode(text.trim())
+                    .context("signing key is not hex")?
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("signing key must contain exactly 32 bytes"))?;
+                Ok(SigningKey::from_bytes(&key_bytes))
+            }
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             let key = SigningKey::generate(&mut OsRng);
-            let encoded = hex::encode(key.to_bytes());
+            let contents = if encrypt_key {
+                let passphrase = crate::key_crypto::acquire_passphrase(true)
+                    .context("choosing a passphrase for the new signing key")?;
+                crate::key_crypto::encrypt(passphrase.as_bytes(), &key.to_bytes())?
+            } else {
+                hex::encode(key.to_bytes()).into_bytes()
+            };
             match create_key_file(path) {
                 Ok(mut file) => {
-                    file.write_all(encoded.as_bytes())?;
+                    file.write_all(&contents)?;
                     file.sync_all()?;
                     Ok(key)
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    load_or_create_key(path)
+                    load_or_create_key(path, encrypt_key)
                 }
                 Err(error) => Err(error).with_context(|| format!("creating {}", path.display())),
             }
@@ -330,8 +353,8 @@ mod tests {
         let dir = temp_dir("roundtrip");
         let path = dir.join("signing.key");
 
-        let created = load_or_create_key(&path).unwrap();
-        let reloaded = load_or_create_key(&path).unwrap();
+        let created = load_or_create_key(&path, false).unwrap();
+        let reloaded = load_or_create_key(&path, false).unwrap();
 
         assert_eq!(created.to_bytes(), reloaded.to_bytes());
         let _ = std::fs::remove_dir_all(&dir);
@@ -344,7 +367,7 @@ mod tests {
 
         let dir = temp_dir("mode");
         let path = dir.join("signing.key");
-        load_or_create_key(&path).unwrap();
+        load_or_create_key(&path, false).unwrap();
 
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(
@@ -361,17 +384,68 @@ mod tests {
 
         let dir = temp_dir("loose");
         let path = dir.join("signing.key");
-        load_or_create_key(&path).unwrap();
+        load_or_create_key(&path, false).unwrap();
 
         // Simulate a key restored from a backup or baked into an image with
         // default permissions.
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
 
-        let error = load_or_create_key(&path).unwrap_err().to_string();
+        let error = load_or_create_key(&path, false).unwrap_err().to_string();
         assert!(
             error.contains("group or others"),
             "expected a permissions refusal, got: {error}"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Serializes the two tests below: both drive `ULPF_KEY_PASSPHRASE`,
+    /// which is process-global state, and the default test harness runs
+    /// tests in parallel threads. Without this, one test's `set_var` could
+    /// leak into the other's `load_or_create_key` call mid-run.
+    static PASSPHRASE_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn an_encrypted_key_round_trips_with_the_right_passphrase() {
+        let _guard = PASSPHRASE_ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("encrypted-roundtrip");
+        let path = dir.join("signing.key");
+
+        std::env::set_var("ULPF_KEY_PASSPHRASE", "correct horse battery staple");
+        let created = load_or_create_key(&path, true).unwrap();
+
+        // The file on disk is the encrypted envelope, not plain hex — proves
+        // `encrypt_key: true` actually changed what got written, not just
+        // that *some* key was produced.
+        let on_disk = std::fs::read(&path).unwrap();
+        assert!(
+            crate::key_crypto::is_encrypted_format(&on_disk),
+            "encrypt_key=true must write the encrypted envelope, not plain hex"
+        );
+
+        let reloaded = load_or_create_key(&path, true).unwrap();
+        assert_eq!(created.to_bytes(), reloaded.to_bytes());
+
+        std::env::remove_var("ULPF_KEY_PASSPHRASE");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_encrypted_key_refuses_the_wrong_passphrase() {
+        let _guard = PASSPHRASE_ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("encrypted-wrong-pass");
+        let path = dir.join("signing.key");
+
+        std::env::set_var("ULPF_KEY_PASSPHRASE", "the right one");
+        load_or_create_key(&path, true).unwrap();
+
+        std::env::set_var("ULPF_KEY_PASSPHRASE", "not the right one");
+        let error = load_or_create_key(&path, true).unwrap_err().to_string();
+        assert!(
+            error.contains("wrong passphrase") || error.contains("could not decrypt"),
+            "expected a decryption failure, got: {error}"
+        );
+
+        std::env::remove_var("ULPF_KEY_PASSPHRASE");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

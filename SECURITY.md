@@ -42,13 +42,22 @@ The team will acknowledge a complete report within three working days and provid
   Both are excluded from Git and created with owner-only permissions; back
   them up through the team's secret-management process, not by copying them
   into a less-restricted location.
-- Neither the vault nor the signing key is encrypted at rest — both rely on
-  filesystem permissions alone. Anyone with read access to `--vault` or
-  `--integrity-dir` on disk can read raw log content; anyone who can also
-  write there and reset permissions could tamper with the key file before the
-  next start (which the loose-permission check would then refuse to load, but
-  only after the fact). Encrypt the underlying disk/volume, or restrict
-  filesystem access, until vault/key encryption ships.
+- The vault relies on filesystem permissions alone — anyone with read access
+  to `--vault` on disk can read raw log content. Encrypt the underlying
+  disk/volume, or restrict filesystem access, until vault encryption ships.
+- The signing key can be encrypted at rest with `--encrypt-key`, but this is
+  **opt-in, not the default** — without it the key is hex on disk, protected
+  only by the owner-only permission the loose-permission check enforces at
+  every load. With `--encrypt-key`, a newly created key is wrapped in a
+  ChaCha20-Poly1305 envelope keyed by an Argon2id-derived passphrase; read
+  `ULPF_KEY_PASSPHRASE` from the environment for a scripted/CI start, or
+  answer the hidden-input prompt interactively. A wrong passphrase and a
+  corrupted file are refused with the same error on purpose — an AEAD
+  decrypt failure gives an attacker no way to distinguish "you guessed wrong"
+  from "the file is damaged." Losing the passphrase means losing the key
+  exactly as if the file itself were destroyed; there is no recovery path,
+  so treat it as carefully as the key file itself. Reading an existing key
+  auto-detects its format regardless of the current run's flags.
 - Pin a trusted public key out of band when verifying checkpoints; a
   checkpoint's `verify_self_signed()` proves internal consistency, not that
   the embedded key is who you think it is.

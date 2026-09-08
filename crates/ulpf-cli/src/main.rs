@@ -4,6 +4,7 @@ mod auth;
 mod features;
 mod generator;
 mod integrity_state;
+mod key_crypto;
 mod parquet;
 mod pipeline;
 mod proof;
@@ -52,6 +53,7 @@ struct RunOptions {
     splunk_hec: Option<String>,
     splunk_token_env: String,
     sink_batch_size: usize,
+    encrypt_key: bool,
 }
 
 struct ListenOptions {
@@ -63,6 +65,7 @@ struct ListenOptions {
     chain: String,
     blake3: bool,
     inline_raw: bool,
+    encrypt_key: bool,
 }
 
 #[derive(Parser)]
@@ -139,6 +142,20 @@ enum Command {
         /// Maximum events held by each remote sink before a request is sent.
         #[arg(long, default_value_t = 250)]
         sink_batch_size: usize,
+        /// Encrypt a newly created signing key at rest with a passphrase.
+        ///
+        /// Off by default: the key is otherwise protected by filesystem
+        /// permissions alone (owner-only, enforced at every load — see
+        /// `integrity_state::ensure_key_is_private`), which a scripted or
+        /// containerized run can rely on without a human present to type a
+        /// passphrase. Turn this on when the key file itself might leave
+        /// this host's permission model intact — a backup, a snapshot, a
+        /// disk image. Reads `ULPF_KEY_PASSPHRASE` if set, otherwise prompts
+        /// (hidden input) and confirms once. Reading an *existing* key
+        /// auto-detects whether it is encrypted, so this flag only matters
+        /// the moment a new key is created.
+        #[arg(long)]
+        encrypt_key: bool,
     },
 
     /// Cluster dead-letter records and draft human-reviewable Source Packs.
@@ -346,6 +363,10 @@ enum Command {
         /// instead.
         #[arg(long, conflicts_with_all = ["tls_cert", "tls_key"])]
         tls_self_signed: bool,
+        /// Encrypt a newly created signing key at rest with a passphrase.
+        /// See `ulpf run --help` for the full explanation.
+        #[arg(long)]
+        encrypt_key: bool,
     },
 
     /// Receive real RFC 5424/RFC 3164 syslog datagrams over UDP.
@@ -367,6 +388,10 @@ enum Command {
         blake3: bool,
         #[arg(long)]
         inline_raw: bool,
+        /// Encrypt a newly created signing key at rest with a passphrase.
+        /// See `ulpf run --help` for the full explanation.
+        #[arg(long)]
+        encrypt_key: bool,
     },
 
     /// List the built-in decoders a pack may use.
@@ -416,6 +441,7 @@ fn main() -> anyhow::Result<()> {
             splunk_hec,
             splunk_token_env,
             sink_batch_size,
+            encrypt_key,
         } => cmd_run(RunOptions {
             packs_dir: packs,
             vault_dir: vault,
@@ -433,6 +459,7 @@ fn main() -> anyhow::Result<()> {
             splunk_hec,
             splunk_token_env,
             sink_batch_size,
+            encrypt_key,
         }),
         Command::Draft {
             dead_letter,
@@ -508,6 +535,7 @@ fn main() -> anyhow::Result<()> {
             tls_cert,
             tls_key,
             tls_self_signed,
+            encrypt_key,
         } => cmd_serve(ServeConfig {
             packs_dir: packs,
             vault_dir: vault,
@@ -534,6 +562,7 @@ fn main() -> anyhow::Result<()> {
                 // make the other combinations unreachable from the CLI.
                 _ => unreachable!("clap arg constraints guarantee cert and key arrive together"),
             },
+            encrypt_key,
         }),
         Command::Replay {
             source,
@@ -550,6 +579,7 @@ fn main() -> anyhow::Result<()> {
             chain,
             blake3,
             inline_raw,
+            encrypt_key,
         } => cmd_listen(ListenOptions {
             packs_dir: packs,
             vault_dir: vault,
@@ -559,6 +589,7 @@ fn main() -> anyhow::Result<()> {
             chain,
             blake3,
             inline_raw,
+            encrypt_key,
         }),
         Command::Decoders => {
             for name in ulpf_decode::BUILTIN_NAMES {
@@ -587,6 +618,7 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
         splunk_hec,
         splunk_token_env,
         sink_batch_size,
+        encrypt_key,
     } = options;
     ensure_output_paths_are_safe(&input, &output, dead_letter.as_deref(), parquet.as_deref())?;
     let (library, errors) = PackLibrary::load_dir(&packs_dir)
@@ -610,7 +642,7 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
     } else {
         HashAlgorithm::Sha256
     };
-    let integrity = integrity_state::open(&integrity_dir, "ulpf-local", &chain, hash)?;
+    let integrity = integrity_state::open(&integrity_dir, "ulpf-local", &chain, hash, encrypt_key)?;
     let checkpoint_path = integrity.checkpoint_path.clone();
     let merkle_leaves_path = integrity.merkle_leaves_path.clone();
     let public_key_path = integrity.public_key_path.clone();
@@ -811,6 +843,7 @@ pub struct ServeConfig {
     pub sim_target: String,
     pub no_auth: bool,
     pub tls: Option<TlsMode>,
+    pub encrypt_key: bool,
 }
 
 /// How the console terminates TLS, if at all.
@@ -872,6 +905,7 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         sim_target,
         no_auth,
         tls,
+        encrypt_key,
     } = config;
     let chain = chain.as_str();
     let host = host.as_str();
@@ -893,8 +927,13 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
 
     let vault = VaultWriter::open(&vault_dir)
         .with_context(|| format!("opening vault at {}", vault_dir.display()))?;
-    let integrity =
-        integrity_state::open(&integrity_dir, "ulpf-console", chain, HashAlgorithm::Sha256)?;
+    let integrity = integrity_state::open(
+        &integrity_dir,
+        "ulpf-console",
+        chain,
+        HashAlgorithm::Sha256,
+        encrypt_key,
+    )?;
     let resume_anchor = integrity.resume_anchor.clone();
     let checkpoint_path = integrity.checkpoint_path.clone();
     let merkle_leaves_path = integrity.merkle_leaves_path.clone();
@@ -924,7 +963,10 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
             eprintln!("  ================================================================");
             eprintln!("  console token (send as `Authorization: Bearer <token>`):");
             eprintln!("    {token}");
-            eprintln!("  saved to {} (mode 0600); this is printed only once.", token_path.display());
+            eprintln!(
+                "  saved to {} (mode 0600); this is printed only once.",
+                token_path.display()
+            );
             eprintln!("  ================================================================");
         }
         Some(std::sync::Arc::from(token.as_str()))
@@ -1531,6 +1573,7 @@ fn cmd_listen(options: ListenOptions) -> anyhow::Result<()> {
         chain,
         blake3,
         inline_raw,
+        encrypt_key,
     } = options;
     let (library, errors) = PackLibrary::load_dir(&packs_dir)
         .with_context(|| format!("loading packs from {}", packs_dir.display()))?;
@@ -1546,7 +1589,8 @@ fn cmd_listen(options: ListenOptions) -> anyhow::Result<()> {
     } else {
         HashAlgorithm::Sha256
     };
-    let integrity = integrity_state::open(&integrity_dir, "ulpf-syslog", &chain, hash)?;
+    let integrity =
+        integrity_state::open(&integrity_dir, "ulpf-syslog", &chain, hash, encrypt_key)?;
     let checkpoint_path = integrity.checkpoint_path.clone();
     let merkle_leaves_path = integrity.merkle_leaves_path.clone();
     let public_key_path = integrity.public_key_path.clone();
