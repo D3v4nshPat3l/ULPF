@@ -698,15 +698,6 @@ fn assemble_pack(
         .collect();
 
     let mut map: BTreeMap<String, MapSpec> = BTreeMap::new();
-    let provisional_class = if source_profile.source_family_confidence >= 0.60 {
-        source_profile.suggested_class_uid.unwrap_or(4001)
-    } else {
-        4001
-    };
-    map.insert(
-        "class_uid".into(),
-        MapSpec::Literal(serde_json::json!(provisional_class)),
-    );
     // The category can suggest a class, but not a class-specific action. The
     // operator must map GET/deny/logoff/etc. explicitly during review.
     map.insert("activity_id".into(), MapSpec::Literal(serde_json::json!(0)));
@@ -762,6 +753,29 @@ fn assemble_pack(
             }),
         );
     }
+
+    // The class is decided last, once every mapped attribute is known: a
+    // suggested class is only usable if it declares all of them. The model's
+    // extra fields land above, so deciding earlier would judge a map that was
+    // still being built.
+    let suggested = (source_profile.source_family_confidence >= 0.60)
+        .then_some(source_profile.suggested_class_uid)
+        .flatten();
+    let provisional_class =
+        crate::ocsf_paths::provisional_class(suggested, map.keys().map(String::as_str));
+    if let Some(uid) = suggested {
+        if uid != provisional_class {
+            tracing::debug!(
+                suggested_class_uid = uid,
+                used_class_uid = provisional_class,
+                "suggested class does not declare every mapped attribute; keeping Network Activity"
+            );
+        }
+    }
+    map.insert(
+        "class_uid".into(),
+        MapSpec::Literal(serde_json::json!(provisional_class)),
+    );
 
     // Fixtures come from the real samples, so the scorer grades the candidate
     // against the traffic it was drafted from.

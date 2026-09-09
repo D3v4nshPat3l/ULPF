@@ -48,18 +48,6 @@ pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
     let field_map = crate::llm::infer_field_map(&available);
 
     let mut mapping = BTreeMap::new();
-    // A family is still an inference. Use its class only above a useful
-    // confidence threshold, and keep activity Unknown (0): seeing an
-    // HTTP-shaped record does not tell us whether it was GET, POST or CONNECT.
-    let provisional_class = if source_profile.source_family_confidence >= 0.60 {
-        source_profile.suggested_class_uid.unwrap_or(4001)
-    } else {
-        4001
-    };
-    mapping.insert(
-        "class_uid".to_string(),
-        ulpf_pack::spec::MapSpec::Literal(serde_json::json!(provisional_class)),
-    );
     mapping.insert(
         "activity_id".to_string(),
         ulpf_pack::spec::MapSpec::Literal(serde_json::json!(0)),
@@ -86,6 +74,31 @@ pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
             }),
         );
     }
+
+    // A family is still an inference. Use its class only above a useful
+    // confidence threshold, and keep activity Unknown (0): seeing an
+    // HTTP-shaped record does not tell us whether it was GET, POST or CONNECT.
+    //
+    // The class is chosen last, because it depends on what was mapped: a class
+    // is only usable if it declares every attribute this draft targets.
+    let suggested = (source_profile.source_family_confidence >= 0.60)
+        .then_some(source_profile.suggested_class_uid)
+        .flatten();
+    let provisional_class =
+        crate::ocsf_paths::provisional_class(suggested, mapping.keys().map(String::as_str));
+    if let Some(uid) = suggested {
+        if uid != provisional_class {
+            tracing::debug!(
+                suggested_class_uid = uid,
+                used_class_uid = provisional_class,
+                "suggested class does not declare every mapped attribute; keeping Network Activity"
+            );
+        }
+    }
+    mapping.insert(
+        "class_uid".to_string(),
+        ulpf_pack::spec::MapSpec::Literal(serde_json::json!(provisional_class)),
+    );
 
     // Name a product only when deterministic, distinctive signatures support
     // it. Broad vocabulary such as `src=` or `http` is not enough.
@@ -233,4 +246,60 @@ fn observed_fields(pack: &Pack) -> Vec<BTreeMap<String, serde_json::Value>> {
             observed
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Suricata-shaped JSON: enough intrusion-detection vocabulary to carry the
+    /// family inference past its confidence threshold, and named fields the
+    /// convention mapper turns into endpoint attributes.
+    const SURICATA_LIKE: &str = concat!(
+        r#"{"timestamp":"2026-01-01T00:00:01Z","event_type":"alert","flow_id":7,"src_ip":"10.0.0.1","dest_ip":"8.8.8.8","proto":"TCP","signature_id":2001}"#,
+        "\n",
+        r#"{"timestamp":"2026-01-01T00:00:02Z","event_type":"alert","flow_id":8,"src_ip":"10.0.0.2","dest_ip":"1.1.1.1","proto":"UDP","signature_id":2002}"#,
+    );
+
+    fn drafted_pack(raw: &str) -> Pack {
+        let draft = draft_pack(raw).expect("draft");
+        serde_yaml::from_str(&draft.pack_yaml).expect("drafted YAML parses")
+    }
+
+    fn literal(pack: &Pack, key: &str) -> Option<i64> {
+        match pack.map.get(key) {
+            Some(ulpf_pack::spec::MapSpec::Literal(v)) => v.as_i64(),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_draft_never_claims_a_class_that_rejects_its_own_mappings() {
+        // The regression this guards: the family inference reached
+        // intrusion-detection and stamped class_uid 2004 (Detection Finding),
+        // while the convention mapper independently wrote src_endpoint.ip and
+        // dst_endpoint.ip -- attributes Detection Finding does not declare.
+        // The pack compiled, its fixtures passed, and the events it produced
+        // were not valid instances of the class they announced.
+        let pack = drafted_pack(SURICATA_LIKE);
+        let class = literal(&pack, "class_uid").expect("class_uid literal");
+        for path in pack.map.keys() {
+            assert!(
+                crate::ocsf_paths::class_accepts(class, path),
+                "class {class} does not declare {path}"
+            );
+        }
+        assert!(pack.map.contains_key("src_endpoint.ip"));
+        assert_eq!(class, 4001);
+    }
+
+    #[test]
+    fn activity_stays_unknown_rather_than_guessing_one() {
+        // A family says what kind of thing happened, never which action it
+        // was. 0 is Unknown in every OCSF class.
+        assert_eq!(
+            literal(&drafted_pack(SURICATA_LIKE), "activity_id"),
+            Some(0)
+        );
+    }
 }
