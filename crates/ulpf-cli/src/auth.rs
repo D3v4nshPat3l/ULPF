@@ -167,8 +167,10 @@ fn presented_token(request: &Request) -> Option<String> {
 /// Applied only to the guarded router in `server.rs` — `/healthz` and
 /// `/readyz` are merged in after this layer specifically so an orchestrator's
 /// probe, which has no way to carry a secret and no need to, is never blocked
-/// by it. See the comment on `server::router` for why probes sit outside the
-/// same-origin guard for the identical reason.
+/// by it. `/` and `/dev` are merged in the same way, for a different reason:
+/// they are the static page shell, and the shell's own script is what prompts
+/// for this token in the first place — it cannot do that if the shell itself
+/// never arrives. See the comment on `server::router` for both cases.
 pub async fn require_token(
     expected: std::sync::Arc<str>,
     request: Request,

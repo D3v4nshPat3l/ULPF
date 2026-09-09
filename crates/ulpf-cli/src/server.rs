@@ -87,8 +87,6 @@ pub fn router(
 ) -> Router {
     let probe_state = state.clone();
     let guarded = Router::new()
-        .route("/", get(index))
-        .route("/dev", get(dev_dashboard))
         .route("/api/stats", get(stats))
         .route("/api/packs", get(packs))
         .route("/api/events", get(events))
@@ -146,7 +144,24 @@ pub fn router(
         .route("/readyz", get(readyz))
         .with_state(probe_state);
 
-    guarded.merge(probes)
+    // `/` and `/dev` are merged in the same unguarded way, for a different
+    // reason: they are the page *shell* — static HTML/CSS/JS with no
+    // server-templated secret and no state dependency at all (`index` and
+    // `dev_dashboard` take no `State` — see below) — and the page's own
+    // script is what asks for the console token via `window.prompt()` and
+    // attaches it to every `/api/*` call afterward. That script cannot run
+    // if the page itself never arrives: with these two routes inside the
+    // guarded router, a first-time visit with no token yet (which is every
+    // visit, on a fresh browser) received the same bare JSON 401 `/api/*`
+    // gets, and the token prompt already written into this page was dead
+    // code — nothing had loaded it. The API underneath is exactly as
+    // protected as before; only the shell that asks for the key to that API
+    // is unlocked.
+    let pages = Router::new()
+        .route("/", get(index))
+        .route("/dev", get(dev_dashboard));
+
+    guarded.merge(probes).merge(pages)
 }
 
 /// Refuse cross-origin and rebound requests.
@@ -1336,6 +1351,35 @@ mod tests {
             .body(axum::body::Body::empty())
             .unwrap();
         assert_eq!(call(app, req).await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn the_page_shell_needs_no_token_but_the_api_underneath_still_does() {
+        // Regression test: `/` and `/dev` used to sit behind the same guard
+        // as `/api/*`, so a token-less first visit — the only kind there is,
+        // before the page's own script has anywhere to store one — got the
+        // same bare 401 the API returns, and the page's `window.prompt()`
+        // token flow never got a chance to run at all.
+        let (state, _dir) = test_state();
+        let app = router(state, None, Some(Arc::from("secret-token")));
+
+        let index_req = Request::builder()
+            .uri("/")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(call(app.clone(), index_req).await, StatusCode::OK);
+
+        let dev_req = Request::builder()
+            .uri("/dev")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(call(app.clone(), dev_req).await, StatusCode::OK);
+
+        let api_req = Request::builder()
+            .uri("/api/stats")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(call(app, api_req).await, StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
