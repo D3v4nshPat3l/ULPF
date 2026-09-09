@@ -345,6 +345,33 @@ def secrepo_maccdc_zeek_conn(target: pathlib.Path) -> None:
         print("    no lines recovered from the prefix, skipped")
 
 
+def secrepo_maccdc_zeek_conn_full(target: pathlib.Path) -> None:
+    """Fetch the complete MACCDC 2012 Zeek conn.log without using Zenodo.
+
+    This is an opt-in expansion because the gzip is roughly 524 MB and expands
+    to roughly 2.6 GB. Both download and decompression stream to disk and can
+    therefore run on an ordinary laptop without holding the corpus in RAM.
+    """
+    print("SecRepo MACCDC 2012 Zeek conn.log (full, ~2.6 GB extracted)")
+    out = target / "zeek-conn-full.log"
+    if out.exists():
+        print("  zeek-conn-full.log already present")
+        return
+
+    archive = target / ".downloads" / "maccdc2012-conn.log.gz"
+    fetch_to_file([f"{SECREPO}/maccdc2012/conn.log.gz"], archive)
+
+    output_part = out.with_name(out.name + ".part")
+    line_count = 0
+    with gzip.open(archive, "rb") as source, output_part.open("wb") as output:
+        while chunk := source.read(1024 * 1024):
+            output.write(chunk)
+            line_count += chunk.count(b"\n")
+    output_part.replace(out)
+    print(f"    -> {out.name}  ({out.stat().st_size / 1e9:.2f} GB, {line_count:,} lines)")
+    archive.unlink(missing_ok=True)
+
+
 def loghub_full(
     target: pathlib.Path, tiers: list[str], skipped: set[str] | None = None
 ) -> list[str]:
@@ -466,6 +493,16 @@ def main() -> None:
             "--skip-archive BGL.zip; may be supplied more than once"
         ),
     )
+    parser.add_argument(
+        "--skip-loghub-full",
+        action="store_true",
+        help="skip all full Loghub/Zenodo archives while keeping other tier data",
+    )
+    parser.add_argument(
+        "--full-zeek",
+        action="store_true",
+        help="download the full ~2.6 GB MACCDC Zeek corpus from SecRepo",
+    )
     args = parser.parse_args()
     target = pathlib.Path(args.dir).resolve()
     target.mkdir(parents=True, exist_ok=True)
@@ -487,11 +524,17 @@ def main() -> None:
         if "large" in wanted:
             honeynet_bluecoat(target)
             secrepo_maccdc_zeek_conn(target)
-        full_failures = loghub_full(
-            target,
-            [t for t in wanted if t in LOGHUB_FULL],
-            set(args.skip_archive),
-        )
+        if args.full_zeek:
+            secrepo_maccdc_zeek_conn_full(target)
+        if args.skip_loghub_full:
+            print("Loghub full corpora: skipped by --skip-loghub-full")
+            full_failures = []
+        else:
+            full_failures = loghub_full(
+                target,
+                [t for t in wanted if t in LOGHUB_FULL],
+                set(args.skip_archive),
+            )
     except Exception as error:  # noqa: BLE001 - a fetch failure should be legible
         print(f"\nfailed: {error}", file=sys.stderr)
         raise SystemExit(1) from error
