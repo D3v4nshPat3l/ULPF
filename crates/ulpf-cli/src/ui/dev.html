@@ -164,6 +164,7 @@
       <span class="sub">every line is an unmodified record from a published capture</span>
       <div class="right">
         <span class="pill neutral" id="conn"><i></i> connecting</span>
+        <button class="btn" type="button" id="btn-toggle-target" style="margin-right:8px;font-family:monospace">Target: —</button>
         <button class="btn danger sm" type="button" id="btn-stop-all">Stop all</button>
       </div>
     </div>
@@ -362,6 +363,16 @@ function render(data) {
   $("s-of").textContent = "of " + present + " available";
   $("s-sent").textContent = Number(data.total_sent || 0).toLocaleString();
   $("s-target").textContent = data.target || "—";
+  
+  const btnTarget = $("btn-toggle-target");
+  if (data.target === "10.60.197.6:514") {
+    btnTarget.textContent = "Send to ULPF (127.0.0.1:5514)";
+  } else if (data.target === "127.0.0.1:5514") {
+    btnTarget.textContent = "Send to Wazuh (10.60.197.6:514)";
+  } else {
+    btnTarget.textContent = "Target: " + (data.target || "—");
+  }
+  
   $("s-dir").textContent = data.data_dir || "—";
   $("s-present").textContent = present + " of " + sources.length + " corpora on disk";
 
@@ -400,6 +411,27 @@ $("btn-stop-all").addEventListener("click", async () => {
   try { await api("/api/sim/stop-all", { method: "POST" }); clearBanner(); }
   catch (e) { banner("bad", e.message); }
   finally { btn.disabled = false; refresh(); }
+});
+
+$("btn-toggle-target").addEventListener("click", async () => {
+  const btn = $("btn-toggle-target");
+  btn.disabled = true;
+  const current = $("s-target").textContent.trim();
+  const nextTarget = current === "10.60.197.6:514" ? "127.0.0.1:5514" : "10.60.197.6:514";
+  
+  try {
+    await api("/api/sim/target", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target: nextTarget }),
+    });
+    clearBanner();
+  } catch (e) {
+    banner("bad", "Failed to switch target: " + e.message);
+  } finally {
+    btn.disabled = false;
+    refresh();
+  }
 });
 
 refresh();

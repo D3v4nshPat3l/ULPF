@@ -242,6 +242,24 @@ impl Simulator {
         }
     }
 
+    pub fn set_target(&mut self, new_target: &str) {
+        if self.target == new_target {
+            return;
+        }
+        self.target = new_target.to_string();
+
+        let mut running = Vec::new();
+        for (id, stream) in &self.streams {
+            running.push((id.clone(), stream.eps));
+        }
+
+        self.stop_all();
+
+        for (id, eps) in running {
+            let _ = self.start(&id, eps);
+        }
+    }
+
     pub fn stop_all(&mut self) {
         let ids: Vec<String> = self.streams.keys().cloned().collect();
         for id in ids {

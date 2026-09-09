@@ -106,6 +106,7 @@ pub fn router(
         .route("/api/tamper", post(tamper))
         .route("/api/clear", post(clear))
         .route("/api/sim/sources", get(sim_sources))
+        .route("/api/sim/target", post(sim_target))
         .route("/api/sim/toggle", post(sim_toggle))
         .route("/api/sim/stop-all", post(sim_stop_all))
         .route("/api/proof", post(make_proof))
@@ -745,6 +746,26 @@ async fn sim_toggle(
     }
     Ok(Json(json!({
         "ok": true,
+        "running": s.simulator.running_count(),
+        "sources": s.simulator.status(),
+    })))
+}
+
+#[derive(serde::Deserialize)]
+struct SimTargetBody {
+    target: String,
+}
+
+/// Change the simulator destination. Restarts any running streams.
+async fn sim_target(
+    State(state): State<Shared>,
+    Json(body): Json<SimTargetBody>,
+) -> Result<Json<Value>, ApiError> {
+    let mut s = lock(&state);
+    s.simulator.set_target(&body.target);
+    Ok(Json(json!({
+        "ok": true,
+        "target": s.simulator.target(),
         "running": s.simulator.running_count(),
         "sources": s.simulator.status(),
     })))
