@@ -72,6 +72,22 @@ confidence threshold. Both use `activity_id: 0`: category evidence cannot tell
 whether an HTTP record is GET/POST, a firewall record is accept/deny, or an auth
 record is logon/logoff.
 
+A suggested class also has to fit the draft's own field map. OCSF classes do not
+all carry the same attributes: Detection Finding (2004) has no `src_endpoint`,
+`dst_endpoint` or `connection_info` at all, HTTP Activity (4002) keeps its URL
+inside `http_request` rather than a top-level `url`, and Authentication (3002),
+Email Activity (4009) and Event Log Activity (1008) have both endpoints but no
+`connection_info`. Only Network Activity (4001) declares every attribute the
+generator can target.
+
+So the class is chosen *after* the map is built, and a suggestion is adopted
+only when the class declares every attribute the draft mapped. Otherwise the
+draft stays 4001. Without that check an intrusion-detection profile would
+produce a Detection Finding carrying `src_endpoint.ip` — a pack that compiles
+and whose fixtures pass, emitting events that are not valid instances of the
+class they announce. `ocsf_paths::class_accepts` holds the table, resolved from
+the vendored 1.9.0 schema through `extends`, `$include` and profiles.
+
 ## Approval checklist
 
 - Are all samples actually from one source and event family?

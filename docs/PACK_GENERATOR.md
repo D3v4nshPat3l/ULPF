@@ -48,8 +48,11 @@ model is required.
    cluster as a conservative `contains_all` detector.
 4. Writes one YAML pack per cluster with representative real fixtures,
    provenance (`author: generated`, cluster hash, and generator identifier),
-   and a provisional class when family evidence is strong. `activity_id` stays
-   `0` (Unknown) until a reviewer maps source-specific actions.
+   and a provisional class when family evidence is strong *and* that class
+   declares every attribute the draft mapped (see
+   [UNKNOWN_LOG_ONBOARDING.md](UNKNOWN_LOG_ONBOARDING.md)); otherwise Network
+   Activity. `activity_id` stays `0` (Unknown) until a reviewer maps
+   source-specific actions.
 5. Loads each YAML through the same strict compiler used by production packs and
    runs its fixtures before reporting success.
 6. Writes `manifest.json` with counts and `approval_required: true`.
