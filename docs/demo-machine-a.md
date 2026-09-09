@@ -14,7 +14,9 @@
 **What this machine does:** generates realistic multi-device log traffic —
 several real device formats from different simulated source IPs — first
 into Wazuh directly, then into ULPF instead, so the same traffic can be
-shown two ways.
+shown two ways. Runs **two** simulator instances side by side so the
+switch between them is one command (or one double-click of a `.bat`
+file) during the actual demo, not a stop-and-restart.
 
 **You need:** this repo, a Rust toolchain, and one internet connection
 before step 2 (none after).
@@ -165,28 +167,94 @@ and running — closing it stops the simulator.
 and `::1` as the same address for this check, so it does not matter which
 one is used). No token prompt should appear now. Flip on 2–3 sources —
 pick ones already confirmed (with the Machine C operator) to show a clear
-contrast in Wazuh's dashboard.
+contrast in Wazuh's dashboard. **Note the console token this instance
+prints at startup even with `--no-auth` unset elsewhere** — needed for
+step 5 below regardless of whether this particular instance requires it.
 
 **(wait)** Do not go to step 5 until the operator says the "before" shot has
 been shown on Machine C's Wazuh dashboard.
 
-## 5 · Phase 2 — switch the same traffic to ULPF instead
+## 5 · Start a second instance, and set up the one-click switch
 
-Stop the process from step 4 (Ctrl-C in that terminal). `--sim-target` is
-read once at startup, so this needs a restart, not a live toggle. Fill in
-Machine B's address:
+The old approach — stop this process, restart it with a different
+`--sim-target`, reopen `/dev`, re-flip the same sources — works, but is
+slow and easy to fumble live in front of a judge. **Better: start a
+second simulator instance now, pointed at Machine B, and leave both
+running side by side.** Switching becomes one command (or one
+double-click) instead of a restart.
+
+In a **second** PowerShell window, same `ULPF` folder, fill in Machine B's
+address:
 
 ```powershell
-.\target\release\ulpf.exe serve --packs packs --vault data\simvault --integrity-dir data\simintegrity --port 8788 --syslog-bind 127.0.0.1:5515 --datasets realdata --sim-target <<MACHINE_B_IP>>:5514 --no-auth
+.\target\release\ulpf.exe serve --packs packs --vault data\simvault2 --integrity-dir data\simintegrity2 --port 8789 --syslog-bind 127.0.0.1:5516 --datasets realdata --sim-target <<MACHINE_B_IP>>:5514 --no-auth
 ```
 
-**(manual)** Open `http://localhost:8788/dev` again, flip the **same**
-sources back on.
+Note this uses **different** `--vault`/`--integrity-dir` paths, and a
+**different** `--port`/`--syslog-bind`, from the step-4 instance — two
+`ulpf serve` processes cannot share either. Leave sources off here for
+now; it starts idle and only sends once step 6 turns something on.
 
-**(wait)** Machine B must already be running its collector (its step 2)
-before this will show anything.
+Then, **once, before the demo**, create a new file
+`tools\demo-switch.local.ps1` (this exact name — it's gitignored
+specifically so a real token never ends up committed) with the real
+values:
 
-## 6 · Optional — add to the throughput/scale story
+```powershell
+$WazuhSimToken = "..."                          # from step 4's startup output
+$UlpfSimToken  = "..."                          # from this step's startup output
+$SourceIds     = @("iptables","snort","apache") # the same 2-3 sources from step 4
+```
+
+`demo-switch.ps1` loads this file automatically if it exists, next to it,
+overriding the placeholder values. If either instance was started with
+`--no-auth`, that instance's printed token doesn't matter — leave its
+value as anything non-empty; the script only actually needs a real token
+for an instance that requires one.
+
+**Why this has to be a script, not a webpage:** a browser page calling
+these APIs from any other origin gets refused outright by the console's
+own CSRF guard (`same_origin_only` in `server.rs`) — exactly the kind of
+cross-origin call a one-click HTML button would have to make. A script
+using `Invoke-RestMethod` never sends an `Origin` header at all, so it
+passes the same guard cleanly. This was checked against the real code
+before building it this way, not assumed.
+
+## 6 · The actual switch — one command, or one double-click
+
+To send the same traffic through ULPF instead of Wazuh:
+
+```powershell
+.\tools\demo-switch.ps1 -ToUlpf
+```
+
+Or, for a literal one-click during the demo itself: double-click
+`tools\switch-to-ulpf.bat` in File Explorer. Expect:
+
+```
+Stopping Wazuh-direct sources...
+Starting the same sources into ULPF...
+  started iptables at 500 eps on http://127.0.0.1:8789
+  started snort at 500 eps on http://127.0.0.1:8789
+  started apache at 500 eps on http://127.0.0.1:8789
+Done. Traffic now flows through ULPF.
+```
+
+To switch back (e.g. to re-run the "before" shot for a second judge):
+`.\tools\demo-switch.ps1 -ToWazuh`, or double-click
+`tools\switch-to-wazuh.bat`.
+
+**(wait)** The switch to ULPF only shows anything once Machine B's
+collector (its step 4) is already running.
+
+If it fails instead of printing the block above, the error names the
+actual cause — a blank token placeholder, one of the two instances not
+running, or a source id that doesn't match
+`crates/ulpf-cli/src/simulator.rs`'s real list (`iptables`, `snort`,
+`dragon`, `apache`, `apache-err`, `openssh`, `linux-hn`, `linux-lh`,
+`sendmail`, `proxifier`).
+
+## 7 · Optional — add to the throughput/scale story
 
 A second, independent stream at a measured rate, summed with Machine B's
 own collector throughput when talking about progress toward 1B/day:
@@ -204,6 +272,8 @@ own collector throughput when talking about progress toward 1B/day:
 | Nothing arrives at Wazuh (`10.60.197.6`) | Confirm this machine can reach it at all first: `ping 10.60.197.6`. If that fails, it's a network/firewall problem, not a ULPF problem — fix connectivity before touching any command here again |
 | `ping 10.60.197.6` works but nothing shows in Wazuh | Machine C's `ossec.conf` `<remote>` block may not be applied yet, or its `allowed-ips` subnet doesn't include this machine's address — check `demo-machine-c.md` steps 3–4 |
 | Build fails: "output path is not a writable directory" | Windows ReadOnly attribute on this folder — run `attrib -r /s /d .` in the repo root |
+| `demo-switch.ps1` says "No demo-switch.local.ps1 found" | Create that exact file next to it (step 5) with real tokens — the tracked script only ships placeholders on purpose |
+| `demo-switch.ps1` fails with a 401/403 from one instance | That instance's real token in `demo-switch.local.ps1` doesn't match what it printed at startup, or that instance isn't running at all |
 
 Full narrative and the reasoning behind each step:
 [3-LAPTOP-DEMO.md](3-LAPTOP-DEMO.md).
