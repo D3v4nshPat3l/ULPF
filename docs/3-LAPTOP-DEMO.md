@@ -11,6 +11,14 @@ command here does not work, that is a bug in this document — please report it.
 > it at `127.0.0.1`. Everything except the physical network separation is
 > identical. See [Two-machine variant](#two-machine-variant).
 
+> **Running this with the Wazuh comparison on three separate laptops?** Each
+> machine has its own standalone, self-contained command file — hand one to
+> each operator (or to an AI agent open on that laptop) and it only needs
+> that one file: [demo-machine-a.md](demo-machine-a.md) (dev dashboard),
+> [demo-machine-b.md](demo-machine-b.md) (the ULPF collector),
+> [demo-machine-c.md](demo-machine-c.md) (Wazuh). This document is the
+> narrative behind those three; they are the copy-paste reference.
+
 ---
 
 ## What the three machines do
