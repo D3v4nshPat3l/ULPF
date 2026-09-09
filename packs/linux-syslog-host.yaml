@@ -11,12 +11,17 @@ identity:
   log_format: syslog-rfc3164
   priority: 800
   detect:
-    # Any RFC 3164 line carrying a program tag. Listing app names by hand
-    # missed ftpd, which was 30% of the Loghub Linux corpus; the shape of the
-    # tag is the reliable signal, not a name we happened to think of.
-    - contains_any: ["(pam_unix)", "syslogd", "kernel:", "ftpd[", "sshd[", "su(",
-                     "crond[", "xinetd[", "logrotate", "cups", "gpm[", "klogd",
-                     "sshd(", "named[", "ntpd[", "dhclient", "modprobe"]
+    # The shape of the tag, not a list of names. This comment used to say the
+    # same thing above a list of seventeen names, which is how snmpd,
+    # sm-msp-queue and every other daemon nobody thought of kept arriving as
+    # fresh "needs a pack" clusters. RFC 3164 §4.1.3 defines the tag; that
+    # definition does not grow, and a name list always will.
+    - syslog_tag: true
+    # Shapes that carry no RFC 3164 tag but are unmistakably this source.
+    # `syslogd 1.4.1: restart.` puts a version between the name and the colon,
+    # so it is not a tag by the RFC's definition however much it looks like
+    # one; the daemon writing it is the syslog daemon itself.
+    - contains_any: ["(pam_unix)", "su(", "sshd(", "syslogd "]
 
 extract:
   - decoder: syslog
@@ -33,8 +38,13 @@ map:
   device.hostname:
     from: syslog.hostname
     observable: hostname
+  # The message text, not the program name. This read `syslog.appname`, so
+  # every generically-parsed line had its message set to the daemon that
+  # emitted it -- "snmpd" where the log said "Received SNMP packet(s) from
+  # 67.170.148.126". The program name is still carried, on actor.process.name
+  # below, which is where it belongs.
   message:
-    from: syslog.appname
+    from: syslog.body
   actor.process.name:
     from: syslog.appname
   actor.process.pid:
