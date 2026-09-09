@@ -80,6 +80,117 @@ pub fn is_known_path(path: &str) -> bool {
     KNOWN_PATHS.contains(&path)
 }
 
+/// The three envelope literals every OCSF class carries, from `base_event`.
+const ENVELOPE_PATHS: &[&str] = &["class_uid", "activity_id", "severity_id"];
+
+/// Which *root* attributes each class the profiler can suggest actually
+/// declares, resolved by hand from the vendored 1.9.0 schema through
+/// `extends`, `$include` and profile attributes.
+///
+/// `KNOWN_PATHS` says a path is real. It does not say a path is real *on the
+/// class the pack claims to be*, and until the profiler started varying
+/// `class_uid` nothing needed it to: every draft was Network Activity (4001),
+/// which is the one class here that declares all seven roots. Once a family
+/// inference can pick 2004 instead, a drafted map carrying `src_endpoint.ip`
+/// becomes a Detection Finding with an attribute Detection Finding does not
+/// have — the same "compiles, means nothing" failure the module doc describes,
+/// one level up.
+///
+/// Verified against `schema/ocsf/`:
+///
+/// * `events/network/network_activity.json` declares `url` directly and
+///   inherits `src_endpoint`, `dst_endpoint` and `connection_info` from
+///   `network.json`. It is the only class below with `url`.
+/// * `events/network/http_activity.json` also extends `network`, but carries
+///   its URL inside `http_request`, not as a top-level `url`.
+/// * `events/iam/authentication.json`, `events/network/email_activity.json`
+///   and `events/system/event_log_activity.json` declare both endpoints but
+///   no `connection_info`.
+/// * `events/findings/detection_finding.json` extends `finding.json`, which
+///   extends `base_event`: it has neither endpoint, no `connection_info` and
+///   no `url`.
+/// * `device` and `actor` reach all six through the shared `$include`, and
+///   `message` through `base_event`.
+const CLASS_ROOTS: &[(i64, &[&str])] = &[
+    // Network Activity
+    (
+        4001,
+        &[
+            "src_endpoint",
+            "dst_endpoint",
+            "connection_info",
+            "device",
+            "actor",
+            "url",
+            "message",
+        ],
+    ),
+    // HTTP Activity — no top-level `url`.
+    (
+        4002,
+        &[
+            "src_endpoint",
+            "dst_endpoint",
+            "connection_info",
+            "device",
+            "actor",
+            "message",
+        ],
+    ),
+    // Authentication
+    (
+        3002,
+        &["src_endpoint", "dst_endpoint", "device", "actor", "message"],
+    ),
+    // Email Activity
+    (
+        4009,
+        &["src_endpoint", "dst_endpoint", "device", "actor", "message"],
+    ),
+    // Event Log Activity
+    (
+        1008,
+        &["src_endpoint", "dst_endpoint", "device", "actor", "message"],
+    ),
+    // Detection Finding — no endpoints at all.
+    (2004, &["device", "actor", "message"]),
+];
+
+/// Whether `class_uid` declares the root attribute `path` targets.
+///
+/// An unlisted class answers `false` for everything but the envelope
+/// literals: a class this table has never been checked against is exactly the
+/// case where a draft should not be trusted to carry field mappings.
+pub fn class_accepts(class_uid: i64, path: &str) -> bool {
+    if ENVELOPE_PATHS.contains(&path) {
+        return true;
+    }
+    let root = path.split('.').next().unwrap_or(path);
+    CLASS_ROOTS
+        .iter()
+        .find(|(uid, _)| *uid == class_uid)
+        .is_some_and(|(_, roots)| roots.contains(&root))
+}
+
+/// Whether every mapped path is one `class_uid` declares.
+pub fn class_accepts_all<'a>(class_uid: i64, paths: impl Iterator<Item = &'a str>) -> bool {
+    paths.into_iter().all(|p| class_accepts(class_uid, p))
+}
+
+/// The class a draft should carry: the profiler's suggestion when the drafted
+/// map fits it, and Network Activity otherwise.
+///
+/// Network Activity is the fallback rather than "no class" because a pack must
+/// name one, it accepts every path the generator can produce, and it is what
+/// every draft carried before family inference existed.
+pub fn provisional_class<'a>(suggested: Option<i64>, paths: impl Iterator<Item = &'a str>) -> i64 {
+    const NETWORK_ACTIVITY: i64 = 4001;
+    match suggested {
+        Some(uid) if uid != NETWORK_ACTIVITY && class_accepts_all(uid, paths) => uid,
+        _ => NETWORK_ACTIVITY,
+    }
+}
+
 /// Every key in `pack.map` that is not a recognized OCSF path, sorted and
 /// deduplicated for a stable, readable report.
 pub fn unknown_paths(pack: &Pack) -> Vec<String> {
@@ -141,6 +252,74 @@ mod tests {
             fixtures: Vec::new(),
             provenance: None,
         }
+    }
+
+    #[test]
+    fn detection_finding_does_not_accept_endpoints() {
+        // schema/ocsf/events/findings/detection_finding.json extends
+        // finding.json, which extends base_event. No endpoint appears in any
+        // of the three.
+        assert!(!class_accepts(2004, "src_endpoint.ip"));
+        assert!(!class_accepts(2004, "dst_endpoint.port"));
+        assert!(!class_accepts(2004, "connection_info.protocol_name"));
+        assert!(class_accepts(2004, "device.hostname"));
+        assert!(class_accepts(2004, "message"));
+    }
+
+    #[test]
+    fn http_activity_has_no_top_level_url() {
+        // Its URL lives inside `http_request`, so `url.url_string` is a
+        // Network Activity path, not an HTTP Activity one.
+        assert!(class_accepts(4001, "url.url_string"));
+        assert!(!class_accepts(4002, "url.url_string"));
+        assert!(class_accepts(4002, "connection_info.protocol_name"));
+    }
+
+    #[test]
+    fn the_envelope_literals_are_accepted_everywhere() {
+        for uid in [1008, 2004, 3002, 4001, 4002, 4009] {
+            for path in ENVELOPE_PATHS {
+                assert!(class_accepts(uid, path), "{uid} rejected {path}");
+            }
+        }
+    }
+
+    #[test]
+    fn network_activity_accepts_every_path_the_generator_can_produce() {
+        // The fallback has to be total, or `provisional_class` could return a
+        // class that rejects the map it was given.
+        for path in KNOWN_PATHS {
+            assert!(class_accepts(4001, path), "4001 rejected {path}");
+        }
+    }
+
+    #[test]
+    fn a_class_this_table_has_never_seen_is_not_trusted() {
+        assert!(!class_accepts(9999, "src_endpoint.ip"));
+        assert_eq!(
+            provisional_class(Some(9999), ["src_endpoint.ip"].into_iter()),
+            4001
+        );
+    }
+
+    #[test]
+    fn a_suggested_class_is_kept_only_when_the_map_fits_it() {
+        // An authentication draft that mapped nothing network-shaped keeps 3002.
+        assert_eq!(
+            provisional_class(Some(3002), ["actor.user.name", "message"].into_iter()),
+            3002
+        );
+        // The same suggestion with a protocol mapping does not: Authentication
+        // has no `connection_info`.
+        assert_eq!(
+            provisional_class(
+                Some(3002),
+                ["actor.user.name", "connection_info.protocol_name"].into_iter()
+            ),
+            4001
+        );
+        // No suggestion at all is Network Activity, as before.
+        assert_eq!(provisional_class(None, ["message"].into_iter()), 4001);
     }
 
     #[test]
