@@ -35,6 +35,15 @@ pub use types::{
 /// A `class_uid` is `category_uid * 1000 + class`, so Network Activity is
 /// category 4 (Network Activity), class 1.
 pub mod class {
+    /// Base Event — the class for a record ULPF preserved and structured but
+    /// could not identify.
+    ///
+    /// `schema/ocsf/events/base_event.json` declares `class_uid` with a single
+    /// enum member, `0: Base Event`, and every other class inherits from it.
+    /// It is the only honest class for an unclaimed record: it asserts that
+    /// something happened and carries the evidence, without claiming to know
+    /// what kind of thing it was.
+    pub const BASE_EVENT: i64 = 0;
     /// Network Activity — the workhorse class for firewall, proxy and IDS logs.
     pub const NETWORK_ACTIVITY: i64 = 4001;
     /// HTTP Activity — proxies and WAFs that expose request detail.

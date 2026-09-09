@@ -329,3 +329,312 @@ mod tests {
         );
     }
 }
+
+/// Recognise a timestamp at the head of an arbitrary line and return it in
+/// nanoseconds, together with whether the format stated a year.
+///
+/// This exists for records no pack claims. Such a record used to be stamped
+/// with the moment ULPF received it, which is a different fact from when the
+/// event happened and reads as the latter: replaying a 2005 capture produced
+/// events dated today. An unidentified record can still carry a real event
+/// time whenever the line states one unambiguously, and this says which
+/// formats count as unambiguous.
+///
+/// Deliberately narrow. It tries only shapes that appear at the very start of
+/// a line and cannot be confused with something else, because a wrong
+/// timestamp is worse than an honest fallback: it puts an event in the wrong
+/// place on an incident timeline, and nothing downstream can tell.
+pub fn detect_leading_time(line: &str) -> Option<DetectedTime> {
+    let line = line.trim_start();
+
+    // RFC 5424 / RFC 3339 at the head, optionally behind a syslog priority:
+    // "<134>2026-01-01T00:00:00Z ..." or "2026-01-01T00:00:00+05:30 ...".
+    let after_pri = match line.strip_prefix('<') {
+        Some(rest) => rest.split_once('>').map(|(_, r)| r).unwrap_or(line),
+        None => line,
+    };
+    if let Some(token) = after_pri.split_whitespace().next() {
+        if token.len() >= 20 && token.as_bytes()[4] == b'-' {
+            if let Some(ns) = parse_time(&Value::Str(token.into()), TimeFormat::Rfc3339) {
+                return Some(DetectedTime {
+                    nanos: ns,
+                    year_stated: true,
+                });
+            }
+        }
+    }
+
+    // "2015-07-29 19:52:04,792" -- a date and a clock as two separate tokens
+    // at the head. This is what log4j, java.util.logging and Python's logging
+    // module emit by default, so it covers most application logging in
+    // existence; Zookeeper, Hadoop and Spark captures are all this shape.
+    // Recognised only as the first two tokens, both fully formed, which no
+    // other construct looks like.
+    {
+        let mut tokens = after_pri.split_whitespace();
+        if let (Some(date), Some(clock)) = (tokens.next(), tokens.next()) {
+            if looks_like_date(date) && looks_like_clock(clock) {
+                // log4j writes the fraction after a comma; parse_civil expects
+                // the decimal point that every other format uses.
+                let joined = format!("{date} {}", clock.replacen(',', ".", 1));
+                let format = if date.as_bytes()[4] == b'/' {
+                    TimeFormat::SlashDateTime
+                } else {
+                    TimeFormat::DateTime
+                };
+                if let Some(ns) = parse_time(&Value::Str(joined.into()), format) {
+                    return Some(DetectedTime {
+                        nanos: ns,
+                        year_stated: true,
+                    });
+                }
+            }
+        }
+    }
+
+    // Common Log Format, as Apache and many proxies write it:
+    // '... [24/Feb/2005:16:36:18 -0500] ...'. Anchored on the bracket so a
+    // bare date elsewhere in the message cannot be mistaken for it.
+    if let Some(open) = line.find('[') {
+        if let Some(close) = line[open..].find(']') {
+            let inner = &line[open + 1..open + close];
+            if inner.len() >= 20 && inner.as_bytes().get(2) == Some(&b'/') {
+                if let Some(ns) = parse_time(&Value::Str(inner.into()), TimeFormat::Clf) {
+                    return Some(DetectedTime {
+                        nanos: ns,
+                        year_stated: true,
+                    });
+                }
+            }
+        }
+    }
+
+    // RFC 3164 syslog: "Feb 27 02:25:52". Carries no year, so the value is
+    // usable but the caller must be told the year was assumed rather than
+    // read -- on a historical replay it lands in the wrong one.
+    let head: Vec<&str> = after_pri.split_whitespace().take(3).collect();
+    if head.len() == 3 {
+        let joined = head.join(" ");
+        if let Some(ns) = parse_time(&Value::Str(joined.into()), TimeFormat::Rfc3164) {
+            return Some(DetectedTime {
+                nanos: ns,
+                year_stated: false,
+            });
+        }
+    }
+
+    // A JSON object states its timestamp in a named field rather than at the
+    // head. That is not a guess: the line parses as JSON, the key is one the
+    // logging world has settled on, and the value has to parse strictly as
+    // RFC 3339 or it is ignored. JSON is most of modern application logging,
+    // so without this the whole shape falls back to receipt time.
+    if line.starts_with('{') {
+        if let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(line)
+        {
+            const TIME_KEYS: [&str; 6] = [
+                "ts",
+                "time",
+                "timestamp",
+                "@timestamp",
+                "eventTime",
+                "event_time",
+            ];
+            for key in TIME_KEYS {
+                let Some(serde_json::Value::String(v)) = map.get(key) else {
+                    continue;
+                };
+                if let Some(ns) = parse_time(&Value::Str(v.as_str().into()), TimeFormat::Rfc3339) {
+                    return Some(DetectedTime {
+                        nanos: ns,
+                        year_stated: true,
+                    });
+                }
+            }
+        }
+    }
+
+    // Delimited formats -- CEF, LEEF and the many in-house pipe or tab layouts
+    // -- put the timestamp in a column rather than at the head. Accepted only
+    // when *exactly one* field parses strictly as RFC 3339: one such field is
+    // the event time, and two mean the line distinguishes between times this
+    // code cannot tell apart, such as first-seen and last-seen. Guessing
+    // between them would put events in the wrong place on a timeline, so it
+    // declines instead.
+    for delim in ['|', '\t', ';'] {
+        if !line.contains(delim) {
+            continue;
+        }
+        let mut found: Option<i64> = None;
+        let mut count = 0usize;
+        for field in line.split(delim) {
+            let field = field.trim();
+            if field.len() < 20 {
+                continue;
+            }
+            if let Some(ns) = parse_time(&Value::Str(field.into()), TimeFormat::Rfc3339) {
+                count += 1;
+                found = Some(ns);
+            }
+        }
+        if count == 1 {
+            return Some(DetectedTime {
+                nanos: found?,
+                year_stated: true,
+            });
+        }
+    }
+
+    None
+}
+
+/// `YYYY-MM-DD` or `YYYY/MM/DD`, exactly.
+fn looks_like_date(t: &str) -> bool {
+    let b = t.as_bytes();
+    t.len() == 10
+        && b[..4].iter().all(u8::is_ascii_digit)
+        && (b[4] == b'-' || b[4] == b'/')
+        && b[4] == b[7]
+        && b[5..7].iter().all(u8::is_ascii_digit)
+        && b[8..10].iter().all(u8::is_ascii_digit)
+}
+
+/// `HH:MM:SS`, optionally with a `,mmm` or `.mmm` fraction.
+fn looks_like_clock(t: &str) -> bool {
+    let base = t.split([',', '.']).next().unwrap_or(t);
+    let b = base.as_bytes();
+    base.len() == 8
+        && b[2] == b':'
+        && b[5] == b':'
+        && b[..2].iter().all(u8::is_ascii_digit)
+        && b[3..5].iter().all(u8::is_ascii_digit)
+        && b[6..8].iter().all(u8::is_ascii_digit)
+}
+
+/// A timestamp read from a line, and whether its format stated the year.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DetectedTime {
+    pub nanos: i64,
+    /// False for RFC 3164, which has no year field at all.
+    pub year_stated: bool,
+}
+
+#[cfg(test)]
+mod detect_tests {
+    use super::*;
+
+    #[test]
+    fn rfc3339_at_the_head_is_read_with_its_year() {
+        let d = detect_leading_time("2005-02-24T16:36:18Z something happened").unwrap();
+        assert!(d.year_stated);
+        // 2005-02-24T16:36:18Z
+        assert_eq!(d.nanos, 1_109_262_978_000_000_000);
+    }
+
+    #[test]
+    fn a_syslog_priority_does_not_hide_the_timestamp() {
+        let d = detect_leading_time("<134>2005-02-24T16:36:18Z msg").unwrap();
+        assert_eq!(d.nanos, 1_109_262_978_000_000_000);
+    }
+
+    #[test]
+    fn common_log_format_is_read_from_its_brackets() {
+        let line = r#"218.23.48.35 - - [24/Feb/2005:16:36:18 -0500] "GET / HTTP/1.1" 403 2898"#;
+        let d = detect_leading_time(line).unwrap();
+        assert!(d.year_stated);
+        // 16:36:18 -0500 is 21:36:18 UTC.
+        assert_eq!(d.nanos, 1_109_280_978_000_000_000);
+    }
+
+    #[test]
+    fn rfc3164_is_usable_but_reports_that_it_stated_no_year() {
+        let d = detect_leading_time("Feb 27 02:25:52 bridge kernel: INBOUND TCP").unwrap();
+        assert!(!d.year_stated, "RFC 3164 has no year field");
+    }
+
+    #[test]
+    fn prose_is_not_a_timestamp() {
+        // The failure that matters: inventing a time for a line that has none
+        // puts the event somewhere false on a timeline.
+        assert!(detect_leading_time("the quick brown fox jumped").is_none());
+        assert!(detect_leading_time("").is_none());
+        assert!(detect_leading_time("ERROR could not connect to host").is_none());
+    }
+
+    #[test]
+    fn a_json_log_states_its_time_in_a_named_field() {
+        let line = r#"{"ts":"2021-11-05T22:10:01Z","unit":"hvac-7","note":"compressor fault"}"#;
+        let d = detect_leading_time(line).unwrap();
+        assert!(d.year_stated);
+        assert_eq!(d.nanos, 1_636_150_201_000_000_000);
+    }
+
+    #[test]
+    fn the_other_common_json_time_keys_work_too() {
+        for key in ["time", "timestamp", "@timestamp", "eventTime", "event_time"] {
+            let line = format!(r#"{{"{key}":"2021-11-05T22:10:01Z","x":1}}"#);
+            assert!(
+                detect_leading_time(&line).is_some(),
+                "key {key} was not recognised"
+            );
+        }
+    }
+
+    #[test]
+    fn a_json_field_that_is_not_a_timestamp_is_left_alone() {
+        // "ts" holding something unparseable must not become a time, and must
+        // not stop the record being processed.
+        assert!(detect_leading_time(r#"{"ts":"yesterday","x":1}"#).is_none());
+        assert!(detect_leading_time(r#"{"ts":12345,"x":1}"#).is_none());
+        assert!(detect_leading_time(r#"{"note":"no time here"}"#).is_none());
+    }
+
+    #[test]
+    fn malformed_json_does_not_panic() {
+        assert!(detect_leading_time(r#"{"ts":"2021-11-05T22:10:01Z""#).is_none());
+        assert!(detect_leading_time("{").is_none());
+    }
+
+    #[test]
+    fn the_log4j_shape_is_read_including_its_comma_fraction() {
+        // Zookeeper, Hadoop, Spark and Python logging all write this.
+        let d =
+            detect_leading_time("2015-07-29 19:52:04,792 - INFO  [main] - Closed socket").unwrap();
+        assert!(d.year_stated);
+        // 2015-07-29T19:52:04.792Z
+        assert_eq!(d.nanos, 1_438_199_524_792_000_000);
+    }
+
+    #[test]
+    fn the_same_shape_with_slashes_and_no_fraction() {
+        let d = detect_leading_time("2015/07/29 19:52:04 something").unwrap();
+        assert_eq!(d.nanos, 1_438_199_524_000_000_000);
+    }
+
+    #[test]
+    fn a_date_without_a_clock_after_it_is_not_a_timestamp() {
+        assert!(detect_leading_time("2015-07-29 was the outage").is_none());
+        assert!(detect_leading_time("2015-07-2 19:52:04 short date").is_none());
+    }
+
+    #[test]
+    fn a_delimited_line_yields_its_single_timestamp_column() {
+        let line = "ZZTOP|2019-06-01T09:15:00+02:00|sensor-14|threshold exceeded|10.44.9.2";
+        let d = detect_leading_time(line).unwrap();
+        assert!(d.year_stated);
+        // 09:15:00+02:00 is 07:15:00 UTC.
+        assert_eq!(d.nanos, 1_559_373_300_000_000_000);
+    }
+
+    #[test]
+    fn two_timestamp_columns_are_refused_rather_than_guessed_between() {
+        // first-seen and last-seen, or created and modified. Picking one would
+        // be a coin toss that lands on an incident timeline.
+        let line = "SENSOR|2019-06-01T09:15:00Z|2019-06-01T09:47:12Z|flow closed";
+        assert!(detect_leading_time(line).is_none());
+    }
+
+    #[test]
+    fn a_date_buried_in_prose_is_not_taken_as_the_event_time() {
+        assert!(detect_leading_time("renewal due 2026-01-01T00:00:00Z per policy").is_none());
+    }
+}
