@@ -102,12 +102,31 @@ fail immediately if run from anywhere else. Wazuh's address is fixed for
 this team — `10.60.197.6` — no placeholder to fill in here:
 
 ```powershell
-.\target\release\ulpf.exe serve --packs packs --vault data\simvault --integrity-dir data\simintegrity --port 8788 --syslog-bind 127.0.0.1:5515 --datasets realdata --sim-target 10.60.197.6:514
+.\target\release\ulpf.exe serve --packs packs --vault data\simvault --integrity-dir data\simintegrity --port 8788 --syslog-bind 127.0.0.1:5515 --datasets realdata --sim-target 10.60.197.6:514 --no-auth
 ```
+
+**`--no-auth` is required here, not optional** — without it, `/dev` sits
+behind the same console-token check as every other route (confirmed
+directly in `crates/ulpf-cli/src/server.rs`: `/dev` is inside the same
+guarded router as `/api/*`), and a plain browser address-bar visit has no
+way to attach the `Authorization` header the check requires. Opening
+`/dev` without `--no-auth` returns exactly this JSON instead of the page:
+
+```json
+{"error":"this endpoint requires a console token: send `Authorization: Bearer <token>` or `X-ULPF-Token: <token>`. ..."}
+```
+
+That is not a bug to work around with the printed token — a bare page
+load in a browser cannot send that header at all, token or not.
+`--no-auth` is the correct fix specifically for this instance, because
+this is throwaway local traffic-simulator control, not the real collector
+console judges will see (Machine B keeps its token — see
+`demo-machine-b.md`).
 
 **What a correct start looks like**, printed within a second or two:
 
 ```
+WARNING: --no-auth is set. Any client that can reach this port can act as the console operator.
 ULPF console  ·  35 packs  ·  OCSF 1.9.0
 Listening on http://127.0.0.1:8788
 ...
@@ -115,6 +134,7 @@ UDP receive buffer: NNNN KB
 ... ULPF UDP syslog receiver listening on 127.0.0.1:5515
 ```
 
+No `console token:` line this time — that only prints when auth is *on*.
 If nothing prints, the process exits immediately, or an `Error:` line
 appears instead — **stop and read the exact error text**; it names the
 actual problem (a bad path, a port already in use, a malformed argument).
@@ -133,9 +153,12 @@ A couple of things that specifically produce an early `Error:` here:
 Once it's running and printing the block above, leave this terminal open
 and running — closing it stops the simulator.
 
-**(manual)** Open `http://localhost:8788/dev` in a browser. Flip on 2–3
-sources — pick ones already confirmed (with the Machine C operator) to show
-a clear contrast in Wazuh's dashboard.
+**(manual)** Open `http://localhost:8788/dev` (or `http://127.0.0.1:8788/dev`
+— confirmed in `server.rs` that the console treats `localhost`, `127.0.0.1`
+and `::1` as the same address for this check, so it does not matter which
+one is used). No token prompt should appear now. Flip on 2–3 sources —
+pick ones already confirmed (with the Machine C operator) to show a clear
+contrast in Wazuh's dashboard.
 
 **(wait)** Do not go to step 5 until the operator says the "before" shot has
 been shown on Machine C's Wazuh dashboard.
@@ -147,7 +170,7 @@ read once at startup, so this needs a restart, not a live toggle. Fill in
 Machine B's address:
 
 ```powershell
-.\target\release\ulpf.exe serve --packs packs --vault data\simvault --integrity-dir data\simintegrity --port 8788 --syslog-bind 127.0.0.1:5515 --datasets realdata --sim-target <<MACHINE_B_IP>>:5514
+.\target\release\ulpf.exe serve --packs packs --vault data\simvault --integrity-dir data\simintegrity --port 8788 --syslog-bind 127.0.0.1:5515 --datasets realdata --sim-target <<MACHINE_B_IP>>:5514 --no-auth
 ```
 
 **(manual)** Open `http://localhost:8788/dev` again, flip the **same**
