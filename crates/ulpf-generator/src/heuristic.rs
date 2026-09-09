@@ -123,6 +123,7 @@ pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
             contains_any: Vec::new(),
             contains_none: Vec::new(),
             starts_with: None,
+            syslog_tag: false,
         }],
         // Well below every reviewed pack: a candidate must never shadow one a
         // human has approved.

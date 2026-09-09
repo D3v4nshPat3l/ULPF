@@ -76,6 +76,17 @@ pub struct Detector {
     /// Raw text must start with this.
     #[serde(default)]
     pub starts_with: Option<String>,
+    /// The line must carry an RFC 3164 program tag: `name:` or `name[pid]:`
+    /// following the timestamp and hostname.
+    ///
+    /// A shape, not a literal, because a list of program names cannot be
+    /// finished. `linux-syslog-host` shipped seventeen names and still missed
+    /// `snmpd`, `sm-msp-queue` and every other daemon nobody happened to think
+    /// of, so each new one arrived as a fresh "needs a pack" cluster forever.
+    /// The tag's shape is what RFC 3164 actually defines, and that does not
+    /// grow.
+    #[serde(default)]
+    pub syslog_tag: bool,
 }
 
 impl Detector {
@@ -97,8 +108,119 @@ impl Detector {
         if self.contains_none.iter().any(|n| raw.contains(n.as_str())) {
             return false;
         }
+        if self.syslog_tag && !has_syslog_tag(raw) {
+            return false;
+        }
         // An empty detector must not claim everything.
-        self.starts_with.is_some() || !self.contains_all.is_empty() || !self.contains_any.is_empty()
+        self.starts_with.is_some()
+            || !self.contains_all.is_empty()
+            || !self.contains_any.is_empty()
+            || self.syslog_tag
+    }
+}
+
+/// Whether `raw` carries an RFC 3164 program tag.
+///
+/// RFC 3164 §4.1.3 puts the tag at the head of the MSG part: an alphanumeric
+/// name of up to 32 characters, optionally `[pid]`, then a colon. Anchored to
+/// the header rather than searched for, so a colon anywhere in the message
+/// body cannot be mistaken for one -- `kernel: ... proto=TCP: 80` has exactly
+/// one tag, not two.
+fn has_syslog_tag(raw: &str) -> bool {
+    let rest = raw.trim_start();
+    // Skip an optional <PRI>.
+    let rest = match rest.strip_prefix('<') {
+        Some(r) => match r.find('>') {
+            Some(i) if i <= 3 => &r[i + 1..],
+            _ => return false,
+        },
+        None => rest,
+    };
+    // Skip the RFC 3164 timestamp: "MMM d HH:MM:SS", 15 characters.
+    if rest.len() < 16 {
+        return false;
+    }
+    let rest = &rest[15..];
+    let mut parts = rest.split_whitespace();
+    // Hostname, then the tag.
+    let Some(_host) = parts.next() else {
+        return false;
+    };
+    let Some(tag) = parts.next() else {
+        return false;
+    };
+    let Some(name) = tag.strip_suffix(':') else {
+        return false;
+    };
+    // Strip an optional [pid].
+    let name = match name.split_once('[') {
+        Some((n, pid)) => {
+            if !pid.ends_with(']') || !pid[..pid.len() - 1].chars().all(|c| c.is_ascii_digit()) {
+                return false;
+            }
+            n
+        }
+        None => name,
+    };
+    !name.is_empty()
+        && name.len() <= 32
+        && name
+            .chars()
+            // Parentheses because Linux PAM writes `su(pam_unix)[26013]:`,
+            // which is the shape in the wild whatever the RFC says.
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | '(' | ')'))
+}
+
+#[cfg(test)]
+mod syslog_tag_tests {
+    use super::has_syslog_tag;
+
+    #[test]
+    fn the_daemons_nobody_listed_are_recognised_by_shape() {
+        // Every one of these arrived as its own "needs a pack" cluster
+        // because it was not in the hand-written name list.
+        assert!(has_syslog_tag(
+            "Mar  6 16:24:13 combo sm-msp-queue[1755]: runqueue"
+        ));
+        assert!(has_syslog_tag(
+            "Jun 20 04:44:39 combo snmpd[2318]: Received SNMP"
+        ));
+        assert!(has_syslog_tag("Mar  6 16:24:13 combo cups: started"));
+        // Linux PAM's own shape, matched structurally rather than by name.
+        assert!(has_syslog_tag(
+            "Mar 13 04:10:10 combo su(pam_unix)[26013]: opened"
+        ));
+        assert!(has_syslog_tag(
+            "<134>Feb 27 02:25:52 gizmo diskarray[7]: FAULT"
+        ));
+    }
+
+    #[test]
+    fn a_colon_in_the_message_is_not_a_tag() {
+        // The failure that would make this claim everything: a bare syslog
+        // line whose body merely contains a colon.
+        assert!(!has_syslog_tag(
+            "Mar  6 16:24:13 combo last message repeated 4 times"
+        ));
+        assert!(!has_syslog_tag("Mar  6 16:24:13 combo ratio was 3:1 today"));
+    }
+
+    #[test]
+    fn non_syslog_shapes_are_refused() {
+        assert!(!has_syslog_tag(""));
+        assert!(!has_syslog_tag("short"));
+        assert!(!has_syslog_tag(
+            r#"{"ts":"2021-11-05T22:10:01Z","a":"b:c"}"#
+        ));
+        assert!(!has_syslog_tag(
+            "218.23.48.35 - - [08/Feb/2005:19:50:39] \"GET /\""
+        ));
+    }
+
+    #[test]
+    fn a_malformed_pid_is_not_a_tag() {
+        assert!(!has_syslog_tag("Mar  6 16:24:13 combo daemon[abc]: text"));
+        assert!(!has_syslog_tag("Mar  6 16:24:13 combo daemon[12: text"));
     }
 }
 

@@ -111,6 +111,7 @@ impl CompiledPack {
             detector.starts_with.is_none()
                 && detector.contains_all.is_empty()
                 && detector.contains_any.is_empty()
+                && !detector.syslog_tag
         }) {
             return Err(PackError::Invalid(
                 "identity.detect contains an empty detector".into(),

@@ -236,6 +236,7 @@ mod tests {
                     contains_any: Vec::new(),
                     contains_none: Vec::new(),
                     starts_with: None,
+                    syslog_tag: false,
                 }],
                 priority: 1000,
             },

@@ -105,6 +105,13 @@ impl Decoder for SyslogDecoder {
             parse_3164(rest, &mut fields)
         };
 
+        // Also expose the remainder as a named field. It is returned as the
+        // chain body for the next decoder, but `extract` discards whatever is
+        // left when the chain ends -- so a pack with syslog as its only step
+        // had no way to reach the message text at all. `cisco-asa-network`
+        // and `linux-syslog-host` both mapped `message: from: syslog.body`
+        // and both silently got nothing.
+        fields.push_unchecked("syslog.body", Value::borrowed(body));
         Ok(Decoded::with_body(fields, body))
     }
 }
