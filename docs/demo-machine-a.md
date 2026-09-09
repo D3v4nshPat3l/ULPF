@@ -59,10 +59,11 @@ dir realdata
 
 ## 4 · Phase 1 — send real traffic into Wazuh directly
 
-Fill in Machine C's (Wazuh's) address:
+Wazuh's address is fixed for this team — `10.60.197.6` — no placeholder to
+fill in here:
 
 ```powershell
-.\target\release\ulpf.exe serve --packs packs --vault data\simvault --integrity-dir data\simintegrity --port 8788 --syslog-bind 127.0.0.1:5515 --datasets realdata --sim-target <<WAZUH_IP>>:514
+.\target\release\ulpf.exe serve --packs packs --vault data\simvault --integrity-dir data\simintegrity --port 8788 --syslog-bind 127.0.0.1:5515 --datasets realdata --sim-target 10.60.197.6:514
 ```
 
 Leave this running.

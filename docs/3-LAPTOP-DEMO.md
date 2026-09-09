@@ -165,15 +165,19 @@ ip -4 addr show | grep inet
 
 | Machine | Address | Fill in yours |
 |---|---|---|
-| A — dev dashboard | `192.168.137.101` | |
-| B — main dashboard | `192.168.137.102` | |
-| C — Wazuh | `192.168.137.103` | |
+| A — dev dashboard | `192.168.137.101` (example) | |
+| B — main dashboard | `192.168.137.102` (example) | |
+| C — Wazuh | **`10.60.197.6`** — fixed, already known | |
+
+Wazuh's address is fixed for this team: `10.60.197.6`. A and B's addresses
+still depend on whichever laptop plays which role and what the network
+hands out — get those with `ipconfig` as below.
 
 Confirm all three can reach each other before touching config:
 
 ```powershell
 # From A and B
-ping <Wazuh IP>
+ping 10.60.197.6
 ```
 
 ```bash
@@ -199,13 +203,17 @@ whatever is already there:
   <connection>syslog</connection>
   <port>514</port>
   <protocol>udp</protocol>
-  <allowed-ips>192.168.137.0/24</allowed-ips>
+  <allowed-ips>10.60.197.0/24</allowed-ips>
 </remote>
 ```
 
-Use the actual hotspot subnet for `allowed-ips`, not `0.0.0.0/0` — this
-opens an unauthenticated syslog listener, which is fine on an isolated
-hotspot for a demo and wrong anywhere else.
+Wazuh's own address is fixed at `10.60.197.6`, so `allowed-ips` above
+assumes a `/24` around it — check the actual prefix `ip -4 addr show`
+reported in step 0 and use that exact value instead if it differs (a
+different mask, or Machine A/B landing outside a `/24` of this address,
+would otherwise get silently blocked here). Use the real subnet, not
+`0.0.0.0/0` — an unauthenticated syslog listener open to everyone is fine
+on an isolated demo network and wrong anywhere else.
 
 By default Wazuh only turns logs that match one of its own decoding rules
 into an alert — an unmatched raw line can simply not appear anywhere in the
@@ -236,7 +244,7 @@ Open the firewall if one is active:
 
 ```bash
 sudo ufw allow 514/udp
-sudo ufw allow from 192.168.137.0/24 to any port 514 proto udp
+sudo ufw allow from 10.60.197.0/24 to any port 514 proto udp
 ```
 
 ### 2 · Before — raw traffic straight into Wazuh, no ULPF involved
@@ -245,7 +253,7 @@ On **A** (Windows), run ULPF's own simulator, pointed at Wazuh:
 
 ```powershell
 cd ULPF
-.\target\release\ulpf.exe serve --packs packs --vault data\simvault --integrity-dir data\simintegrity --port 8788 --syslog-bind 127.0.0.1:5515 --datasets realdata --sim-target 192.168.137.103:514
+.\target\release\ulpf.exe serve --packs packs --vault data\simvault --integrity-dir data\simintegrity --port 8788 --syslog-bind 127.0.0.1:5515 --datasets realdata --sim-target 10.60.197.6:514
 ```
 
 Open `http://localhost:8788/dev` and flip on two or three sources.
@@ -256,9 +264,9 @@ On **C**, watch it arrive as it's happening, independent of the dashboard:
 sudo tail -f /var/ossec/logs/archives/archives.log
 ```
 
-Then open Wazuh's dashboard (`https://192.168.137.103` — confirm the exact
-port on this install; recent Wazuh serves it over HTTPS on 443) and look
-under **Threat Hunting → Discover**, selecting the archives index if
+Then open Wazuh's dashboard at `https://10.60.197.6` (confirmed — plain
+HTTPS, no extra port needed) and look under **Threat Hunting → Discover**,
+selecting the archives index if
 **Alerts** looks sparse. Expect an inconsistent picture: some fields
 present, most vendor-specific structure absent, nothing sharing one schema,
 and no equivalent anywhere of "prove this one record is genuine without

@@ -23,18 +23,22 @@ themselves to "every command has been run."
 
 ## 1 · Find this machine's address
 
+This machine's address is fixed for this team: **`10.60.197.6`**. Confirm
+it against the network interface anyway — this also gives the exact
+subnet mask needed in the next step:
+
 ```bash
 ip -4 addr show | grep inet
 ```
 
-Note the IPv4 address on the shared hotspot. Both other machines need this
-address.
+Both other machines already know this address; nothing to send them.
 
-## 2 · Confirm the hotspot subnet
+## 2 · Confirm the subnet
 
-Needed for the `allowed-ips` value in the next step — read it off the
-address found above (e.g. if this machine is `192.168.137.103/24`, the
-subnet is `192.168.137.0/24`).
+Read the prefix off the `ip -4 addr show` output above — e.g. if it reports
+`10.60.197.6/24`, the subnet for the next step is `10.60.197.0/24`. Don't
+assume `/24`; use whatever this machine's own interface actually reports,
+since a wrong mask here silently blocks Machine A or B later.
 
 ## 3 · Open Wazuh's manager config
 
@@ -52,9 +56,12 @@ nothing arrives at all:
   <connection>syslog</connection>
   <port>514</port>
   <protocol>udp</protocol>
-  <allowed-ips><<HOTSPOT_SUBNET>></allowed-ips>
+  <allowed-ips>10.60.197.0/24</allowed-ips>
 </remote>
 ```
+
+Replace `10.60.197.0/24` with the real subnet from step 2 if it reported
+something different.
 
 Then, inside the existing `<global>...</global>` block, add or confirm:
 
@@ -91,7 +98,7 @@ sudo ufw status
 If it shows `active`:
 
 ```bash
-sudo ufw allow from <<HOTSPOT_SUBNET>> to any port 514 proto udp
+sudo ufw allow from 10.60.197.0/24 to any port 514 proto udp
 ```
 
 ## 6 · Watch traffic arrive, independent of the dashboard
@@ -106,8 +113,8 @@ sudo tail -f /var/ossec/logs/archives/archives.log
 ## 7 · The "before" shot
 
 **(manual)** Open the Wazuh dashboard in a browser —
-`https://<<THIS_MACHINE_IP>>` (confirm the exact port on this install; it
-is commonly 443). Log in with this install's own credentials. Go to
+`https://10.60.197.6` (confirmed — plain HTTPS, no extra port). Log in with
+this install's own credentials. Go to
 **Threat Hunting → Discover**, and switch to the archives index if
 **Alerts** looks sparse — that is `logall`/`logall_json` from step 3 doing
 its job.
