@@ -13,6 +13,7 @@
 //! attestation covers. Showing the middle of the pipeline is what makes the
 //! normalization legible rather than magical.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::{DefaultBodyLimit, Path, Request, State};
@@ -51,6 +52,11 @@ pub struct AppState {
     pub vault_dir: std::path::PathBuf,
     pub packs_dir: std::path::PathBuf,
     pub drain: ulpf_generator::drain::Drain,
+    /// Source profiles already computed for a cluster, keyed by cluster id and
+    /// valid for as long as that cluster's retained sample count is unchanged.
+    /// `Drain` only ever pushes samples, so a cluster whose sample count has
+    /// not moved has the same samples it was profiled from.
+    pub cluster_profiles: HashMap<String, (usize, Value)>,
     pub simulator: crate::simulator::Simulator,
     /// Set when `serve` was started with `--encrypt-vault`. The `raw`
     /// handler needs this to build its own `VaultReader` against the same
@@ -385,13 +391,38 @@ async fn events(State(state): State<Shared>) -> Json<Value> {
     Json(json!({ "events": rows }))
 }
 
+/// The console polls this every two seconds, so what it costs is paid
+/// continuously for as long as a console is open.
+///
+/// Profiling every retained cluster inline under the state lock is what that
+/// used to mean: measured at the 1000-cluster cap it is ~104 ms per request in
+/// a release build and ~1.2 s in a debug one, and the lock it was holding is
+/// the same one the UDP ingest path needs to record an event. A console left
+/// open would stall the collector for that long, twice a second.
+///
+/// So the lock is released before any profiling happens, and a profile is
+/// computed once per cluster rather than once per poll.
 async fn clusters(State(state): State<Shared>) -> Json<Value> {
-    let s = lock(&state);
-    let ranked = s.drain.ranked_clusters();
+    let (ranked, overflow, cached) = {
+        let s = lock(&state);
+        (
+            s.drain.ranked_clusters(),
+            s.drain.overflow(),
+            s.cluster_profiles.clone(),
+        )
+    };
+
+    let mut fresh: HashMap<String, (usize, Value)> = HashMap::with_capacity(ranked.len());
     let list: Vec<Value> = ranked
         .into_iter()
         .map(|c| {
-            let source_profile = ulpf_generator::profile::analyze(&c.samples);
+            let source_profile = match cached.get(&c.id) {
+                Some((len, profile)) if *len == c.samples.len() => profile.clone(),
+                _ => json!(ulpf_generator::profile::analyze(&c.samples)),
+            };
+            // Rebuilt from the clusters that still exist, so the cache cannot
+            // outlive the cluster table it describes.
+            fresh.insert(c.id.clone(), (c.samples.len(), source_profile.clone()));
             json!({
                 "id": c.id,
                 "count": c.count,
@@ -405,10 +436,13 @@ async fn clusters(State(state): State<Shared>) -> Json<Value> {
             })
         })
         .collect();
+
+    lock(&state).cluster_profiles = fresh;
+
     // Report what the cluster cap dropped rather than hiding it: a rising
     // overflow is itself the signal that unparsed traffic is more varied than
     // the console is showing.
-    Json(json!({ "clusters": list, "overflow": s.drain.overflow() }))
+    Json(json!({ "clusters": list, "overflow": overflow }))
 }
 
 /// Either drive an existing dead-letter cluster, or hand over raw lines
@@ -1281,6 +1315,7 @@ mod tests {
             vault_dir: dir.path().join("vault"),
             packs_dir: dir.path().join("packs"),
             drain: ulpf_generator::drain::Drain::new(),
+            cluster_profiles: HashMap::new(),
             simulator: crate::simulator::Simulator::new(
                 dir.path().join("datasets"),
                 "127.0.0.1:5514".into(),

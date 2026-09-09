@@ -1122,6 +1122,7 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         vault_dir,
         packs_dir: packs_dir.clone(),
         drain: ulpf_generator::drain::Drain::new(),
+        cluster_profiles: std::collections::HashMap::new(),
         simulator: simulator::Simulator::new(datasets_dir, sim_target),
         vault_key,
     }));
