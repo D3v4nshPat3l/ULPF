@@ -382,7 +382,7 @@ function render(data) {
   $("s-sent").textContent = Number(data.total_sent || 0).toLocaleString();
   $("s-target").textContent = data.target || "—";
   
-  if (data.target === "10.60.197.6:514") {
+  if (data.target === "127.0.0.1:514") {
     $("btn-target-wazuh").style.background = "var(--primary-soft)";
     $("btn-target-wazuh").style.color = "var(--primary)";
     $("btn-target-ulpf").style.background = "var(--panel)";
@@ -453,7 +453,7 @@ async function setTarget(tgt) {
   }
 }
 
-$("btn-target-wazuh").addEventListener("click", () => setTarget("10.60.197.6:514"));
+$("btn-target-wazuh").addEventListener("click", () => setTarget("127.0.0.1:514"));
 $("btn-target-ulpf").addEventListener("click", () => setTarget("127.0.0.1:5514"));
 
 refresh();
