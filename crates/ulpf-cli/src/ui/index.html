@@ -312,6 +312,29 @@
     .trendstats{grid-template-columns:repeat(2,1fr)}
   }
 
+  /* ----------------------------------------------- source pulse workspace */
+  .analytics-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
+  .akpi{background:#fff;border:1px solid var(--border);border-radius:7px;padding:14px 16px;box-shadow:var(--shadow)}
+  .akpi .k{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);font-weight:650}
+  .akpi .v{font-size:25px;line-height:1.2;font-weight:700;margin-top:5px;font-variant-numeric:tabular-nums}.akpi .n{font-size:11px;color:var(--text-3);margin-top:3px}
+  .pulse-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-left:auto}
+  .pulse-toolbar input{width:min(250px,42vw)}.pulse-toolbar select{min-width:145px}
+  .pulse-summary{display:flex;align-items:center;gap:18px;padding:12px 18px;border-bottom:1px solid var(--border);background:#FBFCFE;color:var(--text-2);font-size:12px}
+  .pulse-summary b{color:var(--text);font-size:16px;margin-right:4px;font-variant-numeric:tabular-nums}
+  .source-pulses{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:18px}
+  .source-pulse{border:1px solid var(--border);border-radius:7px;padding:16px 17px 13px;background:#fff;min-height:275px;box-shadow:0 1px 2px rgba(29,30,36,.04);transition:border-color .15s,box-shadow .15s}
+  .source-pulse:hover{border-color:#AEBACB;box-shadow:0 5px 18px rgba(35,48,70,.08)}
+  .source-pulse-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}
+  .source-pulse-name{font-size:14px;font-weight:650;min-width:0}.source-pulse-name small{display:block;color:var(--text-3);font:400 10.5px/1.5 "JetBrains Mono",ui-monospace,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .source-pulse-total{text-align:right;font-size:19px;font-weight:700;font-variant-numeric:tabular-nums}.source-pulse-total small{display:block;color:var(--text-3);font-size:10px;font-weight:500}
+  .source-pulse-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:13px 0 4px}
+  .source-pulse-metrics div{padding:7px 9px;border-radius:5px;background:var(--sunken)}.source-pulse-metrics b{display:block;font-size:13px;font-variant-numeric:tabular-nums}.source-pulse-metrics span{font-size:9.5px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em}
+  .source-pulse-chart{position:relative}.source-pulse svg{display:block;width:100%;height:145px;overflow:visible}
+  .source-pulse-foot{display:flex;justify-content:space-between;margin-top:3px;color:var(--text-3);font-size:10.5px}
+  .pulse-empty{grid-column:1/-1;min-height:360px;display:grid;place-content:center;justify-items:center;text-align:center;color:var(--text-2)}.pulse-empty b{font-size:15px;color:var(--text)}
+  @media(max-width:1080px){.analytics-kpis{grid-template-columns:repeat(2,1fr)}.source-pulses{grid-template-columns:1fr}}
+  @media(max-width:650px){.analytics-kpis{grid-template-columns:1fr}.pulse-toolbar{width:100%}.pulse-toolbar input,.pulse-toolbar select{width:100%}.source-pulses{padding:12px}.source-pulse-metrics{grid-template-columns:1fr}.source-pulse{min-height:310px}}
+
   /* ---------------------------------------- the before/after strip */
   .ros-lede{margin:0 0 14px;font-size:13.5px;line-height:1.6;color:var(--text-2);max-width:none}
   .ros-lede b{color:var(--text);font-weight:650}
@@ -524,6 +547,10 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
         Overview
       </button>
+      <button class="navitem" data-view="analytics">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V9m5 10V5m5 14v-7m5 7V3"/></svg>
+        Analytics
+      </button>
       <button class="navitem" data-view="events">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
         Events <span class="tally" id="tally-events">0</span>
@@ -676,6 +703,35 @@
         <div class="map-lede" id="map-lede">
           <div class="lede-what" id="lede-what"></div>
           <ol class="lede-steps" id="lede-steps"></ol>
+        </div>
+      </section>
+
+      <!-- =========================================== ANALYTICS -->
+      <section class="view" id="view-analytics">
+        <div class="pagehead">
+          <div><h1>Source pulse</h1><p>A focused live view of how much traffic each Source Pack is handling. Every point is measured from this collector.</p></div>
+          <div class="actions"><span class="pill neutral" id="analytics-window"><i></i> collecting</span></div>
+        </div>
+        <div class="analytics-kpis">
+          <div class="akpi"><div class="k">Events received</div><div class="v" id="ak-received">0</div><div class="n" id="ak-sources">0 active sources</div></div>
+          <div class="akpi"><div class="k">Normalized coverage</div><div class="v" id="ak-coverage">0.0000%</div><div class="n" id="ak-parsed">0 records mapped</div></div>
+          <div class="akpi"><div class="k">Combined source rate</div><div class="v" id="ak-rate">0 EPS</div><div class="n" id="ak-peak">peak 0 EPS</div></div>
+          <div class="akpi"><div class="k">Needs a source pack</div><div class="v" id="ak-unknown">0</div><div class="n">vaulted for later recognition</div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Active Source Packs</h2><span class="sub">large per-source trends</span>
+            <div class="pulse-toolbar">
+              <input id="pulse-search" type="search" aria-label="Filter Source Packs" placeholder="Filter sources">
+              <select id="pulse-sort" aria-label="Sort Source Packs"><option value="volume">Highest volume</option><option value="rate">Highest rate</option><option value="name">Source name</option></select>
+            </div>
+          </div>
+          <div class="pulse-summary">
+            <span><b id="pulse-active">0</b> active sources</span>
+            <span><b id="pulse-combined">0</b> events/sec combined</span>
+            <span><b id="pulse-samples">0</b> live samples</span>
+          </div>
+          <div class="source-pulses" id="source-pulses"><div class="pulse-empty"><b>No source traffic yet</b><span>Start the traffic simulator or connect a log source.</span></div></div>
         </div>
       </section>
 
@@ -996,6 +1052,7 @@ function switchView(name) {
   // while the view is hidden. Redraw once it is on screen. Guarded because
   // hash routing runs this before that section of the script is evaluated.
   if (name === "livemap" && window.flowDraw) requestAnimationFrame(window.flowDraw);
+  if (name === "analytics" && window.analyticsDraw) requestAnimationFrame(window.analyticsDraw);
 }
 document.querySelectorAll(".navitem").forEach((b) => {
   b.addEventListener("click", () => switchView(b.dataset.view));
@@ -2047,6 +2104,66 @@ $("chat-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); }
 });
 
+/* ------------------------------------------------ source pulse analytics */
+const ANALYTICS={stats:null,packs:[],samples:[],packRates:new Map(),previousReceived:null,previousPacks:{},sampledAt:null};
+const ANALYTICS_COLOURS=["#3568B8","#168672","#8B65B1","#B67828","#438E91","#A75476","#758B3D","#5B718E"];
+function analyticsSourceName(id){
+  const pack=ANALYTICS.packs.find(p=>p.id===id);if(!pack)return id;
+  const parts=[pack.vendor,pack.product].filter(x=>x&&x!=="Unknown");
+  return(parts.join(" ")||id).replace(/^(\S+)\s+\1\b/i,"$1");
+}
+function analyticsUpdate(stats,packs){
+  const now=Date.now(),received=Number(stats.received||0),dt=ANALYTICS.sampledAt?(now-ANALYTICS.sampledAt)/1000:0;
+  if(ANALYTICS.previousReceived!==null&&received<ANALYTICS.previousReceived){ANALYTICS.samples=[];ANALYTICS.packRates.clear();ANALYTICS.previousPacks={};}
+  ANALYTICS.stats=stats;ANALYTICS.packs=packs||[];
+  if(!ANALYTICS.sampledAt||dt>=.5){
+    const eps=dt&&ANALYTICS.previousReceived!==null?Math.max(0,(received-ANALYTICS.previousReceived)/dt):0;
+    ANALYTICS.samples.push({t:now,eps,received});
+    if(ANALYTICS.samples.length>90)ANALYTICS.samples.shift();
+    const current=stats.by_pack||{},ids=new Set([...Object.keys(current),...Object.keys(ANALYTICS.previousPacks)]);
+    ids.forEach(id=>{const list=ANALYTICS.packRates.get(id)||[],rate=dt?Math.max(0,(Number(current[id]||0)-Number(ANALYTICS.previousPacks[id]||0))/dt):0;list.push(rate);if(list.length>60)list.shift();ANALYTICS.packRates.set(id,list);});
+    ANALYTICS.previousPacks={...current};ANALYTICS.previousReceived=received;ANALYTICS.sampledAt=now;
+  }
+  if($("view-analytics").classList.contains("active"))analyticsDraw();
+}
+function analyticsDraw(){
+  const s=ANALYTICS.stats;if(!s)return;
+  const latest=ANALYTICS.samples.at(-1)||{eps:0},peak=Math.max(0,...ANALYTICS.samples.map(x=>x.eps)),active=Object.values(s.by_pack||{}).filter(Number).length;
+  $("ak-received").textContent=Number(s.received||0).toLocaleString();$("ak-sources").textContent=active+" active source"+(active===1?"":"s");
+  $("ak-coverage").textContent=(Number(s.coverage||0)*100).toFixed(4)+"%";$("ak-parsed").textContent=Number(s.parsed||0).toLocaleString()+" records mapped";
+  $("ak-rate").textContent=Math.round(latest.eps).toLocaleString()+" EPS";$("ak-peak").textContent="peak "+Math.round(peak).toLocaleString()+" EPS";$("ak-unknown").textContent=Number(s.unidentified||0).toLocaleString();
+  const seconds=ANALYTICS.samples.length>1?Math.round((ANALYTICS.samples.at(-1).t-ANALYTICS.samples[0].t)/1000):0;
+  $("analytics-window").className="pill "+(seconds?"ok":"neutral");$("analytics-window").replaceChildren(el("i"),document.createTextNode(seconds?seconds+"s live window":"collecting"));
+  drawSourcePulses();
+}
+function pulsePath(values,w,h){
+  const max=Math.max(1,...values),min=Math.min(0,...values),span=Math.max(1,max-min);
+  return values.map((v,i)=>(i?"L":"M")+(18+(values.length===1?0:(w-36)*i/(values.length-1)))+","+(h-20-(v-min)/span*(h-42))).join(" ");
+}
+function drawSourcePulses(){
+  const host=$("source-pulses"),s=ANALYTICS.stats,query=$("pulse-search").value.trim().toLowerCase(),sort=$("pulse-sort").value,parsed=Math.max(1,Number(s.parsed||0));
+  let rows=Object.entries(s.by_pack||{}).filter(x=>Number(x[1])>0).map(([id,total])=>{const values=ANALYTICS.packRates.get(id)||[0];return{id,total:Number(total),values,rate:Number(values.at(-1)||0),name:analyticsSourceName(id)}});
+  if(query)rows=rows.filter(x=>(x.name+" "+x.id).toLowerCase().includes(query));
+  rows.sort(sort==="rate"?(a,b)=>b.rate-a.rate:sort==="name"?(a,b)=>a.name.localeCompare(b.name):(a,b)=>b.total-a.total);
+  const combined=rows.reduce((n,x)=>n+x.rate,0);$("pulse-active").textContent=rows.length;$("pulse-combined").textContent=Math.round(combined).toLocaleString();$("pulse-samples").textContent=ANALYTICS.samples.length;
+  host.replaceChildren();
+  if(!rows.length){const empty=el("div","pulse-empty");empty.append(el("b",null,query?"No matching Source Pack":"No source traffic yet"),el("span",null,query?"Change or clear the filter.":"Start the traffic simulator or connect a log source."));host.append(empty);return;}
+  rows.forEach((row,index)=>{
+    const colour=ANALYTICS_COLOURS[index%ANALYTICS_COLOURS.length],peak=Math.max(0,...row.values),average=row.values.length?row.values.reduce((a,b)=>a+b,0)/row.values.length:0;
+    const card=el("article","source-pulse"),head=el("div","source-pulse-head"),name=el("div","source-pulse-name",row.name);name.append(el("small",null,row.id));
+    const total=el("div","source-pulse-total",row.total.toLocaleString());total.append(el("small",null,"records claimed"));head.append(name,total);card.append(head);
+    const metrics=el("div","source-pulse-metrics");
+    [["Current",Math.round(row.rate).toLocaleString()+" EPS"],["Peak",Math.round(peak).toLocaleString()+" EPS"],["Traffic share",(row.total/parsed*100).toFixed(1)+"%"]].forEach(([label,value])=>{const box=el("div");box.append(el("b",null,value),el("span",null,label));metrics.append(box)});card.append(metrics);
+    const w=560,h=145,d=pulsePath(row.values,w,h),svg=svgEl("svg",{viewBox:"0 0 "+w+" "+h,role:"img","aria-label":"Recent event rate for "+row.name});
+    [0,.5,1].forEach(q=>svg.append(svgEl("line",{x1:18,y1:18+(h-42)*q,x2:w-18,y2:18+(h-42)*q,stroke:"#E5E9F1","stroke-width":1,"stroke-dasharray":"3 6"})));
+    const area=d+" L"+(w-18)+","+(h-20)+" L18,"+(h-20)+" Z";svg.append(svgEl("path",{d:area,fill:colour,"fill-opacity":.09}),svgEl("path",{d,fill:"none",stroke:colour,"stroke-width":2.5,"stroke-linejoin":"round","stroke-linecap":"round"}));
+    if(row.values.length){const lastX=row.values.length===1?18:w-18,lastY=h-20-(row.rate-Math.min(0,...row.values))/Math.max(1,Math.max(1,...row.values)-Math.min(0,...row.values))*(h-42);svg.append(svgEl("circle",{cx:lastX,cy:lastY,r:4,fill:colour,stroke:"#fff","stroke-width":2}));}
+    card.append(svg);const foot=el("div","source-pulse-foot");foot.append(el("span",null,row.values.length+" measurements"),el("span",null,"average "+Math.round(average).toLocaleString()+" EPS"));card.append(foot);host.append(card);
+  });
+}
+$("pulse-search").addEventListener("input",drawSourcePulses);$("pulse-sort").addEventListener("change",drawSourcePulses);
+window.analyticsDraw=analyticsDraw;
+
 /* --------------------------------------------------------------- polling */
 let lastReceived = 0;
 let lastAt = Date.now();
@@ -2102,6 +2219,7 @@ async function refresh() {
     $("tally-events").textContent = compactCount(Number(stats.received || 0));
     renderPacks(packs.packs || []);
     renderClusters(clusters.clusters || [], clusters.overflow || 0);
+    analyticsUpdate(stats, packs.packs || []);
     // Rendering runs outside the fetch guard below. A thrown error in here is
     // a bug in this file, and reporting it as "Engine unreachable" points an
     // operator at the network for a fault that is nowhere near it.
