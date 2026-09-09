@@ -104,16 +104,16 @@ def fetch_to_file(urls: list[str], destination: pathlib.Path) -> None:
     next official endpoint or deposit.
     """
     destination.parent.mkdir(parents=True, exist_ok=True)
-    partial = destination.with_name(destination.name + ".part")
     errors: list[str] = []
 
-    for url_index, url in enumerate(urls):
-        # The first two URLs are two front doors to the same Zenodo object and
-        # can safely share a partial download. A fallback deposit may use a
-        # different compression format, so never append it to those bytes.
-        if url_index >= 2 and partial.exists():
-            partial.unlink()
-        for attempt in range(1, 4):
+    # Rotate endpoints after each failure instead of waiting through three
+    # timeouts against one unhealthy Zenodo front door. The first two URLs are
+    # the same object; fallback deposits get their own partial file because
+    # their compression format may differ.
+    for attempt in range(1, 4):
+        for url_index, url in enumerate(urls):
+            suffix = ".part" if url_index < 2 else f".fallback{url_index - 1}.part"
+            partial = destination.with_name(destination.name + suffix)
             existing = partial.stat().st_size if partial.exists() else 0
             headers = {"User-Agent": "ULPF-dataset-fetcher/1.0"}
             if existing:
@@ -138,9 +138,12 @@ def fetch_to_file(urls: list[str], destination: pathlib.Path) -> None:
                 return
             except (OSError, urllib.error.URLError) as error:
                 errors.append(f"{url}: {error}")
-                print(f"    attempt {attempt}/3 failed: {error}")
-                if attempt < 3:
-                    time.sleep(2**attempt)
+                print(
+                    f"    endpoint {url_index + 1}/{len(urls)}, "
+                    f"attempt {attempt}/3 failed: {error}"
+                )
+        if attempt < 3:
+            time.sleep(2**attempt)
 
     detail = errors[-1] if errors else "no download URL was attempted"
     raise RuntimeError(f"all download endpoints failed for {destination.name}: {detail}")
@@ -342,10 +345,14 @@ def secrepo_maccdc_zeek_conn(target: pathlib.Path) -> None:
         print("    no lines recovered from the prefix, skipped")
 
 
-def loghub_full(target: pathlib.Path, tiers: list[str]) -> None:
+def loghub_full(
+    target: pathlib.Path, tiers: list[str], skipped: set[str] | None = None
+) -> list[str]:
     """Fetch the complete Loghub corpora for the requested tiers."""
     import zipfile
 
+    skipped = skipped or set()
+    failures: list[str] = []
     for tier in tiers:
         entries = LOGHUB_FULL.get(tier, [])
         if not entries:
@@ -353,6 +360,9 @@ def loghub_full(target: pathlib.Path, tiers: list[str]) -> None:
         total = ", ".join(f"{n} ({s})" for n, s, _ in entries)
         print(f"Loghub full corpora [{tier}]: {total}")
         for archive_name, size, lines in entries:
+            if archive_name in skipped:
+                print(f"  {archive_name}: skipped by --skip-archive")
+                continue
             stem = archive_name.split(".")[0]
             marker = target / f"{stem}.full.log"
             if marker.exists():
@@ -366,36 +376,43 @@ def loghub_full(target: pathlib.Path, tiers: list[str]) -> None:
                 f"{ZENODO_API}/{archive_name}/content",
                 *ZENODO_FALLBACKS.get(archive_name, []),
             ]
-            if not archive_path.exists():
-                fetch_to_file(urls, archive_path)
+            try:
+                if not archive_path.exists():
+                    fetch_to_file(urls, archive_path)
 
-            output_part = marker.with_name(marker.name + ".part")
-            wrote_data = False
-            with output_part.open("wb") as output:
-                if zipfile.is_zipfile(archive_path):
-                    with zipfile.ZipFile(archive_path) as handle:
-                        for name in handle.namelist():
-                            if name.endswith(".log") or name.endswith(".txt"):
-                                with handle.open(name) as stream:
-                                    shutil.copyfileobj(stream, output, length=1024 * 1024)
-                                wrote_data = True
-                else:
-                    with tarfile.open(archive_path, mode="r:*") as handle:
-                        for member in handle.getmembers():
-                            if not member.isfile():
-                                continue
-                            stream = handle.extractfile(member)
-                            if stream is not None:
-                                with stream:
-                                    shutil.copyfileobj(stream, output, length=1024 * 1024)
-                                wrote_data = True
+                output_part = marker.with_name(marker.name + ".part")
+                wrote_data = False
+                with output_part.open("wb") as output:
+                    if zipfile.is_zipfile(archive_path):
+                        with zipfile.ZipFile(archive_path) as handle:
+                            for name in handle.namelist():
+                                if name.endswith(".log") or name.endswith(".txt"):
+                                    with handle.open(name) as stream:
+                                        shutil.copyfileobj(stream, output, length=1024 * 1024)
+                                    wrote_data = True
+                    else:
+                        with tarfile.open(archive_path, mode="r:*") as handle:
+                            for member in handle.getmembers():
+                                if not member.isfile():
+                                    continue
+                                stream = handle.extractfile(member)
+                                if stream is not None:
+                                    with stream:
+                                        shutil.copyfileobj(stream, output, length=1024 * 1024)
+                                    wrote_data = True
 
-            if not wrote_data:
-                output_part.unlink(missing_ok=True)
-                raise RuntimeError(f"{archive_name} contains no .log or .txt files")
-            output_part.replace(marker)
-            print(f"    -> {marker.name}  ({marker.stat().st_size / 1e6:.1f} MB)")
-            archive_path.unlink(missing_ok=True)
+                if not wrote_data:
+                    output_part.unlink(missing_ok=True)
+                    raise RuntimeError(f"{archive_name} contains no .log or .txt files")
+                output_part.replace(marker)
+                print(f"    -> {marker.name}  ({marker.stat().st_size / 1e6:.1f} MB)")
+                archive_path.unlink(missing_ok=True)
+            except Exception as error:  # noqa: BLE001 - continue with other corpora
+                failures.append(archive_name)
+                print(f"    {archive_name} unavailable for now: {error}")
+                print("    continuing with the remaining large-tier corpora")
+
+    return failures
 
 
 def combine(target: pathlib.Path) -> None:
@@ -439,6 +456,16 @@ def main() -> None:
             "xl ~62 GB (sustained-rate testing)"
         ),
     )
+    parser.add_argument(
+        "--skip-archive",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help=(
+            "skip one temporarily unavailable full archive, for example "
+            "--skip-archive BGL.zip; may be supplied more than once"
+        ),
+    )
     args = parser.parse_args()
     target = pathlib.Path(args.dir).resolve()
     target.mkdir(parents=True, exist_ok=True)
@@ -460,12 +487,22 @@ def main() -> None:
         if "large" in wanted:
             honeynet_bluecoat(target)
             secrepo_maccdc_zeek_conn(target)
-        loghub_full(target, [t for t in wanted if t in LOGHUB_FULL])
+        full_failures = loghub_full(
+            target,
+            [t for t in wanted if t in LOGHUB_FULL],
+            set(args.skip_archive),
+        )
     except Exception as error:  # noqa: BLE001 - a fetch failure should be legible
         print(f"\nfailed: {error}", file=sys.stderr)
         raise SystemExit(1) from error
 
-    print("\nReady. Now run: python tools/measure_coverage.py")
+    if full_failures:
+        print("\nAvailable corpora are ready, but these archives need a later retry:")
+        for archive_name in full_failures:
+            print(f"  - {archive_name}")
+        print("Rerun this same command later; completed files will be skipped.")
+    else:
+        print("\nReady. Now run: python tools/measure_coverage.py")
 
 
 if __name__ == "__main__":
