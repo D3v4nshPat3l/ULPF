@@ -8,7 +8,7 @@
 //! accumulate, and the loop only sleeps when it is genuinely ahead of schedule.
 
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::net::UdpSocket;
 use std::path::Path;
 use std::thread;
@@ -26,32 +26,26 @@ pub fn cmd_replay(
     count: Option<u64>,
 ) -> anyhow::Result<()> {
     let socket = UdpSocket::bind("0.0.0.0:0")?;
+    // Keep memory usage constant even when replaying multi-gigabyte corpora.
+    // The previous implementation collected every line into a Vec<String>;
+    // replaying the 2.6 GB Blue Coat corpus could therefore require several
+    // additional gigabytes of RAM before the first datagram was sent.
     let file = File::open(source_file)?;
-    let reader = BufReader::new(file);
-    let mut lines = Vec::new();
-
-    for line in reader.lines() {
-        let line = line?;
-        if !line.trim().is_empty() {
-            lines.push(line);
-        }
-    }
-
-    if lines.is_empty() {
-        anyhow::bail!("Source file is empty");
-    }
+    let mut reader = BufReader::new(file);
+    let mut line = Vec::new();
+    let mut found_event = false;
 
     match count {
         Some(n) => println!(
-            "Replaying {} lines to {} at {} EPS ({} events, then stop)...",
-            lines.len(),
+            "Streaming {} to {} at {} EPS ({} events, then stop)...",
+            source_file.display(),
             target,
             eps,
             n
         ),
         None => println!(
-            "Replaying {} lines to {} at {} EPS (Ctrl-C to stop)...",
-            lines.len(),
+            "Streaming {} to {} at {} EPS (Ctrl-C to stop)...",
+            source_file.display(),
             target,
             eps
         ),
@@ -68,8 +62,24 @@ pub fn cmd_replay(
             }
         }
 
-        let line = &lines[(sent as usize) % lines.len()];
-        socket.send_to(line.as_bytes(), target)?;
+        line.clear();
+        if reader.read_until(b'\n', &mut line)? == 0 {
+            if !found_event {
+                anyhow::bail!("Source file is empty");
+            }
+            reader.seek(SeekFrom::Start(0))?;
+            continue;
+        }
+
+        while matches!(line.last(), Some(b'\n' | b'\r')) {
+            line.pop();
+        }
+        if line.iter().all(|byte| byte.is_ascii_whitespace()) {
+            continue;
+        }
+
+        found_event = true;
+        socket.send_to(&line, target)?;
         sent += 1;
 
         if sent % eps.max(1) == 0 {
