@@ -64,6 +64,12 @@ Uses this machine's own address from step 1:
 
 Leave it running. It prints a console token — note it.
 
+**`git pull` and rebuild before this step, if not already done.** A real
+bug (commit `1a2cd89`) used to make the console's own first page load fail
+with a bare JSON 401 instead of showing the token prompt — pulling the fix
+is what makes "paste the console token when prompted" below actually true
+rather than a dead end.
+
 Do **not** point `--opensearch` at Wazuh's address instead of this
 machine's own — Wazuh's indexer needs HTTPS and username/password auth,
 this sink only speaks plain HTTP with a bearer token, and it will not

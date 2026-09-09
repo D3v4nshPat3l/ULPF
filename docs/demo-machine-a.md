@@ -105,21 +105,28 @@ this team — `10.60.197.6` — no placeholder to fill in here:
 .\target\release\ulpf.exe serve --packs packs --vault data\simvault --integrity-dir data\simintegrity --port 8788 --syslog-bind 127.0.0.1:5515 --datasets realdata --sim-target 10.60.197.6:514 --no-auth
 ```
 
-**`--no-auth` is required here, not optional** — without it, `/dev` sits
-behind the same console-token check as every other route (confirmed
-directly in `crates/ulpf-cli/src/server.rs`: `/dev` is inside the same
-guarded router as `/api/*`), and a plain browser address-bar visit has no
-way to attach the `Authorization` header the check requires. Opening
-`/dev` without `--no-auth` returns exactly this JSON instead of the page:
+**This was a real bug, now fixed — `git pull` before running this.** `/dev`
+used to sit behind the same console-token check as every other route (it
+was inside the same guarded router as `/api/*` in `server.rs`), and a
+plain browser address-bar visit has no way to attach the `Authorization`
+header that check required — so opening `/dev` returned the bare JSON
+error below instead of the page, and pasting the printed token nowhere
+helped, because the page's own token-prompt script never got a chance to
+load either:
 
 ```json
 {"error":"this endpoint requires a console token: send `Authorization: Bearer <token>` or `X-ULPF-Token: <token>`. ..."}
 ```
 
-That is not a bug to work around with the printed token — a bare page
-load in a browser cannot send that header at all, token or not.
-`--no-auth` is the correct fix specifically for this instance, because
-this is throwaway local traffic-simulator control, not the real collector
+Fixed in commit `1a2cd89`: the page shell (`/` and `/dev`) now loads
+without a token, same as `/healthz`/`/readyz` already did — only the
+`/api/*` calls underneath still require one, exactly as designed. **Pull
+the latest code and rebuild on every machine before relying on this.**
+After that, `--no-auth` above is optional, not required — dropping it
+still works, and a `window.prompt()` on the page will ask for the printed
+console token the first time, then remember it. Keeping `--no-auth` here
+is still a reasonable simplification for this specific instance, since it
+is throwaway local traffic-simulator control, not the real collector
 console judges will see (Machine B keeps its token — see
 `demo-machine-b.md`).
 
