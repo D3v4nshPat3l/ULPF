@@ -111,86 +111,230 @@ The single most common failure is a firewall rule that was never tested.
 
 ---
 
-## Wazuh comparison variant — new, not yet rehearsed
+## Wazuh comparison variant — this team's actual setup, commands included
 
-Everything above has been run against the current build. **This section has
-not** — it is a plan, written up so it can be tested rather than improvised
-live. Rehearse it fully at least once before showing it to a judge.
+Everything else in this document has been run against the current build.
+**The Wazuh commands below have not** — Wazuh's exact config syntax and
+default ports do shift between releases, so treat every command here as a
+strong draft, run it once end to end before showing it to a judge, and fix
+this document if a command differs on the installed version. That is
+exactly the standard the rest of this file holds itself to.
 
-**The moment this is built for:** show the same real traffic arriving at a
-real, widely-deployed SIEM (Wazuh) two ways — once with nothing in front of
-it, once with ULPF in front of it — so the value of normalization is
-visible, not asserted.
+**Setup this is written for:** three machines on one Wi-Fi hotspot.
 
-**A technical constraint found while planning this, worth knowing before
-building on it:** ULPF's `--opensearch` sink deliberately speaks plain HTTP
-with a bearer token only (see [SINKS.md](SINKS.md); there is even a unit
-test that rejects an `https://` URL). Wazuh's own indexer needs HTTPS plus
-username/password auth. **Do not try to point `--opensearch` straight at
-Wazuh's indexer** — it will not authenticate, and discovering that live is
-exactly the kind of failure this document exists to prevent. The plan below
-avoids the mismatch entirely by giving Wazuh its own independent raw feed,
-rather than trying to feed ULPF's normalized output into Wazuh's storage.
+| Machine | Role | OS |
+|---|---|---|
+| **A — "dev dashboard"** | Generates realistic multi-device traffic | Windows |
+| **B — "main dashboard"** | Runs the real ULPF collector + its own OpenSearch stack | Windows |
+| **C — Wazuh** | Already installed, reachable from Windows | Ubuntu Server |
 
-### Machine roles for this variant
+**The technical constraint that shapes this whole plan:** ULPF's
+`--opensearch` sink deliberately speaks plain HTTP with a bearer token only
+(see [SINKS.md](SINKS.md) — there is a unit test that rejects an `https://`
+URL). Wazuh's own indexer needs HTTPS plus username/password auth. **Do not
+point `--opensearch` at Wazuh's indexer** — it will not authenticate. Instead
+Wazuh gets its own independent raw feed over syslog, and ULPF forwards to
+its *own* OpenSearch stack. Two dashboards, side by side, never one feeding
+the other.
 
-| Machine | Role |
-|---|---|
-| **A — "dev dashboard"** | Runs `ulpf serve --sim-target ...`, its `/dev` page fans out realistic multi-device, multi-IP traffic (see the existing "Or drive it from a browser" section above) |
-| **B — "main dashboard"** | Runs the real ULPF collector, console on `:8787`, forwarding to its own OpenSearch demo stack (`deploy/opensearch-compose.yaml`, already tested) |
-| **C — "Wazuh"** | Runs Wazuh's official single-node Docker stack (manager + indexer + dashboard), listening for the *same* raw traffic independently |
+### 0 · Addresses
 
-### The before/after moment
+Hotspot IPs first — get these before anything else, they go into every
+command below.
 
-1. **Before.** Point machine A's simulator at Wazuh's own remote-syslog
-   listener on machine C (configure a `<remote>` block in Wazuh's
-   `ossec.conf`, or its syslog input — this is Wazuh's own decoders doing
-   the work, ULPF is not involved at all). Open Wazuh's dashboard: expect an
-   inconsistent picture — some vendors partially decoded by Wazuh's built-in
-   rules, none of them sharing one schema, and critically, **no raw-byte
-   preservation and no tamper-evidence of any kind** — Wazuh has nothing
-   equivalent to the vault or the integrity chain, regardless of how well it
-   parses the fields.
-2. **Switch.** Repoint machine A's `--sim-target` at machine B (ULPF)
-   instead of machine C. No restart of the simulator needed — it is a
-   server-side flag on A.
-3. **After.** On machine B's console and its own OpenSearch Dashboards,
-   show the same devices now arriving as one unified OCSF schema, each
-   event traceable back to its exact original bytes, each one provable with
-   `ulpf prove`/`verify-proof` without exposing any other event. This is the
-   part Wazuh cannot do at all, independent of how good its own decoders
-   are — say that difference out loud rather than relying on Wazuh looking
-   bad on formats it happens to handle poorly, which is a weaker and more
-   fragile argument if Wazuh's decoder for that particular vendor turns out
-   to be decent.
+```powershell
+# On A and B (Windows), in PowerShell:
+ipconfig
+```
 
-### Combining with the scale story
+Look for the adapter connected to the hotspot (often named "Wi-Fi" or
+"Local Area Connection* n") and note its IPv4 address.
 
-Run this same before/after on one pair of machines while a second and
-third independent collector (see [Machine A — the log sources](#machine-a--the-log-sources)
-above) replay other corpora at their own sustained rate simultaneously.
-Summing the three collectors' measured EPS is the honest way to talk about
-progress toward 1B/day — state the sum, and state plainly that it is three
-independent per-collector chains added together, not one collector
-measured three times.
+```bash
+# On C (Ubuntu):
+ip -4 addr show | grep inet
+```
 
-### Before doing this for real
+| Machine | Address | Fill in yours |
+|---|---|---|
+| A — dev dashboard | `192.168.137.101` | |
+| B — main dashboard | `192.168.137.102` | |
+| C — Wazuh | `192.168.137.103` | |
 
-- Wazuh's official Docker install: `git clone https://github.com/wazuh/wazuh-docker.git`,
-  check out the tag matching the Wazuh version wanted, then
-  `docker-compose -f single-node/docker-compose.yml up -d` (per Wazuh's own
-  docs — verify current exact steps there, they change between versions).
-- Confirm Wazuh's manager can actually be configured for remote syslog
-  input on the version pulled — this differs across Wazuh releases and is
-  the main thing to verify before rehearsing.
-- Decide in advance which specific corpus/device best demonstrates the
-  contrast, and check what Wazuh actually does with it ahead of time —
-  do not discover Wazuh's behavior on that format for the first time in
-  front of a judge.
-- This adds a fourth machine (or a fourth process) and a new dependency
-  (Docker, a Wazuh image pull) — budget real setup and rehearsal time for
-  it, and have the plain OpenSearch-only demo above as a fallback if this
-  variant isn't solid by showtime.
+Confirm all three can reach each other before touching config:
+
+```powershell
+# From A and B
+ping <Wazuh IP>
+```
+
+```bash
+# From C
+ping <machine B IP>
+```
+
+### 1 · Point Wazuh at incoming syslog — on C (Ubuntu)
+
+Wazuh's manager needs a `<remote>` block to accept syslog from other hosts;
+a stock install only listens for its own registered agents, not arbitrary
+syslog senders.
+
+```bash
+sudo nano /var/ossec/etc/ossec.conf
+```
+
+Add this block inside `<ossec_config>...</ossec_config>`, alongside
+whatever is already there:
+
+```xml
+<remote>
+  <connection>syslog</connection>
+  <port>514</port>
+  <protocol>udp</protocol>
+  <allowed-ips>192.168.137.0/24</allowed-ips>
+</remote>
+```
+
+Use the actual hotspot subnet for `allowed-ips`, not `0.0.0.0/0` — this
+opens an unauthenticated syslog listener, which is fine on an isolated
+hotspot for a demo and wrong anywhere else.
+
+By default Wazuh only turns logs that match one of its own decoding rules
+into an alert — an unmatched raw line can simply not appear anywhere in the
+dashboard, which would make the "before" shot look empty rather than messy.
+Turn on full archiving so every arrival is visible regardless of whether
+Wazuh's own rules understood it:
+
+```bash
+sudo nano /var/ossec/etc/ossec.conf
+```
+
+Inside `<global>...</global>`, set:
+
+```xml
+<logall>yes</logall>
+<logall_json>yes</logall_json>
+```
+
+Restart the manager and confirm it is actually listening:
+
+```bash
+sudo systemctl restart wazuh-manager
+sudo systemctl status wazuh-manager
+sudo ss -ulnp | grep 514
+```
+
+Open the firewall if one is active:
+
+```bash
+sudo ufw allow 514/udp
+sudo ufw allow from 192.168.137.0/24 to any port 514 proto udp
+```
+
+### 2 · Before — raw traffic straight into Wazuh, no ULPF involved
+
+On **A** (Windows), run ULPF's own simulator, pointed at Wazuh:
+
+```powershell
+cd ULPF
+.\target\release\ulpf.exe serve --packs packs --vault data\simvault --integrity-dir data\simintegrity --port 8788 --syslog-bind 127.0.0.1:5515 --datasets realdata --sim-target 192.168.137.103:514
+```
+
+Open `http://localhost:8788/dev` and flip on two or three sources.
+
+On **C**, watch it arrive as it's happening, independent of the dashboard:
+
+```bash
+sudo tail -f /var/ossec/logs/archives/archives.log
+```
+
+Then open Wazuh's dashboard (`https://192.168.137.103` — confirm the exact
+port on this install; recent Wazuh serves it over HTTPS on 443) and look
+under **Threat Hunting → Discover**, selecting the archives index if
+**Alerts** looks sparse. Expect an inconsistent picture: some fields
+present, most vendor-specific structure absent, nothing sharing one schema,
+and no equivalent anywhere of "prove this one record is genuine without
+showing the rest of the log."
+
+**Pick the source shown here deliberately, ahead of time.** Test two or
+three of the `realdata` corpora against Wazuh before the room is watching,
+and use whichever shows the clearest gap — do not discover live which one
+makes the point.
+
+### 3 · Stand up ULPF's own destination — on B (Windows)
+
+Needs Docker Desktop running.
+
+```powershell
+cd ULPF
+docker compose -f deploy/opensearch-compose.yaml up -d
+curl http://localhost:9200
+```
+
+Then the real collector, forwarding to that stack:
+
+```powershell
+.\target\release\ulpf.exe serve --packs packs --vault data\vault --integrity-dir data\integrity --chain demo --host 0.0.0.0 --port 8787 --syslog-bind 0.0.0.0:5514 --datasets realdata --opensearch http://192.168.137.102:9200 --opensearch-index ulpf-events
+```
+
+Open `http://192.168.137.102:8787`, note the printed console token.
+
+### 4 · Switch — same traffic, now through ULPF
+
+Stop machine A's simulator (Ctrl-C) and restart it with a new target —
+`--sim-target` is read once at startup, not adjustable live from the page:
+
+```powershell
+.\target\release\ulpf.exe serve --packs packs --vault data\simvault --integrity-dir data\simintegrity --port 8788 --syslog-bind 127.0.0.1:5515 --datasets realdata --sim-target 192.168.137.102:5514
+```
+
+Open `http://localhost:8788/dev` again, flip the **same** sources back on.
+
+### 5 · After
+
+On B's console (`:8787`), the same devices now arrive as one OCSF schema.
+Click through to OpenSearch Dashboards (`http://192.168.137.102:5601` —
+confirm the port `opensearch-compose.yaml` actually publishes) and search
+across every source in one query. Then run the proof, independent of both
+dashboards:
+
+```powershell
+.\target\release\ulpf.exe prove --integrity-dir data\integrity --chain demo --event one-event.json > proof.json
+.\target\release\ulpf.exe verify-proof --proof proof.json --checkpoint data\integrity\demo.checkpoint.json --public-key data\integrity\ed25519-signing.pub --event one-event.json
+```
+
+Say the difference out loud rather than leaning on Wazuh looking bad on a
+format it happens to parse poorly — that argument is fragile if Wazuh's
+decoder for that particular vendor turns out to be decent. The argument
+that doesn't depend on luck: Wazuh has no raw-byte vault and no way to prove
+one record's authenticity without exposing every other record around it.
+ULPF does both, independent of how good anyone's field-parsing is.
+
+### 6 · Combine with the scale story
+
+While the before/after is on screen, start one or two more independent
+replays at their own sustained rate — either a second `ulpf serve`
+instance on a spare port, or `ulpf replay` directly at B if a third machine
+isn't available:
+
+```powershell
+.\target\release\ulpf.exe replay --source realdata\snort.log --target 192.168.137.102:5514 --eps 2000
+```
+
+Add up each collector's own measured EPS and say the sum plainly, as a sum
+of independent per-collector chains — not one collector measured three
+times.
+
+### Before doing this in front of a judge
+
+- Run steps 1–5 once, fully, today — not the morning of judging.
+- Confirm the dashboard port (443 vs something else) and the exact
+  `<remote>` syntax against the Wazuh version actually installed; both
+  have changed across releases, and this document cannot know which one
+  is on that Ubuntu box.
+- Decide which corpus makes the clearest "before" in advance (see step 2).
+- Have the plain two-machine, OpenSearch-only demo (below) ready as a
+  fallback if the Wazuh leg isn't solid by showtime.
 
 ---
 
