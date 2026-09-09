@@ -29,3 +29,7 @@ __pycache__/
 
 # Documentation evidence is intentionally versioned.
 !/docs/screenshots/*.png
+
+# Manim virtual environment and rendered video output.
+.venv-manim/
+media/

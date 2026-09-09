@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ULPF — Faculty Brief</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm; }
+  :root{
+    --ink:#15181f; --ink2:#3d4453; --ink3:#6b7280;
+    --rule:#d8dce5; --soft:#f2f4f8; --accent:#0a5ca8; --accent-bg:#e8f0f9;
+    --good:#0f6b4f; --good-bg:#e3f2ec; --warn:#8a5a00; --warn-bg:#fbf1de;
+  }
+  *{box-sizing:border-box}
+  body{font:10.5pt/1.5 "Georgia","Times New Roman",serif; color:var(--ink); margin:0;
+       -webkit-print-color-adjust:exact; print-color-adjust:exact}
+  h1,h2,h3,.sans{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif}
+
+  header{border-bottom:2.5pt solid var(--ink); padding-bottom:4mm; margin-bottom:5mm}
+  .eyebrow{font:600 8.5pt/1 sans-serif; letter-spacing:.14em; text-transform:uppercase;
+           color:var(--accent); margin-bottom:2mm}
+  h1{font-size:19pt; margin:0 0 2mm; line-height:1.15}
+  header .sub{font-size:10.5pt; color:var(--ink2); margin:0}
+  header .to{font:9.5pt/1.5 sans-serif; color:var(--ink3); margin-top:3mm}
+
+  h2{font-size:12.5pt; margin:6mm 0 2mm; page-break-after:avoid;
+     border-left:3pt solid var(--accent); padding-left:3mm}
+  h3{font-size:10.5pt; margin:4mm 0 1.5mm; page-break-after:avoid; color:var(--ink2)}
+  p{margin:0 0 2.5mm}
+  ul,ol{margin:0 0 2.5mm; padding-left:5mm}
+  li{margin-bottom:1.2mm}
+  code{font:9pt/1.3 "SF Mono",Menlo,Consolas,monospace; background:var(--soft);
+       padding:.4mm 1mm; border-radius:1mm}
+  strong{font-weight:700}
+
+  table{border-collapse:collapse; width:100%; margin:2.5mm 0; font-size:9.5pt;
+        page-break-inside:avoid}
+  th{background:var(--soft); text-align:left; padding:1.8mm 2.2mm;
+     border-bottom:1pt solid var(--rule); font-family:sans-serif; font-size:8.5pt}
+  td{padding:1.8mm 2.2mm; border-bottom:.5pt solid var(--rule); vertical-align:top}
+  td.n{text-align:right; font-family:"SF Mono",Menlo,monospace}
+
+  .box{border:.8pt solid var(--rule); border-left:3pt solid var(--accent);
+       background:#fbfcfe; padding:2.5mm 3.5mm; margin:3mm 0; page-break-inside:avoid;
+       border-radius:0 1.5mm 1.5mm 0}
+  .box .lbl{font:600 8pt/1 sans-serif; letter-spacing:.11em; text-transform:uppercase;
+            color:var(--accent); display:block; margin-bottom:1.5mm}
+  .box p:last-child{margin-bottom:0}
+  .box.good{border-left-color:var(--good); background:var(--good-bg)}
+  .box.good .lbl{color:var(--good)}
+  .box.warn{border-left-color:var(--warn); background:var(--warn-bg)}
+  .box.warn .lbl{color:var(--warn)}
+
+  .diagram{font:8pt/1.35 "SF Mono",Menlo,monospace; background:#fff;
+           border:.8pt solid var(--rule); padding:3mm; margin:3mm 0;
+           white-space:pre; text-align:center; page-break-inside:avoid}
+
+  .ask{border:1.2pt solid var(--accent); border-radius:2mm; padding:3mm 4mm;
+       margin:3mm 0; page-break-inside:avoid; background:var(--accent-bg)}
+  .ask h3{margin:0 0 1.5mm; color:var(--accent); font-size:10.5pt}
+  .ask p{margin:0 0 1.5mm}
+  .ask p:last-child{margin:0}
+  .ask .why{font-size:9pt; color:var(--ink2); font-style:italic}
+
+  .stats{display:flex; gap:6mm; margin:3mm 0; flex-wrap:wrap}
+  .stats div{border-left:2pt solid var(--accent); padding-left:2.5mm}
+  .stats .n{font:700 13pt/1 sans-serif}
+  .stats .l{font:8pt/1.3 sans-serif; color:var(--ink3); text-transform:uppercase;
+            letter-spacing:.05em}
+  footer{margin-top:6mm; padding-top:3mm; border-top:.8pt solid var(--rule);
+         font-size:9pt; color:var(--ink3)}
+  .pb{page-break-before:always}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">Smart India Hackathon 2026 · Problem Statement 26156 · NTRO</div>
+  <h1>ULPF — Universal Log Pre-processing Framework</h1>
+  <p class="sub">A high-throughput ingestion and normalization pipeline for security telemetry,
+  with cryptographic integrity guarantees.</p>
+  <p class="to">Brief for faculty review — Big Data Analytics &nbsp;|&nbsp; Prepared by the project team</p>
+</header>
+
+<h2>1. The problem we were given</h2>
+
+<p>NTRO (with NCIIPC, which protects critical infrastructure — power, banking, telecom) asked for
+a framework that ingests logs from <em>any</em> perimeter network device — firewalls, intrusion
+detectors, proxies, web servers — and converts them into one common schema, at a scale of
+<strong>billions of events per day</strong>.</p>
+
+<p>Two things make it harder than a normal ETL problem:</p>
+
+<ul>
+  <li><strong>No schema on read, and no schema on write either.</strong> Every vendor invents its
+  own line format. There are ~40 formats in a typical estate and no registry of them.</li>
+  <li><strong>The pipeline must be lossless in the forensic sense.</strong> The statement asks to
+  "preserve complete raw event data without information loss" and "maintain traceability between
+  normalized and original events." These logs become legal evidence, so a transformation that
+  drops unrecognised fields is a failure even if the analytics still work.</li>
+</ul>
+
+<p>It must also run <strong>air-gapped</strong> — no internet, no cloud service, no external API.</p>
+
+<h2>2. What we built</h2>
+
+<p>A single Rust binary implementing a five-stage pipeline. The stage ordering is the main design
+decision:</p>
+
+<div class="diagram">
+raw bytes ──▶ ① VAULT ──▶ ② DETECT ──▶ ③ EXTRACT ──▶ ④ NORMALIZE ──▶ ⑤ ATTEST ──▶ sinks
+                 │                                                        │
+                 │  append-only, zstd, ~1 MB blocks                       │  hash chain +
+                 │  O(1) retrieval by locator                             │  Merkle tree
+                 └──────── receipt carried on every output record ────────┘
+</div>
+
+<h3>The design decision worth your attention</h3>
+<p><strong>The raw write precedes parsing.</strong> Bytes are appended to an immutable store and a
+locator returned <em>before</em> any interpretation is attempted. Everything downstream is
+therefore allowed to fail — unknown vendor, malformed record, a bug in our own decoder — without
+data loss. Most pipelines do the reverse: parse, then persist what was understood.</p>
+
+<h3>Schema and parser model</h3>
+<ul>
+  <li><strong>Target schema:</strong> OCSF 1.9 — an open, vendor-neutral security event schema
+  (the alternatives, ECS/CIM/ASIM/UDM, are each controlled by a single vendor).</li>
+  <li><strong>Parsers are declarative data, not code.</strong> One YAML file per source declares
+  its recognition predicates, a decoder chain, and a field-to-schema mapping. Adding a source is
+  a config change, hot-reloaded by a filesystem watcher — no recompile, no restart.</li>
+  <li><strong>Ten composable decoders</strong> (syslog ×2 dialects, key-value, CSV, CEF, LEEF,
+  JSON, XML, regex) chained per source. Vendors don't invent formats; they wrap one of ~6 bodies
+  in one of ~2 envelopes.</li>
+</ul>
+
+<h3>Outputs</h3>
+<ul>
+  <li>NDJSON (default), OpenSearch bulk, Splunk HEC</li>
+  <li><strong>Hive-partitioned Parquet</strong>, plus a separate <strong>24-column feature table
+  with a versioned contract</strong> for model training — deliberately decoupled from the document
+  archive so a parser change cannot silently alter the training schema</li>
+</ul>
+
+<h2>3. Where we are — measured</h2>
+
+<div class="stats">
+  <div><div class="n">838,779</div><div class="l">real records tested</div></div>
+  <div><div class="n">99.92%</div><div class="l">normalization coverage</div></div>
+  <div><div class="n">10,000/s</div><div class="l">sustained, lossless</div></div>
+  <div><div class="n">34</div><div class="l">source parsers</div></div>
+</div>
+
+<p>All corpora are public research datasets (Honeynet Project, Loghub) used unmodified; the
+measurement script is in the repository and reproducible. No synthetic data contributes to any
+published figure.</p>
+
+<table>
+  <tr><th>Offered rate</th><th class="n">Sent</th><th class="n">Ingested</th><th class="n">Loss</th></tr>
+  <tr><td>10,000 EPS</td><td class="n">100,000</td><td class="n">100,000</td><td class="n">0%</td></tr>
+  <tr><td>12,000 EPS</td><td class="n">120,000</td><td class="n">118,000</td><td class="n">1.7%</td></tr>
+  <tr><td>15,000 EPS</td><td class="n">150,000</td><td class="n">125,000</td><td class="n">16.7%</td></tr>
+</table>
+
+<p>We publish 10,000 EPS as the sustained figure and refuse the 12,000 row, since a 1.7% drop is
+exactly the failure mode the design exists to prevent. <strong>10,000 EPS = 864M events/day,
+which is 86% of the one-billion target.</strong></p>
+
+<div class="box warn">
+  <span class="lbl">The bottleneck, stated precisely</span>
+  <p>The pipeline is <strong>single-writer by construction</strong>: one append-only store (so a
+  locator is stable), one hash chain (so record <em>N+1</em> links to <em>N</em>), one Merkle log
+  (so an inclusion proof is meaningful). Parallelising within a collector means either multiple
+  chains behind one process — which is sharding with extra steps — or a lock around the chain,
+  which re-serialises the work.</p>
+  <p>Measured limits: <strong>~10,000 EPS</strong> on the UDP receive path, <strong>~23,000
+  EPS</strong> on the per-record processing path from file. So the receive path binds first.</p>
+</div>
+
+<p><strong>Our answer is horizontal:</strong> N independent collectors, each with its own port,
+store, signing key and chain. We have verified two collectors ingesting concurrently with zero
+loss and each chain verifying independently against its own key. Five would reach 50,000 EPS.</p>
+
+<div class="pb"></div>
+
+<h2>4. Limitations we already know about</h2>
+
+<table>
+  <tr><th>Limitation</th><th>Detail</th></tr>
+  <tr><td><strong>Scaling is arithmetic, not measurement</strong></td>
+      <td>The 5-shard → 50,000 EPS figure is the single-node number multiplied by shard count.
+      Shards share no lock, chain or file, so linear scaling is the model's prediction — but we
+      have never run a genuine multi-host test. <em>This is our weakest claim.</em></td></tr>
+  <tr><td><strong>Nine of 34 parsers lack real-corpus evidence</strong></td>
+      <td>They pass tests written from vendor documentation. We have direct evidence this is
+      insufficient: one vendor's published field order was simply <em>wrong</em>, and our
+      manual-derived parser matched none of 8.1M real records until we rebuilt it from the log
+      file's own header.</td></tr>
+  <tr><td><strong>UDP has no backpressure</strong></td>
+      <td>Above the sustained rate, records are dropped in the kernel before we observe them. We
+      raise the socket buffer to 8 MB and report what was granted, but TCP/TLS ingest is unbuilt.</td></tr>
+  <tr><td><strong>No binary formats</strong></td>
+      <td>NetFlow/IPFIX and Windows EVTX are unsupported. Our decoder trait takes <code>&amp;str</code>;
+      binary needs a second interface taking <code>&amp;[u8]</code>. NetFlow is genuinely in scope,
+      so this is a real gap.</td></tr>
+  <tr><td><strong>Console has no authentication</strong></td>
+      <td>Origin and Host checks block cross-site and DNS-rebinding attacks, but that is browser
+      safety, not access control.</td></tr>
+  <tr><td><strong>Feature table lacks a content digest</strong></td>
+      <td>Rows record which parser produced them, but a parser edited without a version bump is
+      indistinguishable from its predecessor — so a training set is reproducible only as far as
+      the parser files are unchanged.</td></tr>
+</table>
+
+<h2>5. Where your input would help most</h2>
+
+<p>Four things, roughly in order of how much they would improve the submission. The first is by
+far the most valuable.</p>
+
+<div class="ask">
+  <h3>① A multi-machine throughput measurement</h3>
+  <p>We need 3–5 networked machines for roughly two hours: one generating load, the others running
+  collectors, measuring aggregate ingest and per-shard loss.</p>
+  <p class="why">Why it matters: this converts our only unmeasured claim into a measured one. Is
+  there a lab, a cluster, or a set of VMs we could use? We can bring the whole setup as a single
+  binary and a compose file — no installation required on the machines.</p>
+</div>
+
+<div class="ask">
+  <h3>② A review of our partitioning decision</h3>
+  <p>We chose single-writer-per-shard and partition by <em>source device</em> (a device's traffic
+  must not be split, or its records land in two chains). Ordering exists within a shard but not
+  across shards.</p>
+  <p class="why">Why we're asking you: this is the classic partitioning trade-off from your
+  domain. Is device-level partitioning the right key, or would you argue for something else? Are
+  we wrong that per-shard sequential integrity forces single-writer?</p>
+</div>
+
+<div class="ask">
+  <h3>③ A critique of the feature table design</h3>
+  <p>24 fixed columns, Hive-partitioned by date, every column required, absence encoded as a
+  documented sentinel (<code>-1</code> for numbers, empty string for text) rather than null —
+  chosen because a null costs the reader a branch per row.</p>
+  <p class="why">Why we're asking you: you train models on tabular data. Is a required-only schema
+  with sentinels the right call, or would you prefer nullable columns? Are 24 columns the right
+  features for anomaly detection on network telemetry, and what would you add?</p>
+</div>
+
+<div class="ask">
+  <h3>④ Access to real device logs — a small, anonymised sample</h3>
+  <p>Even <strong>50–100 lines per device</strong> is enough to write and verify a parser. We are
+  <em>not</em> asking for production logs, and we understand why that would not be appropriate.
+  Masked addresses and usernames are fine — we need the <em>format</em>, not the content.</p>
+  <p class="why">Even simpler and equally useful: just the <strong>names of the network devices
+  the campus runs</strong>. That alone tells us which of our nine unproven parsers matter in
+  practice and which we can drop.</p>
+</div>
+
+<div class="box good">
+  <span class="lbl">What we can show in ten minutes</span>
+  <p>The system running live: heterogeneous logs from several real captures normalizing into one
+  schema; an <em>invented</em> log format being ingested and its addresses and ports extracted with
+  no parser at all; and a tamper test that alters one field on one stored record, after which
+  verification reports <code>fingerprint mismatch: event content has been altered</code> — while
+  the original bytes remain retrievable and provably different.</p>
+</div>
+
+<footer>
+  Source code, measurement scripts and full documentation:
+  <strong>github.com/D3v4nshPat3l/ULPF</strong> &nbsp;·&nbsp;
+  Every figure in this brief is reproducible with
+  <code>python tools/measure_coverage.py</code>.
+</footer>
+
+</body>
+</html>

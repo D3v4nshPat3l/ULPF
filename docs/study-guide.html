@@ -109,8 +109,8 @@
   </div>
 
   <div class="stats">
-    <div><div class="n">34</div><div class="l">Source Packs</div></div>
-    <div><div class="n">838,779</div><div class="l">Real records tested</div></div>
+    <div><div class="n">35</div><div class="l">Source Packs</div></div>
+    <div><div class="n">2,964,087</div><div class="l">Real records tested</div></div>
     <div><div class="n">99.92%</div><div class="l">Coverage</div></div>
     <div><div class="n">10,000</div><div class="l">Events / second</div></div>
     <div><div class="n">7</div><div class="l">Rust crates</div></div>
@@ -841,16 +841,22 @@ ZORPFW-9000 flow-end 10.2.4.7:44321 -> 93.184.216.34:443
   numbers update live.</p>
 
   <h4>The security check at step 4</h4>
-  <p>Our console has no login. So we check two things on every request:</p>
+  <p>The console now requires a login token on every API request — a teammate closed this gap
+  after we flagged it as our weakest point. Three checks run on each request:</p>
   <ul>
+    <li><strong>A bearer token</strong> — a random 256-bit secret generated the first time the
+    console starts, printed once, and saved to a file only the operator can read. Every
+    <code>/api/*</code> request must carry it.</li>
     <li><strong>Origin</strong> — browsers attach this to requests coming from another website, and
     a web page cannot fake it. This stops a malicious site you have open in another tab from
     silently installing a parser.</li>
     <li><strong>Host</strong> — must be an address we actually listen on. This stops a trick called
     DNS rebinding.</li>
   </ul>
-  <p><strong>Be honest about this one:</strong> it is browser safety, not authentication. Anyone
-  who can reach the port can use it. That is why it listens only on the local machine by default.</p>
+  <p>The token check is compared in <em class="t">constant time</em> — the comparison takes the
+  same number of steps whether the first byte matches or the last, so an attacker cannot guess the
+  token one character at a time by timing how fast it is rejected. There is a <code>--no-auth</code>
+  flag for a throwaway demo, and an optional HTTPS mode for anything beyond one machine.</p>
 
   <h2>6.6 The data structures and algorithms we actually use</h2>
   <table class="wide">
@@ -1004,7 +1010,50 @@ ZORPFW-9000 flow-end 10.2.4.7:44321 -> 93.184.216.34:443
   hostile input — multi-byte characters at every position, truncated records, nested structures —
   to all ten readers.</p>
 
-  <h2>8.6 A false claim in our own README</h2>
+  <h2>8.6 Detection succeeding while extraction produced nothing</h2>
+  <p>We checked four commercial-firewall parsers against real captured device output (Elastic's
+  own public integration-test fixtures — used only to check structure, never redistributed).
+  <strong>Every single check found a real bug</strong>, and each is a different flavour of the same
+  danger: a parser can report success while being wrong.</p>
+  <table class="wide">
+    <tr><th>Parser</th><th>What was wrong</th></tr>
+    <tr><td>FortiGate</td><td>Modern devices report time in <strong>nanoseconds</strong>; the
+      parser assumed <strong>seconds</strong>. Every timestamp would have been off by a factor of
+      a billion.</td></tr>
+    <tr><td>Cisco ASA</td><td>A common device setting produces a timestamp format the reader did
+      not recognise, silently dropping the hostname. Separately, ICMP and GRE traffic use a
+      different shape entirely — the parser claimed to support it, but never actually read it.</td></tr>
+    <tr><td>Juniper SRX</td><td>Real framing hid every session field behind a structured-data
+      wrapper the pattern never looked inside. <strong>Detection said yes; extraction produced zero
+      fields</strong> — worse than an honest failure, because it looks like success.</td></tr>
+    <tr><td>Check Point</td><td>The real export format is not the one the parser was built for at
+      all. Rather than force a bad fit, a second parser was written for the real format.</td></tr>
+  </table>
+  <div class="box warn">
+    <span class="lbl">The pattern across all four</span>
+    <p>None of these were caught by our own tests, because our tests were written by the same
+    people who wrote the parsers. Every one surfaced only when checked against how the real device
+    actually writes its logs. This is the same lesson as Blue Coat, found four more times.</p>
+  </div>
+
+  <h2>8.7 A network-monitoring parser, silently reading the wrong column</h2>
+  <p>We measured our Zeek network-monitor parser against a real 2012 capture from a security
+  conference (2.1 million records). <strong>Coverage stayed high the whole time</strong> — but two
+  specific fields were quietly wrong.</p>
+  <p>The parser's column order came from a general description of the format, not a real file. Real
+  output puts three fields — a count of missed bytes, a history code, and the packet counts —
+  <em>immediately</em> after the connection state; the parser expected two different fields there
+  instead. So it was reading each of those three values <strong>one column over from where they
+  actually were</strong>, for every single record, while still reporting a high score.</p>
+  <div class="box good">
+    <span class="lbl">Why this one matters most</span>
+    <p>Coverage measures whether a parser produced <em>an</em> answer, not whether the answer is
+    <em>correct</em>. A field silently reading from the wrong column looks identical to a working
+    parser on every dashboard we have — until someone checks the actual values against a real
+    capture, which is exactly what happened here.</p>
+  </div>
+
+  <h2>8.8 A false claim in our own README</h2>
   <p>Our README stated: <em>"no log line anywhere in this project is synthesised."</em></p>
   <p>It was not true. A sample file contained 7,319 invented lines. We found it by checking
   ourselves and corrected the claim to the one that is actually true — <em>no coverage or
@@ -1029,13 +1078,21 @@ ZORPFW-9000 flow-end 10.2.4.7:44321 -> 93.184.216.34:443
     <tr><td>iptables firewall</td><td>Honeynet</td><td class="n">179,752</td><td class="n">100.0000%</td></tr>
     <tr><td>Snort detector</td><td>Honeynet</td><td class="n">69,039</td><td class="n">99.9986%</td></tr>
     <tr><td>Dragon detector</td><td>Honeynet</td><td class="n">42,899</td><td class="n">100.0000%</td></tr>
+    <tr><td>Zeek network monitor</td><td>secrepo MACCDC 2012</td><td class="n">2,125,308</td><td class="n">99.9861%</td></tr>
     <tr><td>Squid proxy</td><td>Honeynet</td><td class="n">533,197</td><td class="n">99.9771%</td></tr>
     <tr><td>Apache web</td><td>Honeynet</td><td class="n">3,554</td><td class="n">99.9719%</td></tr>
     <tr><td>Linux, SSH, mail, Proxifier</td><td>Honeynet + Loghub</td><td class="n">10,338</td><td class="n">81–100%</td></tr>
-    <tr><td><strong>Total (perimeter)</strong></td><td></td><td class="n"><strong>838,779</strong></td><td class="n"><strong>99.9219%</strong></td></tr>
+    <tr><td><strong>Total (perimeter)</strong></td><td></td><td class="n"><strong>2,964,087</strong></td><td class="n"><strong>99.9679%</strong></td></tr>
   </table>
   <p>A further twelve corpora outside the perimeter scope are measured separately:
-  <strong>862,779 records at 99.7175%</strong> across all 23.</p>
+  <strong>2,988,087 records at 99.9085%</strong> across all 24.</p>
+
+  <div class="box good">
+    <span class="lbl">Where the jump came from</span>
+    <p>The Zeek network-monitor capture alone is <strong>2,125,308 records</strong> — more than
+    double everything else combined. Measuring it against a real capture (rather than trusting the
+    format description) is also what caught a real bug in that parser: see Part 8.</p>
+  </div>
 
   <div class="box">
     <span class="lbl">The number to lead with</span>
@@ -1064,14 +1121,14 @@ ZORPFW-9000 flow-end 10.2.4.7:44321 -> 93.184.216.34:443
 
   <h2>9.3 Everything else</h2>
   <table class="wide">
-    <tr><td>Source Packs</td><td class="n">34</td></tr>
-    <tr><td>Embedded tests, all passing</td><td class="n">64</td></tr>
+    <tr><td>Source Packs</td><td class="n">35</td></tr>
+    <tr><td>Embedded tests, all passing</td><td class="n">75</td></tr>
     <tr><td>Decoders</td><td class="n">10</td></tr>
-    <tr><td>Lines of Rust</td><td class="n">~18,400</td></tr>
+    <tr><td>Lines of Rust</td><td class="n">~19,000</td></tr>
     <tr><td>Container image size</td><td class="n">65.4 MB</td></tr>
     <tr><td>Proof size for one record</td><td class="n">11 hashes / 352 bytes</td></tr>
     <tr><td>Compression on real firewall logs</td><td class="n">better than 4:1</td></tr>
-    <tr><td>Parsers with real-data proof</td><td class="n">25 of 34</td></tr>
+    <tr><td>Parsers with real-data proof</td><td class="n">32 of 35</td></tr>
   </table>
 </section>
 
@@ -1237,12 +1294,13 @@ ZORPFW-9000 flow-end 10.2.4.7:44321 -> 93.184.216.34:443
   <div class="qa">
     <p class="q"><span>Q16</span>This works on your laptop. What breaks in the field?</p>
     <p class="trap"><b>Trap:</b> "Nothing, it's production ready."</p>
-    <p class="ans"><b class="lbl2">Our answer</b>Three things, and we know each one. <strong>One:</strong>
+    <p class="ans"><b class="lbl2">Our answer</b>Two things, and we know each one. <strong>One:</strong>
     above 10,000 records/second, UDP drops records in the kernel before we see them — we raise the
     buffer and print what the system granted, but UDP has no backpressure; TCP is future work.
-    <strong>Two:</strong> nine of our 34 parsers have never seen real traffic from that vendor, and
-    real data has broken parsers before. <strong>Three:</strong> the console has no authentication,
-    so it must sit behind a proxy if exposed.</p>
+    <strong>Two:</strong> three of our 35 parsers have never seen real traffic from that vendor
+    — generic CEF, pfSense, and Check Point's CEF variant — and real data has broken parsers
+    before, four more times just this week. The console now requires a login token by default;
+    that gap is closed.</p>
   </div>
 
   <div class="qa">
@@ -1390,21 +1448,25 @@ ZORPFW-9000 flow-end 10.2.4.7:44321 -> 93.184.216.34:443
 
   <table class="wide">
     <tr><th>Weakness</th><th>What we say</th></tr>
-    <tr><td><strong>Nine of 34 parsers have no real-data proof</strong></td>
-      <td>Cisco ASA, FortiGate, PAN-OS, Check Point, Juniper, Suricata, ModSecurity, generic CEF and
-      pfSense. They pass tests written from vendor manuals — and we have seen a manual be wrong.
-      We list them openly. Four are open-source software we can generate real logs from.</td></tr>
+    <tr><td><strong>Three of 35 parsers have no real-data proof</strong></td>
+      <td>Generic CEF, pfSense, and Check Point's CEF variant (its native-syslog sibling is now
+      checked). Down from nine: Suricata and ModSecurity are verified against real tool output,
+      and Cisco ASA, FortiGate, PAN-OS, Juniper and Check Point's real format are verified against
+      real captured device output — which found and fixed four genuine bugs along the way.</td></tr>
     <tr><td><strong>One collector does not reach a billion a day</strong></td>
       <td>10,000/sec is 86% of the target. Sharding is built and tested on one machine; a genuine
       multi-machine measurement has not been run.</td></tr>
-    <tr><td><strong>The console has no login</strong></td>
-      <td>It blocks cross-site and rebound requests, but that is browser safety, not
-      authentication. Needs a proxy in front for any wider exposure.</td></tr>
+    <tr><td><strong>The console's auth is a shared secret, not per-user accounts</strong></td>
+      <td>A login token is now required by default, closing our earlier gap — but it is one secret
+      for the whole console, not individual logins with different permission levels. Fine for a
+      small operator team; would need real accounts for a larger one.</td></tr>
     <tr><td><strong>No binary formats</strong></td>
       <td>NetFlow and Windows Event Log are not supported. Our decoders read text; these need a
       second interface. NetFlow is genuinely in scope, so this is a real gap.</td></tr>
-    <tr><td><strong>Outputs use plain HTTP</strong></td>
-      <td>Forwarding to a SIEM assumes a trusted local endpoint; TLS is the deployment's job.</td></tr>
+    <tr><td><strong>Outputs to a SIEM still use plain HTTP</strong></td>
+      <td>The console itself now supports HTTPS; forwarding to a downstream SIEM (OpenSearch,
+      Splunk) still assumes a trusted local endpoint — a real constraint we hit while planning a
+      comparison demo against Wazuh, whose own storage layer requires HTTPS.</td></tr>
     <tr><td><strong>The AI assistant is weak</strong></td>
       <td>It runs a small model so it works on any hardware, and it shows — it hedges and
       occasionally invents details. That is exactly why the rules-based generator exists and why
@@ -1439,10 +1501,10 @@ ZORPFW-9000 flow-end 10.2.4.7:44321 -> 93.184.216.34:443
 
   <h2>Numbers to know cold</h2>
   <table>
-    <tr><td>Real records tested</td><td class="n"><strong>838,779</strong></td>
-        <td>Coverage</td><td class="n"><strong>99.9219%</strong></td></tr>
-    <tr><td>Source Packs</td><td class="n"><strong>34</strong></td>
-        <td>Tests passing</td><td class="n"><strong>64 / 64</strong></td></tr>
+    <tr><td>Real records tested</td><td class="n"><strong>2,964,087</strong></td>
+        <td>Coverage</td><td class="n"><strong>99.9679%</strong></td></tr>
+    <tr><td>Source Packs</td><td class="n"><strong>35</strong></td>
+        <td>Tests passing</td><td class="n"><strong>75 / 75</strong></td></tr>
     <tr><td>Speed, lossless</td><td class="n"><strong>10,000/sec</strong></td>
         <td>Per day</td><td class="n"><strong>864 million</strong></td></tr>
     <tr><td>Proof size</td><td class="n"><strong>352 bytes</strong></td>
