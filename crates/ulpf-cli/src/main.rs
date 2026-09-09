@@ -422,6 +422,19 @@ enum Command {
         encrypt_vault: bool,
     },
 
+    /// Cluster completely unknown raw logs and report format/source evidence.
+    ///
+    /// This does not activate a pack or normalize the records. It is the safe
+    /// reconnaissance step before `draft` or console approval.
+    Profile {
+        /// Raw log file with one record per line, or `-` for stdin.
+        #[arg(long, short, default_value = "-")]
+        input: String,
+        /// Highest-volume unknown shapes to include in the JSON report.
+        #[arg(long, default_value_t = 20)]
+        max_clusters: usize,
+    },
+
     /// List the built-in decoders a pack may use.
     Decoders,
 
@@ -629,6 +642,10 @@ fn main() -> anyhow::Result<()> {
             encrypt_key,
             encrypt_vault,
         }),
+        Command::Profile {
+            input,
+            max_clusters,
+        } => cmd_profile(&input, max_clusters),
         Command::Decoders => {
             for name in ulpf_decode::BUILTIN_NAMES {
                 println!("{name}");
@@ -636,6 +653,58 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
     }
+}
+
+/// Inspect a raw file without claiming that a guessed identity is known.
+///
+/// Clustering comes first because a file may contain interleaved sources. A
+/// profile is calculated from the bounded representative samples retained for
+/// each shape, and the JSON output keeps syntax confidence separate from the
+/// broader source-family inference and exact product hypotheses.
+fn cmd_profile(input: &str, max_clusters: usize) -> anyhow::Result<()> {
+    let mut reader = open_input(input)?;
+    let mut drain = ulpf_generator::drain::Drain::new();
+    let mut raw = Vec::new();
+    let mut records = 0usize;
+    while reader.read_until(b'\n', &mut raw)? != 0 {
+        while matches!(raw.last(), Some(b'\n' | b'\r')) {
+            raw.pop();
+        }
+        if raw.iter().all(u8::is_ascii_whitespace) {
+            raw.clear();
+            continue;
+        }
+        let text = String::from_utf8_lossy(&raw);
+        drain.process(&text);
+        records += 1;
+        raw.clear();
+    }
+
+    let clusters: Vec<serde_json::Value> = drain
+        .ranked_clusters()
+        .into_iter()
+        .take(max_clusters)
+        .map(|cluster| {
+            let profile = ulpf_generator::profile::analyze(&cluster.samples);
+            serde_json::json!({
+                "cluster_id": cluster.id,
+                "records": cluster.count,
+                "template": cluster.template.join(" "),
+                "template_specificity": cluster.specificity(),
+                "profile": profile,
+            })
+        })
+        .collect();
+    let report = serde_json::json!({
+        "input": input,
+        "records_read": records,
+        "clusters_retained": drain.len(),
+        "records_outside_cluster_cap": drain.overflow(),
+        "clusters_reported": clusters.len(),
+        "clusters": clusters,
+    });
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
 }
 
 /// Open the raw vault, encrypting its block payloads if `--encrypt-vault`

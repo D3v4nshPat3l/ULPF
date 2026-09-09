@@ -14,6 +14,21 @@ ulpf draft \
   --examples-per-cluster 5
 ```
 
+If the input is raw logs rather than an existing dead-letter stream, profile it
+first. This keeps observable syntax, inferred family, and exact identity at
+different confidence levels:
+
+```bash
+ulpf profile --input unknown.log --max-clusters 20 > source-profile.json
+```
+
+The console performs the same profile for every unknown cluster and displays
+the evidence before either generator runs. A model suggestion cannot override
+the deterministic identity gate: a vendor/product is emitted only when a
+distinctive signature supports it; otherwise the candidate remains
+`Unknown/Unknown` for the operator to identify from transport provenance or
+device documentation.
+
 For teams with an approved local model runner, add `--sidecar path/to/runner`.
 ULPF starts that executable without a shell, sends one JSON request using the
 `ulpf-pack-draft-v1` protocol on stdin, and expects exactly one Source Pack YAML
@@ -33,7 +48,8 @@ model is required.
    cluster as a conservative `contains_all` detector.
 4. Writes one YAML pack per cluster with representative real fixtures,
    provenance (`author: generated`, cluster hash, and generator identifier),
-   and a minimal class/activity mapping for human completion.
+   and a provisional class when family evidence is strong. `activity_id` stays
+   `0` (Unknown) until a reviewer maps source-specific actions.
 5. Loads each YAML through the same strict compiler used by production packs and
    runs its fixtures before reporting success.
 6. Writes `manifest.json` with counts and `approval_required: true`.
@@ -72,6 +88,9 @@ Before enabling a candidate:
 - set `provenance.approved_by` and record the review in the pull request;
 - copy the approved YAML into `packs/`, then restart ULPF.
 
-Generated candidates are never loaded automatically, and a candidate with no
-detector cannot claim all input. This keeps parser generation outside the trust
-boundary while reducing the time needed to onboard an unfamiliar source.
+The batch `ulpf draft` command never loads candidates automatically. In the
+console, **Approve and deploy** writes a candidate to the configured packs
+directory only after it compiles and passes its fixtures; the watcher then
+reloads it. A candidate with no detector cannot claim all input. This keeps
+generation outside the automatic ingestion path while reducing the time needed
+to onboard an unfamiliar source.

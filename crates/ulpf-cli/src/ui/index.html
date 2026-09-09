@@ -397,8 +397,8 @@
           <div class="panel-head"><h2>Templates</h2><span class="sub" id="cl-overflow"></span></div>
           <div class="tablewrap">
             <table>
-              <thead><tr><th>Cluster</th><th class="num">Records</th><th>Template</th><th>Draft a pack</th></tr></thead>
-              <tbody id="clusters-body"><tr><td colspan="4" class="empty">No unparsed records. Every event so far was claimed by a pack.</td></tr></tbody>
+              <thead><tr><th>Cluster</th><th class="num">Records</th><th>Template</th><th>Source assessment</th><th>Draft a pack</th></tr></thead>
+              <tbody id="clusters-body"><tr><td colspan="5" class="empty">No unparsed records. Every event so far was claimed by a pack.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -415,8 +415,9 @@
             </div>
           </div>
           <div class="panel-body" style="display:flex;flex-direction:column;gap:12px">
+            <div class="callout" id="rev-profile" hidden></div>
             <div class="callout warn">
-              Scores are measured against fixtures built from these same samples, so they show the draft is self-consistent &mdash; not that it generalizes to the rest of the device's traffic. Read the detectors before approving.
+              Format and source-family scores are evidence-based hypotheses, not ground truth. Fixture scores use these same samples, so they show self-consistency &mdash; not that the draft generalizes. Validate identity, activity and field meaning on held-out records before approval.
             </div>
             <pre class="codebox" id="rev-yaml"></pre>
           </div>
@@ -428,7 +429,7 @@
         <div class="pagehead">
           <div>
             <h1>Source Packs</h1>
-            <p>Declarative YAML in the packs directory, compiled at load and hot-reloaded on change. A pack that cannot parse its own fixtures does not reach this list.</p>
+            <p>Declarative YAML in the packs directory, compiled at load and hot-reloaded on change. Fixture results are shown here; console approval requires them to pass, while files copied directly into the directory still require operator review.</p>
           </div>
         </div>
         <div class="panel">
@@ -1402,7 +1403,7 @@ function renderClusters(list, overflow) {
   if (!list.length) {
     const tr = el("tr");
     const td = el("td", "empty", "No unparsed records. Every event so far was claimed by a pack.");
-    td.colSpan = 4;
+    td.colSpan = 5;
     tr.append(td); body.append(tr); return;
   }
   // Rank by share of unparsed traffic, not just raw count: "write this pack and
@@ -1431,6 +1432,24 @@ function renderClusters(list, overflow) {
       t.append(specWrap);
     }
     tr.append(t);
+    const profile = c.source_profile || {};
+    const source = el("td");
+    const family = el("div", null, profile.source_family || "unknown");
+    family.style.fontWeight = "650";
+    source.append(family);
+    const confidence = typeof profile.source_family_confidence === "number"
+      ? Math.round(profile.source_family_confidence * 100) + "% family confidence"
+      : "no family confidence";
+    source.append(el("div", "sub", (profile.wire_format || "unknown format") + " · " + confidence));
+    const hypothesis = (profile.source_hypotheses || [])[0];
+    if (hypothesis) {
+      const name = [hypothesis.vendor, hypothesis.product].filter(Boolean).join(" ");
+      source.append(el("div", "sub", "Possible: " + name + " (" + Math.round(hypothesis.confidence * 100) + "%)"));
+    } else {
+      source.append(el("div", "sub", "Vendor/product not identifiable from these samples"));
+    }
+    source.title = (profile.evidence || []).concat(profile.warnings || []).join("\n");
+    tr.append(source);
     const actions = el("td");
     const ai = el("button", "btn sm", "AI Copilot");
     const heur = el("button", "btn sm", "Heuristic");
@@ -1453,6 +1472,7 @@ async function generatePack(clusterId, mode, buttons) {
     ? "Running the deterministic generator…"
     : "Asking the local model…";
   $("rev-yaml").textContent = "";
+  $("rev-profile").hidden = true;
   $("btn-approve").hidden = true;
   draftYaml = null;
 
@@ -1469,6 +1489,21 @@ async function generatePack(clusterId, mode, buttons) {
     $("rev-fixtures").textContent = data.fixtures_passed + "/" + data.fixtures + " fixtures";
     $("rev-accuracy").textContent = Math.round((data.field_accuracy || 0) * 100) + "% fields";
     const unknownPaths = data.unknown_ocsf_paths || [];
+    const profile = data.source_profile || {};
+    const profileEl = $("rev-profile");
+    const top = (profile.source_hypotheses || [])[0];
+    const sourceName = top
+      ? [top.vendor, top.product].filter(Boolean).join(" ") + " (" + Math.round(top.confidence * 100) + "% hypothesis)"
+      : "vendor/product unknown";
+    const familyConfidence = Math.round((profile.source_family_confidence || 0) * 100);
+    const formatConfidence = Math.round((profile.wire_format_confidence || 0) * 100);
+    const evidence = (profile.evidence || []).join(" ");
+    const warnings = (profile.warnings || []).join(" ");
+    profileEl.textContent = "Assessment: " + (profile.wire_format || "unknown format")
+      + " (" + formatConfidence + "%), " + (profile.source_family || "unknown family")
+      + " (" + familyConfidence + "%), " + sourceName + ". " + evidence
+      + (warnings ? " Review warning: " + warnings : "");
+    profileEl.hidden = false;
     const warnEl = $("rev-ocsf-warning");
     if (unknownPaths.length > 0) {
       warnEl.hidden = false;

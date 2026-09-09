@@ -376,11 +376,13 @@ async fn clusters(State(state): State<Shared>) -> Json<Value> {
     let list: Vec<Value> = ranked
         .into_iter()
         .map(|c| {
+            let source_profile = ulpf_generator::profile::analyze(&c.samples);
             json!({
                 "id": c.id,
                 "count": c.count,
                 "template": c.template.join(" "),
                 "samples": c.samples,
+                "source_profile": source_profile,
                 // Fraction of the template that is still a literal token
                 // rather than a wildcard. Two clusters at equal count are
                 // not equally trustworthy: this is the number that says so.
@@ -494,6 +496,7 @@ async fn generate(
         .draft_pack(&label, &samples)
         .await
         .map_err(|e| ApiError(StatusCode::BAD_GATEWAY, e.to_string()))?;
+    let source_profile = ulpf_generator::profile::analyze(&samples);
 
     // Grade the candidate against the samples it was drafted from, before a
     // human is asked to approve it.
@@ -514,6 +517,7 @@ async fn generate(
         "fixtures_passed": score.passed,
         "field_accuracy": score.field_accuracy(),
         "unknown_ocsf_paths": unknown_ocsf_paths,
+        "source_profile": source_profile,
     })))
 }
 
@@ -539,6 +543,7 @@ fn heuristic_draft(samples: &[String], reason: &str) -> Result<Json<Value>, ApiE
         "fixtures_passed": draft.fixtures_passed,
         "field_accuracy": draft.field_accuracy,
         "unknown_ocsf_paths": draft.unknown_ocsf_paths,
+        "source_profile": draft.source_profile,
     })))
 }
 
@@ -1042,10 +1047,16 @@ async fn ingest(
             locator: processed.raw_ref.to_locator(),
         };
 
+        let source_profile = if identified.is_none() {
+            Some(ulpf_generator::profile::analyze(&[line.to_string()]))
+        } else {
+            None
+        };
         results.push(json!({
             "raw": line,
             "identified_pack": identified,
             "extracted": extracted,
+            "source_profile": source_profile,
             "disposition": recent.disposition,
             "locator": recent.locator,
             "event": processed.event.to_value(),

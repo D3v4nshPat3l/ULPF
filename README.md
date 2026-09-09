@@ -111,7 +111,11 @@ itself. Checkpoints are Ed25519-signed. Because BLAKE3 is absent from the OCSF
 
 **Unknown formats** are clustered with the Drain algorithm, so a thousand
 similar dead-letter lines become one reviewable template rather than a thousand
-rows.
+rows. Every cluster now carries an evidence-based source profile that keeps
+three answers separate: observed wire format, inferred source family, and an
+exact vendor/product hypothesis only when distinctive literals support one.
+Confidence and warnings are shown before generation; anonymous input stays
+`Unknown` instead of being given a plausible invented brand.
 
 ---
 
@@ -343,6 +347,19 @@ encrypted vault directly from the command line.
 ```bash
 ./target/release/ulpf run --packs packs --vault data/vault --integrity-dir data/integrity --input realdata/snort.log --output events.ndjson
 ```
+
+### Profile completely unknown logs before writing a pack
+
+```bash
+./target/release/ulpf profile --input unknown.log --max-clusters 20 > source-profile.json
+```
+
+The file may contain several shapes. ULPF clusters it first, then reports the
+likely decoder chain, wire-format confidence, source-family confidence,
+possible vendor/product signatures, stable detector terms, extracted field
+names, warnings, and the next validation step for each cluster. Profiling does
+not activate a parser or assert that a hypothesis is ground truth. See
+[UNKNOWN_LOG_ONBOARDING.md](docs/UNKNOWN_LOG_ONBOARDING.md).
 
 ### Verify a stream independently
 
@@ -710,6 +727,7 @@ traffic, let the console draft a candidate for you and edit from there —
 | [SCALING.md](docs/SCALING.md) | Sharding past one collector, and verifying a multi-chain stream |
 | [CAPTURING-LOGS.md](docs/CAPTURING-LOGS.md) | How to obtain real logs for a pack that has none |
 | [PACK_GENERATOR.md](docs/PACK_GENERATOR.md) | Clustering, generators, scoring |
+| [UNKNOWN_LOG_ONBOARDING.md](docs/UNKNOWN_LOG_ONBOARDING.md) | Evidence-based identification and Source Pack workflow for unseen logs |
 | [SINKS.md](docs/SINKS.md) | Parquet, OpenSearch, Splunk HEC |
 | [TESTING.md](docs/TESTING.md) | Test strategy |
 | [PROBLEM-STATEMENT.md](docs/PROBLEM-STATEMENT.md) | PS 26156 read closely: what each clause demands, and how we resolved its ambiguities |

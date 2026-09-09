@@ -415,17 +415,28 @@ assistant:"
         // with the *value* it saw ("10.2.4.7") rather than the name
         // ("src_addr"); turning generation into selection removes that failure.
         let available = available_field_names(samples);
-        let prompt = build_prompt(&shown, &available);
+        let source_profile = crate::profile::analyze(samples);
+        let prompt = build_prompt(&shown, &available, &source_profile);
         let raw = self.complete(prompt).await?;
 
         let spec: DraftSpec = parse_json_object(&raw)
             .with_context(|| format!("model did not return a usable JSON object: {raw:.400}"))?;
 
-        Ok(assemble_pack(cluster_id, spec, samples, &self.model))
+        Ok(assemble_pack(
+            cluster_id,
+            spec,
+            samples,
+            &self.model,
+            &source_profile,
+        ))
     }
 }
 
-fn build_prompt(samples: &[&String], available: &[String]) -> String {
+fn build_prompt(
+    samples: &[&String],
+    available: &[String],
+    source_profile: &crate::profile::SourceProfile,
+) -> String {
     // The log lines go LAST, and no filled-in example is shown. An earlier
     // version put a complete FortiGate example in the prompt and a 1.5B model
     // simply copied it back — emitting `devname=` and `srcip` for an Apache
@@ -440,11 +451,20 @@ fn build_prompt(samples: &[&String], available: &[String]) -> String {
          \"log_format\": a short hyphenated label describing the shape you see
          \"fields\": object mapping an OCSF attribute to ONE name from the          AVAILABLE NAMES list. Use the name itself, never the value it holds.          Omit an attribute if no name fits. Allowed attributes: {fields}
 
+         Deterministic pre-analysis (evidence, not ground truth):
+         wire format: {wire_format} ({wire_confidence:.0}% confidence)
+         source family: {source_family} ({family_confidence:.0}% confidence)
+         Do not invent a vendor/product when the log does not name one. Rust code will          independently validate identity before a candidate is emitted.
+
          AVAILABLE NAMES (choose only from these): {available}
 
          LOG LINES:
 {lines}",
         fields = ALLOWED_FIELDS.join(", "),
+        wire_format = source_profile.wire_format,
+        wire_confidence = source_profile.wire_format_confidence * 100.0,
+        source_family = source_profile.source_family,
+        family_confidence = source_profile.source_family_confidence * 100.0,
         available = available.join(", "),
         lines = samples
             .iter()
@@ -647,7 +667,13 @@ fn count_kv_pairs(text: &str) -> usize {
         .count()
 }
 
-fn assemble_pack(cluster_id: &str, spec: DraftSpec, samples: &[String], model: &str) -> Pack {
+fn assemble_pack(
+    cluster_id: &str,
+    spec: DraftSpec,
+    samples: &[String],
+    model: &str,
+    source_profile: &crate::profile::SourceProfile,
+) -> Pack {
     // Detectors are derived from the samples themselves rather than taken on
     // the model's word. A literal that does not occur in every sample cannot
     // identify the source, and a model that hallucinates one would produce a
@@ -672,11 +698,18 @@ fn assemble_pack(cluster_id: &str, spec: DraftSpec, samples: &[String], model: &
         .collect();
 
     let mut map: BTreeMap<String, MapSpec> = BTreeMap::new();
+    let provisional_class = if source_profile.source_family_confidence >= 0.60 {
+        source_profile.suggested_class_uid.unwrap_or(4001)
+    } else {
+        4001
+    };
     map.insert(
         "class_uid".into(),
-        MapSpec::Literal(serde_json::json!(4001)),
+        MapSpec::Literal(serde_json::json!(provisional_class)),
     );
-    map.insert("activity_id".into(), MapSpec::Literal(serde_json::json!(6)));
+    // The category can suggest a class, but not a class-specific action. The
+    // operator must map GET/deny/logoff/etc. explicitly during review.
+    map.insert("activity_id".into(), MapSpec::Literal(serde_json::json!(0)));
     map.insert("severity_id".into(), MapSpec::Literal(serde_json::json!(1)));
     // Convention-based mapping first: it is deterministic and correct far more
     // often than a small model's guess.
@@ -732,23 +765,57 @@ fn assemble_pack(cluster_id: &str, spec: DraftSpec, samples: &[String], model: &
 
     // Fixtures come from the real samples, so the scorer grades the candidate
     // against the traffic it was drafted from.
-    let fixtures: Vec<Fixture> = samples
-        .iter()
-        .take(3)
+    let fixtures: Vec<Fixture> = crate::sampler::diverse_samples(samples, 3)
+        .into_iter()
         .map(|raw| Fixture {
-            raw: raw.clone(),
+            raw,
             expect: BTreeMap::new(),
             note: Some("Representative sample; confirm mappings before approval.".into()),
         })
         .collect();
 
+    // A small model's vendor name is never sufficient evidence by itself.
+    // Retain an exact identity only when the deterministic profiler found a
+    // distinctive signature; otherwise keep Unknown even if the model guessed.
+    let identified = source_profile
+        .source_hypotheses
+        .first()
+        .filter(|h| h.confidence >= 0.90);
+    if let Some(identity) = identified {
+        if !spec.vendor.eq_ignore_ascii_case(&identity.vendor)
+            || !spec.product.eq_ignore_ascii_case(&identity.product)
+        {
+            tracing::warn!(
+                model_vendor = %spec.vendor,
+                model_product = %spec.product,
+                evidence_vendor = %identity.vendor,
+                evidence_product = %identity.product,
+                "model identity did not agree with deterministic source evidence"
+            );
+        }
+    }
+    if !spec.log_format.trim().is_empty()
+        && !spec
+            .log_format
+            .eq_ignore_ascii_case(&source_profile.wire_format)
+    {
+        tracing::debug!(
+            model_format = %spec.log_format,
+            observed_format = %source_profile.wire_format,
+            "using syntax-derived wire format instead of model label"
+        );
+    }
+    let (vendor, product) = identified
+        .map(|h| (h.vendor.clone(), h.product.clone()))
+        .unwrap_or_else(|| ("Unknown".into(), "Unknown".into()));
+
     Pack {
         identity: Identity {
             id: format!("candidate-{cluster_id}"),
-            vendor: blank_to_unknown(spec.vendor),
-            product: blank_to_unknown(spec.product),
+            vendor,
+            product,
             version: None,
-            log_format: Some(blank_to_unknown(spec.log_format)),
+            log_format: Some(source_profile.wire_format.clone()),
             detect: vec![Detector {
                 contains_all: detect,
                 contains_any: Vec::new(),
@@ -1024,14 +1091,6 @@ pub fn derive_detectors(samples: &[String]) -> Vec<String> {
     });
     shared.truncate(3);
     shared
-}
-
-fn blank_to_unknown(s: String) -> String {
-    if s.trim().is_empty() {
-        "Unknown".into()
-    } else {
-        s
-    }
 }
 
 #[cfg(test)]
@@ -1326,7 +1385,8 @@ Four records are unparsed.";
             "acme_fw srcip=10.0.0.1 action=accept".to_string(),
             "acme_fw srcip=10.0.0.2 action=deny".to_string(),
         ];
-        let pack = assemble_pack("abc", spec, &samples, "test-model");
+        let source_profile = crate::profile::analyze(&samples);
+        let pack = assemble_pack("abc", spec, &samples, "test-model", &source_profile);
 
         // Never shadows a reviewed pack.
         assert_eq!(pack.identity.priority, 1000);

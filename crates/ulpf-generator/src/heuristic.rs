@@ -18,6 +18,9 @@ pub struct DraftResult {
     /// fixture only checks a value survived to that path, not that the path
     /// means what the pack author thinks it means.
     pub unknown_ocsf_paths: Vec<String>,
+    /// Format, family and identity evidence inferred independently of the
+    /// candidate's self-generated fixture expectations.
+    pub source_profile: crate::profile::SourceProfile,
 }
 
 pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
@@ -33,6 +36,8 @@ pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
         anyhow::bail!("no log lines to learn from");
     }
 
+    let source_profile = crate::profile::analyze(&samples);
+
     // Reuse the inference the model-backed path uses. An earlier version chose
     // decoders from a hand-written if/else and mapped a fixed FortiGate field
     // list (`srcip`, `dstport`) regardless of the input, so a device using
@@ -43,13 +48,21 @@ pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
     let field_map = crate::llm::infer_field_map(&available);
 
     let mut mapping = BTreeMap::new();
+    // A family is still an inference. Use its class only above a useful
+    // confidence threshold, and keep activity Unknown (0): seeing an
+    // HTTP-shaped record does not tell us whether it was GET, POST or CONNECT.
+    let provisional_class = if source_profile.source_family_confidence >= 0.60 {
+        source_profile.suggested_class_uid.unwrap_or(4001)
+    } else {
+        4001
+    };
     mapping.insert(
         "class_uid".to_string(),
-        ulpf_pack::spec::MapSpec::Literal(serde_json::json!(4001)),
+        ulpf_pack::spec::MapSpec::Literal(serde_json::json!(provisional_class)),
     );
     mapping.insert(
         "activity_id".to_string(),
-        ulpf_pack::spec::MapSpec::Literal(serde_json::json!(6)),
+        ulpf_pack::spec::MapSpec::Literal(serde_json::json!(0)),
     );
     mapping.insert(
         "severity_id".to_string(),
@@ -74,18 +87,22 @@ pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
         );
     }
 
+    // Name a product only when deterministic, distinctive signatures support
+    // it. Broad vocabulary such as `src=` or `http` is not enough.
+    let identified = source_profile
+        .source_hypotheses
+        .first()
+        .filter(|h| h.confidence >= 0.90);
     let identity = ulpf_pack::Identity {
         id: "draft-heuristic".to_string(),
-        vendor: "Unknown".to_string(),
-        product: "Unknown".to_string(),
+        vendor: identified
+            .map(|h| h.vendor.clone())
+            .unwrap_or_else(|| "Unknown".into()),
+        product: identified
+            .map(|h| h.product.clone())
+            .unwrap_or_else(|| "Unknown".into()),
         version: None,
-        log_format: Some(
-            decoders
-                .iter()
-                .map(|d| d.decoder)
-                .collect::<Vec<_>>()
-                .join("-"),
-        ),
+        log_format: Some(source_profile.wire_format.clone()),
         // Detectors derived from the samples. An empty list claims nothing, so
         // the drafted pack would have loaded and then matched no traffic.
         detect: vec![ulpf_pack::spec::Detector {
@@ -169,6 +186,7 @@ pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
         fixtures_passed: report.passed,
         field_accuracy: report.field_accuracy(),
         unknown_ocsf_paths,
+        source_profile,
     })
 }
 
