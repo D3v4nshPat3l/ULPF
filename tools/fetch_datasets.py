@@ -30,8 +30,11 @@ import bz2
 import gzip
 import io
 import pathlib
+import shutil
 import sys
 import tarfile
+import time
+import urllib.error
 import urllib.request
 
 HONEYNET = "http://log-sharing.dreamhosters.com"
@@ -54,6 +57,16 @@ LOGHUB_SAMPLES = [
 ]
 
 ZENODO = "https://zenodo.org/records/8196385/files"
+ZENODO_API = "https://zenodo.org/api/records/8196385/files"
+
+# Older official Loghub deposits are useful when Zenodo's current record is
+# temporarily returning a gateway timeout. Archive formats may differ, so the
+# extraction code below detects ZIP versus tar from the downloaded content.
+ZENODO_FALLBACKS = {
+    "BGL.zip": [
+        "https://zenodo.org/records/1596245/files/BGL.tar.gz?download=1",
+    ],
+}
 
 # name -> (archive file, approximate size, line count). Sizes are the published
 # figures and are printed before a fetch so nobody is surprised by 30 GB.
@@ -81,6 +94,56 @@ def fetch(url: str) -> bytes:
     print(f"  fetching {url}")
     with urllib.request.urlopen(url, timeout=300) as response:
         return response.read()
+
+
+def fetch_to_file(urls: list[str], destination: pathlib.Path) -> None:
+    """Download a large archive without holding it in RAM.
+
+    A failed transfer is retained as ``.part`` and resumed with an HTTP Range
+    request. Each official URL is tried several times before moving to the
+    next official endpoint or deposit.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    partial = destination.with_name(destination.name + ".part")
+    errors: list[str] = []
+
+    for url_index, url in enumerate(urls):
+        # The first two URLs are two front doors to the same Zenodo object and
+        # can safely share a partial download. A fallback deposit may use a
+        # different compression format, so never append it to those bytes.
+        if url_index >= 2 and partial.exists():
+            partial.unlink()
+        for attempt in range(1, 4):
+            existing = partial.stat().st_size if partial.exists() else 0
+            headers = {"User-Agent": "ULPF-dataset-fetcher/1.0"}
+            if existing:
+                headers["Range"] = f"bytes={existing}-"
+                print(f"  resuming {destination.name} at {existing / 1e6:.1f} MB")
+            else:
+                print(f"  fetching {url}")
+
+            request = urllib.request.Request(url, headers=headers)
+            try:
+                with urllib.request.urlopen(request, timeout=300) as response:
+                    status = getattr(response, "status", response.getcode())
+                    append = existing > 0 and status == 206
+                    mode = "ab" if append else "wb"
+                    with partial.open(mode) as output:
+                        shutil.copyfileobj(response, output, length=1024 * 1024)
+                partial.replace(destination)
+                print(
+                    f"    -> downloaded {destination.name}  "
+                    f"({destination.stat().st_size / 1e6:.1f} MB)"
+                )
+                return
+            except (OSError, urllib.error.URLError) as error:
+                errors.append(f"{url}: {error}")
+                print(f"    attempt {attempt}/3 failed: {error}")
+                if attempt < 3:
+                    time.sleep(2**attempt)
+
+    detail = errors[-1] if errors else "no download URL was attempted"
+    raise RuntimeError(f"all download endpoints failed for {destination.name}: {detail}")
 
 
 def write(path: pathlib.Path, data: bytes) -> None:
@@ -295,25 +358,44 @@ def loghub_full(target: pathlib.Path, tiers: list[str]) -> None:
             if marker.exists():
                 print(f"  {marker.name} already present")
                 continue
-            print(f"  {archive_name}  {size}  {lines} lines")
-            raw = fetch(f"{ZENODO}/{archive_name}?download=1")
-            collected: list[bytes] = []
-            if archive_name.endswith(".zip"):
-                with zipfile.ZipFile(io.BytesIO(raw)) as handle:
-                    for name in handle.namelist():
-                        if name.endswith(".log") or name.endswith(".txt"):
-                            collected.append(handle.read(name))
-            else:
-                mode = "r:gz" if archive_name.endswith(".tar.gz") else "r:*"
-                with tarfile.open(fileobj=io.BytesIO(raw), mode=mode) as handle:
-                    for member in handle.getmembers():
-                        if not member.isfile():
-                            continue
-                        stream = handle.extractfile(member)
-                        if stream is not None:
-                            collected.append(stream.read())
-            if collected:
-                write(marker, b"".join(collected))
+            print(f"  {archive_name}  {size} extracted  {lines} lines")
+            downloads = target / ".downloads"
+            archive_path = downloads / archive_name
+            urls = [
+                f"{ZENODO}/{archive_name}?download=1",
+                f"{ZENODO_API}/{archive_name}/content",
+                *ZENODO_FALLBACKS.get(archive_name, []),
+            ]
+            if not archive_path.exists():
+                fetch_to_file(urls, archive_path)
+
+            output_part = marker.with_name(marker.name + ".part")
+            wrote_data = False
+            with output_part.open("wb") as output:
+                if zipfile.is_zipfile(archive_path):
+                    with zipfile.ZipFile(archive_path) as handle:
+                        for name in handle.namelist():
+                            if name.endswith(".log") or name.endswith(".txt"):
+                                with handle.open(name) as stream:
+                                    shutil.copyfileobj(stream, output, length=1024 * 1024)
+                                wrote_data = True
+                else:
+                    with tarfile.open(archive_path, mode="r:*") as handle:
+                        for member in handle.getmembers():
+                            if not member.isfile():
+                                continue
+                            stream = handle.extractfile(member)
+                            if stream is not None:
+                                with stream:
+                                    shutil.copyfileobj(stream, output, length=1024 * 1024)
+                                wrote_data = True
+
+            if not wrote_data:
+                output_part.unlink(missing_ok=True)
+                raise RuntimeError(f"{archive_name} contains no .log or .txt files")
+            output_part.replace(marker)
+            print(f"    -> {marker.name}  ({marker.stat().st_size / 1e6:.1f} MB)")
+            archive_path.unlink(missing_ok=True)
 
 
 def combine(target: pathlib.Path) -> None:
@@ -353,7 +435,7 @@ def main() -> None:
         choices=["sample", "standard", "large", "xl"],
         help=(
             "how much to fetch: sample ~15 MB, standard ~200 MB (the tier the "
-            "published coverage table is measured on), large ~1.2 GB, "
+            "published coverage table is measured on), large ~3.8 GB, "
             "xl ~62 GB (sustained-rate testing)"
         ),
     )
