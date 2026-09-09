@@ -17,6 +17,7 @@
 
 pub mod cef;
 pub mod csv;
+pub mod generic;
 pub mod json;
 pub mod keyvalue;
 pub mod leef;
