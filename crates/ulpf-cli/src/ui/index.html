@@ -108,6 +108,252 @@
   .panel-head .right{margin-left:auto;display:flex;gap:8px;align-items:center}
   .panel-body{padding:16px}
 
+  /* --------------------------------------------- live map (flow diagram) */
+  /* Colours are declared once and read back by the drawing code through
+     getComputedStyle, so a legend can never drift from what is on screen. */
+  :root{
+    --node-device:#3B6FC4; --node-device-soft:#E8EFFA;
+    --node-meaning:#12876F; --node-meaning-soft:#E1F2EE;
+    --node-unknown:#C0453A; --node-unknown-soft:#FBEAE8;
+  }
+  /* The explainer changes with the tab, because each view answers a different
+     question and one paragraph covering all three would explain none of them.
+     Written for a reader who has never seen a log file. */
+  .map-lede{
+    margin:18px 0 0;padding:16px 20px;background:var(--primary-soft);
+    border-left:3px solid var(--primary);border-radius:var(--radius);
+    font-size:13.5px;line-height:1.65;color:var(--text);max-width:none;
+  }
+  .map-lede b{font-weight:650}
+  .lede-what{max-width:96ch}
+  .lede-steps{
+    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;
+    margin:13px 0 0;padding:0;list-style:none;counter-reset:lede;
+  }
+  .lede-steps li{
+    counter-increment:lede;position:relative;padding-left:27px;
+    font-size:12.5px;line-height:1.55;color:var(--text-2);
+  }
+  .lede-steps li::before{
+    content:counter(lede);position:absolute;left:0;top:0;
+    width:19px;height:19px;border-radius:50%;background:var(--primary);color:#fff;
+    font:650 11px/19px Inter,-apple-system,"Segoe UI",sans-serif;text-align:center;
+  }
+  .lede-steps b{display:block;color:var(--text);font-weight:650}
+  @media (max-width:1080px){ .lede-steps{grid-template-columns:1fr} }
+  .mapgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}
+  .mapstat{
+    background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:13px 15px;
+  }
+  .mapstat .v{font:650 26px/1.15 inherit;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+  .mapstat .k{font-size:12px;color:var(--text-2);margin-top:3px;font-weight:600}
+  /* The exact definition, under the readable one. Simplifying the captions had
+     dropped the units -- "the busiest it has been" left a bare 246 meaning
+     nothing -- so the plain line now names the unit and this line says
+     precisely what was measured. Plain and technical, not plain instead of
+     technical. */
+  .mapstat .k2,.trendstats .k2{font-size:10.5px;color:var(--text-3);margin-top:3px;line-height:1.45}
+  .mapstat.device .v{color:var(--node-device)}
+  .mapstat.meaning .v{color:var(--node-meaning)}
+  .mapstat.unknown .v{color:var(--node-unknown)}
+
+  .flowwrap{position:relative;background:var(--panel);overflow:hidden}
+  /* Rings sit beside their key rather than under it: the chart is square, so
+     stacking a full-width legend below it wastes the space either side. */
+  .ringwrap{display:grid;grid-template-columns:minmax(0,1fr) 290px;align-items:center;gap:4px}
+  #rings-svg{display:block;width:100%;height:clamp(440px,72vh,780px)}
+  .ringlegend{
+    display:flex;flex-direction:column;gap:10px;
+    padding:16px 22px 16px 0;
+  }
+  .ringrow{display:flex;align-items:center;gap:9px;font-size:12.5px;transition:opacity .14s}
+  .ringrow.dim{opacity:.35}
+  .ringrow .sw{width:11px;height:11px;border-radius:3px;flex:0 0 11px}
+  .ringrow .nm{flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ringrow .ct{color:var(--text-2);font-size:11.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  #flow-panel:fullscreen .ringwrap{height:100%}
+  #flow-panel:fullscreen #rings-svg{height:100%}
+  @media (max-width:1080px){
+    .ringwrap{grid-template-columns:1fr}
+    .ringlegend{padding:0 16px 16px}
+  }
+  .flowhead{
+    display:flex;padding:11px 22px 0;font-size:10.5px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--text-3);font-weight:650;
+  }
+  .flowhead .mid{flex:1;text-align:center}
+  .flowhead .rt{text-align:right}
+  #flow-svg{display:block;width:100%;height:clamp(400px,64vh,720px)}
+  #graph-svg{display:block;width:100%;height:clamp(380px,60vh,680px);background:
+    radial-gradient(circle at 50% 48%,rgba(59,111,196,.07),transparent 28%),
+    linear-gradient(var(--panel),var(--panel))}
+  #flow-svg text{font-family:Inter,-apple-system,"Segoe UI",Roboto,sans-serif}
+  #graph-svg text{font-family:Inter,-apple-system,"Segoe UI",Roboto,sans-serif;pointer-events:none}
+  /* Eased, so a pointer moving across the picture fades rather than strobes. */
+  #flow-svg .ribbon,#flow-svg .flow-bar-group{transition:opacity .18s ease,fill-opacity .18s ease}
+  #flow-svg .ocsf{font-size:10px;fill:var(--text-3)}
+  #flow-svg .bar{cursor:default}
+  #flow-svg .lbl{font-size:12.5px;font-weight:600;fill:var(--text)}
+  #flow-svg .amt{font-size:11px;fill:var(--text-3);font-variant-numeric:tabular-nums}
+  #graph-svg .graph-edge{transition:opacity .14s,stroke-width .14s}
+  #graph-svg .graph-node{cursor:pointer;transition:opacity .14s}
+  #graph-svg .graph-label{font-size:11.5px;font-weight:600;fill:var(--text)}
+  #graph-svg .graph-meta{font-size:10px;fill:var(--text-3)}
+  .view-switch{display:inline-flex;padding:2px;border:1px solid var(--border);border-radius:6px;background:var(--sunken)}
+  .view-switch button{border:0;background:transparent;color:var(--text-2);padding:5px 10px;border-radius:4px;font:600 11.5px/1.2 inherit;cursor:pointer}
+  .view-switch button[aria-pressed="true"]{background:var(--panel);color:var(--text);box-shadow:0 1px 3px rgba(29,30,36,.12)}
+
+  /* Presentation mode. A projector is the worst case this view has: a room
+     reads it from six metres away. Fullscreen hands the drawing the whole
+     screen while keeping the head, so the live rate stays visible. */
+  #flow-panel:fullscreen{
+    display:flex;flex-direction:column;border:0;border-radius:0;
+    background:var(--panel);width:100vw;height:100vh;box-shadow:none;
+  }
+  #flow-panel:fullscreen .flowwrap{flex:1;min-height:0}
+  #flow-panel:fullscreen #flow-svg,#flow-panel:fullscreen #graph-svg{height:100%}
+  #flow-panel:fullscreen .panel-head{padding:15px 24px}
+  #flow-panel:fullscreen .panel-head h2{font-size:18px}
+  #flow-panel:fullscreen .flowhead{padding:13px 26px 0;font-size:12px}
+  #flow-panel:fullscreen .maplegend{padding:16px 24px;font-size:13.5px}
+  #flow-panel:fullscreen .mapnote{padding:13px 24px;font-size:12.5px}
+
+  .maptip{
+    position:absolute;pointer-events:none;z-index:5;opacity:0;transition:opacity .12s;
+    background:var(--nav);color:#fff;border-radius:var(--radius);padding:9px 11px;
+    font-size:12px;line-height:1.5;max-width:280px;box-shadow:0 4px 14px rgba(29,30,36,.22);
+  }
+  .maptip.on{opacity:1}
+  .maptip b{display:block;font-size:13px;margin-bottom:2px}
+  .maptip .m{color:#B9C1D0;font-variant-numeric:tabular-nums}
+
+  .mapempty{
+    position:absolute;inset:0;display:grid;place-content:center;justify-items:center;
+    gap:6px;text-align:center;color:var(--text-2);padding:24px;background:var(--panel);
+  }
+  .mapempty b{font-size:15px;color:var(--text);font-weight:600}
+  .mapempty p{margin:0;font-size:13px;max-width:46ch}
+
+  .maplegend{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:18px;
+    padding:13px 16px;border-top:1px solid var(--border);
+  }
+  .maplegend .row{display:flex;align-items:flex-start;gap:9px;font-size:12px;line-height:1.45}
+  .maplegend .dot{width:11px;height:11px;border-radius:50%;margin-top:4px;flex:0 0 11px}
+  .maplegend .dot.device{background:var(--node-device)}
+  /* Meanings no longer share one colour, so the swatch shows that rather
+     than picking one of them and quietly misleading. */
+  .maplegend .dot.meaning{background:conic-gradient(#2E7D6B 0 33%,#4A5FA5 0 66%,#8A6BB0 0)}
+  .maplegend .dot.unknown{background:var(--node-unknown)}
+  .maplegend b{display:block;font-weight:650}
+  .maplegend span{color:var(--text-2)}
+
+  .mapnote{
+    padding:10px 16px;border-top:1px solid var(--border);background:var(--sunken);
+    font-size:11.5px;color:var(--text-2);border-radius:0 0 var(--radius) var(--radius);
+  }
+  @media (max-width:1080px){
+    .mapgrid{grid-template-columns:repeat(2,1fr)}
+    .maplegend{grid-template-columns:1fr;gap:9px}
+    #flow-svg,#graph-svg{height:clamp(320px,50vh,520px)}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .maptip,#flow-svg .ribbon{transition:none}
+  }
+
+  /* -------------------------------------------------- tabs + globe + trend */
+  .tabbar{display:flex;gap:2px;margin-bottom:14px;border-bottom:1px solid var(--border)}
+  .tabbar .tab{
+    appearance:none;border:0;background:none;cursor:pointer;padding:9px 15px;
+    font:600 13px/1.4 inherit;color:var(--text-2);border-bottom:2px solid transparent;
+    margin-bottom:-1px;border-radius:var(--radius) var(--radius) 0 0;
+  }
+  .tabbar .tab:hover{background:var(--sunken);color:var(--text)}
+  .tabbar .tab[aria-selected="true"]{color:var(--primary);border-bottom-color:var(--primary)}
+  .tabbar .tab:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}
+
+  .globewrap{position:relative;display:grid;grid-template-columns:1fr 320px;background:var(--panel)}
+  #globe-canvas{display:block;width:100%;height:clamp(420px,70vh,760px)}
+  .globeside{
+    border-left:1px solid var(--border);padding:16px;overflow-y:auto;
+    max-height:clamp(420px,70vh,760px);
+  }
+  .globeside h3{margin:0 0 10px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:650}
+  .globelist{display:flex;flex-direction:column;gap:9px}
+  .globerow{display:flex;align-items:baseline;gap:9px;font-size:12.5px}
+  .globerow .sw{width:9px;height:9px;border-radius:50%;flex:0 0 9px;align-self:center}
+  .globerow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+  .globerow .ct{font-variant-numeric:tabular-nums;color:var(--text-2);font-size:11.5px}
+
+  #globe-panel:fullscreen,#trend-panel:fullscreen{
+    display:flex;flex-direction:column;border:0;border-radius:0;
+    background:var(--panel);width:100vw;height:100vh;box-shadow:none;
+  }
+  #globe-panel:fullscreen .globewrap{flex:1;min-height:0}
+  #globe-panel:fullscreen #globe-canvas{height:100%}
+  #globe-panel:fullscreen .globeside{max-height:none;grid-template-columns:1fr 380px}
+  #trend-panel:fullscreen .trendwrap{flex:1;min-height:0;display:flex;flex-direction:column}
+  #trend-panel:fullscreen #trend-svg{flex:1;height:auto}
+
+  .trendwrap{position:relative;background:var(--panel);padding:4px 0 0}
+  .trendstats{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:18px;
+    padding:16px 20px 10px;align-items:start;
+  }
+  .trendstats .v{font:650 24px/1.15 inherit;letter-spacing:-.4px;font-variant-numeric:tabular-nums;color:var(--primary)}
+  .trendstats .k{font-size:11.5px;color:var(--text-2);margin-top:2px;font-weight:600}
+  #trend-svg{display:block;width:100%;height:clamp(360px,56vh,620px)}
+  #trend-svg text{font-family:Inter,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:11px;fill:var(--text-3)}
+
+  @media (max-width:1080px){
+    .globewrap{grid-template-columns:1fr}
+    .globeside{border-left:0;border-top:1px solid var(--border);max-height:none}
+    .trendstats{grid-template-columns:repeat(2,1fr)}
+  }
+
+  /* ---------------------------------------- the before/after strip */
+  .ros-lede{margin:0 0 14px;font-size:13.5px;line-height:1.6;color:var(--text-2);max-width:none}
+  .ros-lede b{color:var(--text);font-weight:650}
+  .roscols{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .roscard{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column}
+  .roscard .who{
+    padding:9px 12px;background:var(--node-device-soft);border-bottom:1px solid var(--border);
+    font-weight:650;font-size:12.5px;color:var(--node-device);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .roscard .step{padding:8px 12px 4px;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-3);font-weight:650}
+  .roscard .rawline{
+    margin:0 12px 10px;padding:9px 10px;background:var(--nav);color:#D6DBE4;border-radius:var(--radius);
+    font-family:"JetBrains Mono",ui-monospace,Consolas,monospace;font-size:10.5px;line-height:1.55;
+    word-break:break-all;max-height:96px;overflow:hidden;
+  }
+  .rosarrow{display:grid;place-items:center;padding:0 0 6px;color:var(--node-meaning)}
+  .roscard dl{margin:0 12px 12px;display:grid;grid-template-columns:auto 1fr;gap:5px 10px;font-size:12px}
+  .roscard dt{color:var(--text-3);white-space:nowrap}
+  .roscard dd{margin:0;font-weight:600;overflow-wrap:anywhere}
+  .roscard dd:not(.mono){font-weight:500;color:var(--text-2)}
+  .roscard dd.mono{font-family:"JetBrains Mono",ui-monospace,Consolas,monospace;font-size:11.5px;font-weight:500}
+  .roscard .meaning{
+    margin:auto 12px 12px;padding:7px 10px;background:var(--node-meaning-soft);
+    color:var(--node-meaning);border-radius:var(--radius);font-weight:650;font-size:12.5px;text-align:center;
+  }
+  .rosempty{padding:26px;text-align:center;color:var(--text-2);font-size:13px}
+  @media (max-width:1080px){ .roscols{grid-template-columns:1fr} }
+
+  .mapnote{
+    padding:10px 16px;border-top:1px solid var(--border);background:var(--sunken);
+    font-size:11.5px;color:var(--text-2);border-radius:0 0 var(--radius) var(--radius);
+  }
+  @media (max-width:1080px){
+    .mapgrid{grid-template-columns:repeat(2,1fr)}
+    .maplegend{grid-template-columns:1fr;gap:9px}
+    #map-canvas{height:clamp(300px,48vh,460px)}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .maptip{transition:none}
+  }
+
   [hidden]{display:none!important}
   .btn{
     display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:var(--radius);
@@ -270,6 +516,10 @@
 
     <div class="navgroup">
       <h6>Monitoring</h6>
+      <button class="navitem" data-view="livemap">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="6" r="2.4"/><circle cx="5" cy="18" r="2.4"/><circle cx="19" cy="12" r="3.2"/><path d="M7.2 7.1 15.9 10.6M7.2 16.9l8.7-3.5"/></svg>
+        Live Map
+      </button>
       <button class="navitem" data-view="overview" aria-current="page">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
         Overview
@@ -320,6 +570,115 @@
     <div class="content">
 
       <!-- ============================================ OVERVIEW -->
+      <section class="view" id="view-livemap">
+        <div class="pagehead">
+          <div>
+            <h1>Live Map</h1>
+            <p>What the collector is doing right now, as a picture. Switch between precise flow and an explorable graph; both update every two seconds.</p>
+          </div>
+          <div class="actions">
+            <button class="btn" id="flow-full">Full screen</button>
+          </div>
+        </div>
+
+        <div class="mapgrid">
+          <div class="mapstat device"><div class="v" id="map-k-devices">0</div><div class="k">products sending logs</div><div class="k2">Source Packs that have claimed at least one record</div></div>
+          <div class="mapstat meaning"><div class="v" id="map-k-meanings">0</div><div class="k">shared meanings in use</div><div class="k2">distinct OCSF event classes produced so far</div></div>
+          <div class="mapstat"><div class="v" id="map-k-events">0</div><div class="k">records normalised</div><div class="k2">read, mapped to OCSF and sealed, since start</div></div>
+          <div class="mapstat unknown"><div class="v" id="map-k-unknown">0</div><div class="k">records not recognised</div><div class="k2">vaulted intact; no pack detector matched them</div></div>
+        </div>
+
+        <div class="tabbar" role="tablist" aria-label="Live map views">
+          <button class="tab" role="tab" data-tab="flow" aria-selected="true">What happens to the logs</button>
+          <button class="tab" role="tab" data-tab="trend" aria-selected="false">How fast it is running</button>
+        </div>
+
+        <div class="tabpanel" id="tab-flow" role="tabpanel">
+        <div class="panel" id="flow-panel">
+          <div class="panel-head">
+            <h2>Every log, and what it became</h2>
+            <span class="sub" id="flow-sub">waiting for traffic</span>
+            <div class="right">
+              <span class="pill neutral" id="map-rate"><i></i> idle</span>
+            </div>
+          </div>
+          <div class="flowwrap">
+            <div class="flowhead" id="flow-head">
+              <span>What sent the log</span>
+              <span class="mid">becomes</span>
+              <span class="rt">what it became</span>
+            </div>
+            <svg id="flow-svg" role="img" aria-label="Flow from each kind of device to the shared meaning its records became"></svg>
+            <div class="maptip" id="flow-tip"></div>
+            <div class="mapempty" id="flow-empty">
+              <b>No traffic yet</b>
+              <p>Start the traffic simulator, or send logs to the collector, and this fills in by itself.</p>
+              <a class="btn" href="/dev">Open the traffic simulator</a>
+            </div>
+          </div>
+          <div class="maplegend">
+            <div class="row"><span class="dot device"></span><span><b>A kind of device</b><span>A product whose logs ULPF already knows how to read.</span></span></div>
+            <div class="row"><span class="dot meaning"></span><span><b>A shared meaning</b><span>The common language every device is rewritten into. Each one has its own colour, and the band leading into it matches.</span></span></div>
+            <div class="row"><span class="dot unknown"></span><span><b>Not understood yet</b><span>Logs kept safely, waiting for someone to teach ULPF this device.</span></span></div>
+          </div>
+          <div class="mapnote" id="map-note"></div>
+        </div>
+
+        <div class="panel" id="rosetta-panel" style="margin-top:16px">
+          <div class="panel-head">
+            <h2>The same three questions, whatever the device</h2>
+            <span class="sub" id="ros-sub">waiting for traffic</span>
+            <div class="right">
+              <button class="btn sm" id="ros-next">Show another</button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <p class="ros-lede">
+              This is the whole idea in one screen. On the left is exactly what each device wrote &mdash; three
+              products, three completely different ways of saying things. On the right is what ULPF turned each one
+              into. <b>The questions on the right are identical every time.</b> That is what makes one search work
+              across every device in a building.
+            </p>
+            <div class="roscols" id="ros-cols"></div>
+          </div>
+        </div>
+        </div><!-- /tab-flow -->
+
+        <div class="tabpanel" id="tab-trend" role="tabpanel" hidden>
+          <div class="panel" id="trend-panel">
+            <div class="panel-head">
+              <h2>How fast it is running</h2>
+              <span class="sub" id="trend-sub">collecting</span>
+              <div class="right">
+                <button class="btn sm" id="trend-full">Full screen</button>
+                <span class="pill neutral" id="trend-rate"><i></i> idle</span>
+              </div>
+            </div>
+            <div class="trendwrap">
+              <div class="trendstats">
+                <div><div class="v" id="tr-now">0</div><div class="k">logs per second, right now</div><div class="k2">measured over the last refresh</div></div>
+                <div><div class="v" id="tr-peak">0</div><div class="k">logs per second, peak</div><div class="k2">highest single measurement since this page opened</div></div>
+                <div><div class="v" id="tr-avg">0</div><div class="k">logs per second, average</div><div class="k2">mean of every measurement while traffic was flowing</div></div>
+                <div><div class="v" id="tr-cov">—</div><div class="k">of records recognised</div><div class="k2">share of all received that a Source Pack claimed</div></div>
+              </div>
+              <svg id="trend-svg" role="img" aria-label="Records per second over the last few minutes"></svg>
+              <div class="maptip" id="trend-tip"></div>
+              <div class="mapempty" id="trend-empty">
+                <b>Nothing measured yet</b>
+                <p>This fills in as records arrive. A minute of traffic gives it something to draw.</p>
+                <a class="btn" href="/dev">Open the traffic simulator</a>
+              </div>
+            </div>
+            <div class="mapnote" id="trend-note"></div>
+          </div>
+        </div>
+
+        <div class="map-lede" id="map-lede">
+          <div class="lede-what" id="lede-what"></div>
+          <ol class="lede-steps" id="lede-steps"></ol>
+        </div>
+      </section>
+
       <section class="view active" id="view-overview">
         <div class="pagehead">
           <div>
@@ -343,7 +702,7 @@
           <div class="panel-head">
             <h2>Live events</h2>
             <span class="sub" id="ev-sub">newest first</span>
-            <div class="right"><span class="pill info" id="ev-count">0 shown</span></div>
+            <div class="right"><span class="pill info" id="ev-count">most recent 0</span></div>
           </div>
           <div class="tablewrap">
             <table>
@@ -633,6 +992,10 @@ function switchView(name) {
   $("crumb").textContent = name.toUpperCase();
   if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
   $("rail").classList.remove("open");
+  // The flow diagram is laid out from its container's size, which is zero
+  // while the view is hidden. Redraw once it is on screen. Guarded because
+  // hash routing runs this before that section of the script is evaluated.
+  if (name === "livemap" && window.flowDraw) requestAnimationFrame(window.flowDraw);
 }
 document.querySelectorAll(".navitem").forEach((b) => {
   b.addEventListener("click", () => switchView(b.dataset.view));
@@ -643,18 +1006,19 @@ if (location.hash) {
 }
 
 /* --------------------------------------------------------------- helpers */
+/* Badge-sized rendering of a count that grows without bound. */
+function compactCount(n) {
+  if (n < 1000) return String(n);
+  if (n < 1000000) return (n / 1000).toFixed(n < 10000 ? 1 : 0) + "k";
+  return (n / 1000000).toFixed(1) + "M";
+}
+
 function fmtBytes(n) {
   if (!n) return "0 B";
   const u = ["B", "KB", "MB", "GB", "TB"];
   let i = 0, v = n;
   while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
   return (i === 0 ? v : v.toFixed(1)) + " " + u[i];
-}
-function fmtTime(nanos) {
-  if (typeof nanos !== "number") return "—";
-  const d = new Date(nanos / 1e6);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toISOString().replace("T", " ").slice(0, 19);
 }
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -755,7 +1119,7 @@ function renderEvents(rows) {
   latestEvents = rows;
   const body = $("events-body");
   body.replaceChildren();
-  $("ev-count").textContent = rows.length + " shown";
+  $("ev-count").textContent = "most recent " + rows.length;
   if (!rows.length) {
     const tr = el("tr");
     const td = el("td", "empty", "No events yet. Open the traffic simulator, or point a device at the syslog receiver.");
@@ -766,7 +1130,7 @@ function renderEvents(rows) {
   }
   rows.slice(0, 200).forEach((row, index) => {
     const tr = el("tr", "clickable");
-    tr.append(el("td", "mono", fmtTime(row.time)));
+    tr.append(el("td", "mono", fmtTime(row.time) || "—"));
     const vendor = [row.vendor, row.product].filter(Boolean).join(" ");
     tr.append(el("td", null, vendor || "—"));
     tr.append(el("td", "mono", classLabel(row)));
@@ -1710,11 +2074,18 @@ async function refresh() {
     const now = Date.now();
     const dt = (now - lastAt) / 1000;
     if (dt > 0.5 && stats.received > lastReceived) {
-      $("st-rate").textContent = Math.round((stats.received - lastReceived) / dt).toLocaleString() + " events/sec";
+      $("st-rate").textContent = Math.round((stats.received - lastReceived) / dt).toLocaleString() + " logs arriving every second";
     } else if (stats.received === 0) {
       $("st-rate").textContent = "awaiting traffic";
     }
     if (dt > 0.5) { lastReceived = stats.received; lastAt = now; }
+    for (const id of ["map-rate", "globe-rate", "trend-rate"]) {
+      const pill = $(id);
+      if (!pill) continue;
+      pill.className = "pill " + (stats.received > 0 ? "ok" : "neutral");
+      pill.replaceChildren(el("i"), document.createTextNode(
+        stats.received > 0 ? $("st-rate").textContent : "idle"));
+    }
 
     const chain = $("chain-pill");
     chain.className = "pill " + (stats.checkpoint_signed ? "ok" : "neutral");
@@ -1723,9 +2094,24 @@ async function refresh() {
     $("st-chain").textContent = stats.chain_uid ? "chain " + stats.chain_uid : "no checkpoint yet";
 
     renderEvents(events.events || []);
-    $("tally-events").textContent = (events.events || []).length;
+    // The badge shows everything received, not the length of the live tail.
+    // The tail is capped at RECENT_CAPACITY (500) server-side, so reading its
+    // length pinned this badge at "500" forever the moment the 500th record
+    // arrived -- next to "Needs a pack 1" and "Source Packs 35", which are
+    // real counts, it read as one too.
+    $("tally-events").textContent = compactCount(Number(stats.received || 0));
     renderPacks(packs.packs || []);
     renderClusters(clusters.clusters || [], clusters.overflow || 0);
+    // Rendering runs outside the fetch guard below. A thrown error in here is
+    // a bug in this file, and reporting it as "Engine unreachable" points an
+    // operator at the network for a fault that is nowhere near it.
+    try {
+      flowUpdate(stats, events.events || [], packs.packs || [], clusters.clusters || []);
+      trendUpdate(stats);
+      if (document.querySelector("#view-livemap.active")) rosUpdate(events.events || [], false);
+    } catch (renderError) {
+      console.error("live map render failed", renderError);
+    }
 
     const engine = $("engine-pill");
     engine.className = "pill ok";
@@ -1736,6 +2122,880 @@ async function refresh() {
     engine.replaceChildren(el("i"), document.createTextNode("Engine unreachable"));
   }
 }
+
+
+/* ------------------------------------------------------------- live map */
+/* The primary view is a flow diagram: every kind of device on the left, the
+   few shared meanings they all become on the right, and a band whose width is
+   how many records took that path. The companion Graph mode uses the same
+   model for exploration. Keeping both avoids forcing one visual grammar to do
+   two jobs: Flow proves the proportions; Graph reveals the system topology.
+
+   The flow layout is computed rather than simulated, so it cannot tangle:
+   columns are fixed, rows are stacked, and nothing overlaps at any number of
+   sources. It reads without instructions: many pipes going in, few coming
+   out, is the project's entire claim in one picture.
+
+   SVG rather than canvas because the text has to stay crisp on a projector at
+   any size, hit-testing comes free, and fullscreen is then just a viewBox.
+   No library: this file is include_str!'d into the binary and requirement (j)
+   rules out a CDN, and a two-column flow needs no general solver -- the whole
+   layout is the two stacking passes in flowLayout below. */
+
+const FLOW = {
+  rows: [],          // left column: one per pack, plus the unrecognised band
+  cols: [],          // right column: one per shared meaning, plus "not understood"
+  links: [],
+  shares: new Map(), // pack id -> { class_uid: share of that pack's records }
+  hover: null,
+  total: 0,
+  sampleSize: 0,
+};
+
+/* One colour per shared meaning.
+   Mid-saturation and close in lightness, because these are drawn as large
+   translucent bands: full-strength hues at that size fight each other and one
+   light value would make some bands vanish on a projector.
+   Assigned by position in the class ids sorted, not by hashing the id. A hash
+   is stable but says nothing about neighbours, and it put two meanings on
+   near-identical pinks the first time -- adjacent entries have to be
+   distinguishable, which only an ordered walk through the palette guarantees.
+   Sorting by id keeps a meaning's colour fixed as volumes change and the
+   columns reorder; a swatch that moved between refreshes would be worse than
+   no colour at all. */
+const FLOW_HUES = [
+  "#2E7D6B", "#4A5FA5", "#8A6BB0", "#A8763A",
+  "#4E8C8A", "#7C8B45", "#9C5A7A", "#5B7390",
+];
+
+/* What each shared meaning actually means, in words a visitor has heard.
+   "Detection Finding" and "Event Log Activity" are OCSF class names: exact,
+   standard, and meaningless to anyone outside a security team. The payoff of
+   the whole project is written on this screen, and it was written in
+   vocabulary only a SOC analyst reads. The plain line is what the picture
+   shows; the OCSF name sits under it in small grey text, so a technical judge
+   still sees that we map to a real standard. */
+const PLAIN_MEANING = {
+  1008: "A system event was logged",
+  2001: "A security finding was reported",
+  2004: "A security tool raised an alert",
+  3002: "A login was attempted",
+  4001: "Two machines talked",
+  4002: "A web request was made",
+  4009: "An email was handled",
+  6003: "An app made a request",
+};
+function plainMeaning(classUid) {
+  return PLAIN_MEANING[classUid] || null;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const FLOW_PAD = { top: 16, bottom: 14, left: 20, right: 20 };
+const FLOW_BAR = 11;          // width of a column's solid bar
+const FLOW_LABEL = 190;       // room reserved for a label beside its bar
+const FLOW_GAP = 13;          // vertical gap between stacked entries
+const FLOW_MIN = 3;           // a path with any traffic must stay visible
+
+/* Shorten `text` until it fits `maxWidth`, measured on the live element.
+   Binary search rather than a character estimate: the difference between an
+   "i" and a "W" is most of a character width, and the labels here are product
+   names full of both. */
+function fitLabel(node, text, maxWidth) {
+  node.textContent = text;
+  if (!node.getComputedTextLength || node.getComputedTextLength() <= maxWidth) return text;
+  let lo = 1, hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    node.textContent = text.slice(0, mid) + "…";
+    if (node.getComputedTextLength() <= maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  const out = text.slice(0, lo).trimEnd() + "…";
+  node.textContent = out;
+  return out;
+}
+
+function svgEl(name, attrs) {
+  const n = document.createElementNS(SVG_NS, name);
+  for (const k of Object.keys(attrs || {})) n.setAttribute(k, attrs[k]);
+  return n;
+}
+
+function mapNote() {
+  return "The width of a band is how many records took that path. A device's total is everything it has sent; "
+    + "the split across meanings is measured from the most recent " + FLOW.sampleSize
+    + " records, so it is a proportion from a sample rather than an exact count. "
+    + "The meaning on the right is the OCSF class its Source Pack assigns — ULPF does not judge a record, "
+    + "it records what the device reported.";
+}
+
+/* Build the model from the payloads refresh() already holds. No new endpoint,
+   no extra request, and nothing runs inside the collector's state lock. */
+function flowUpdate(stats, events, packs, clusters) {
+  const byPack = stats.by_pack || {};
+
+  /* "Snort" + "Snort NIDS" reads as "Snort Snort NIDS". A product name that
+     already carries its vendor does not need it twice, and here the label is
+     the whole explanation. */
+  const packName = {};
+  for (const p of (packs || [])) {
+    const vendor = (p.vendor && p.vendor !== "Unknown") ? p.vendor : "";
+    const product = (p.product && p.product !== "Unknown") ? p.product : "";
+    const dup = vendor && product && product.toLowerCase().startsWith(vendor.toLowerCase());
+    packName[p.id] = (dup ? product : [vendor, product].filter(Boolean).join(" ")) || p.id;
+  }
+
+  /* Which meanings each pack produced. The recent-events window holds the last
+     RECENT_CAPACITY records: enough to learn the pairing, not enough to count
+     it. Counts come from by_pack, which is cumulative; the window supplies
+     only the proportions, and a pack that scrolls out keeps its last known
+     ones rather than vanishing from the picture. */
+  const windowed = {};
+  for (const e of (events || [])) {
+    if (!e.pack || e.class_uid === null || e.class_uid === undefined) continue;
+    if (!windowed[e.pack]) windowed[e.pack] = {};
+    windowed[e.pack][e.class_uid] = (windowed[e.pack][e.class_uid] || 0) + 1;
+  }
+  for (const pack of Object.keys(windowed)) {
+    const counts = windowed[pack];
+    let total = 0;
+    for (const k of Object.keys(counts)) total += counts[k];
+    const share = {};
+    for (const k of Object.keys(counts)) share[k] = counts[k] / total;
+    FLOW.shares.set(pack, share);
+  }
+
+  const rows = [];
+  const colTotals = {};
+  const links = [];
+  for (const packId of Object.keys(byPack)) {
+    const count = byPack[packId];
+    if (!count) continue;
+    const share = FLOW.shares.get(packId);
+    if (!share) continue;               // counted, but not yet seen in the window
+    rows.push({ id: "p:" + packId, kind: "device", label: packName[packId] || packId,
+                sub: packId, value: count });
+    for (const cls of Object.keys(share)) {
+      const value = count * share[cls];
+      colTotals[cls] = (colTotals[cls] || 0) + value;
+      links.push({ from: "p:" + packId, to: "c:" + cls, value: value });
+    }
+  }
+
+  const cols = [];
+  for (const cls of Object.keys(colTotals)) {
+    const ocsf = CLASS_NAME[cls] || ("Class " + cls);
+    const plain = plainMeaning(cls);
+    cols.push({
+      id: "c:" + cls, kind: "meaning",
+      label: plain || ocsf,                       // what the picture says
+      under: plain ? ocsf + " · OCSF " + cls : "OCSF class " + cls,  // the standard, quietly
+      sub: "OCSF class " + cls,
+      value: colTotals[cls],
+    });
+  }
+
+  /* Unrecognised traffic is part of the same flow, not a footnote: everything
+     that arrived either became a shared meaning or did not, and a picture that
+     showed only the successes would be making a claim we have not earned. */
+  const unknown = Number(stats.unidentified || 0);
+  if (unknown > 0) {
+    const shapes = (clusters || []).length;
+    rows.push({ id: "u:in", kind: "unknown", value: unknown,
+                label: shapes ? shapes + (shapes === 1 ? " shape we cannot read yet"
+                                                      : " shapes we cannot read yet")
+                              : "Not recognised",
+                sub: "no pack detector matched" });
+    cols.push({ id: "u:out", kind: "unknown", label: "Not understood yet",
+                under: "waiting for someone to teach ULPF this device",
+                sub: "kept in the vault, waiting for a pack", value: unknown });
+    links.push({ from: "u:in", to: "u:out", value: unknown });
+  }
+
+  /* Start largest-first in both columns, then reorder to untangle. Volume
+     order alone is what made the first version look messy: the two columns
+     were ranked independently, so a device near the top reached down past
+     three others to a meaning near the bottom while another reached back up.
+     Those crossings carry no information -- they are an artefact of two
+     unrelated sort orders -- and they are most of what the eye reads as mess.
+     Unrecognised sinks to the bottom of each column whatever its size: it is
+     a different kind of thing, and ranking it among the devices would invite
+     reading it as just another one. */
+  const rank = (a, b) =>
+    (a.kind === "unknown") - (b.kind === "unknown") || b.value - a.value;
+  // Hues are handed out before any reordering, from the ids alone, so the
+  // colour a meaning carries never depends on where it happens to sit.
+  const meaningIds = cols.filter((c) => c.kind === "meaning").map((c) => c.id).sort();
+  for (const c of cols) {
+    if (c.kind !== "meaning") continue;
+    c.hue = FLOW_HUES[meaningIds.indexOf(c.id) % FLOW_HUES.length];
+  }
+
+  rows.sort(rank);
+  cols.sort(rank);
+  FLOW.crossings = flowUntangle(rows, cols, links);
+
+  FLOW.rows = rows;
+  FLOW.cols = cols;
+  FLOW.links = links;
+  FLOW.total = rows.reduce((sum, r) => sum + r.value, 0);
+  FLOW.sampleSize = (events || []).length;
+
+  const devices = rows.filter((r) => r.kind === "device").length;
+  const meanings = cols.filter((c) => c.kind === "meaning").length;
+  $("flow-empty").hidden = rows.length > 0;
+  $("map-k-devices").textContent = devices.toLocaleString();
+  $("map-k-meanings").textContent = meanings.toLocaleString();
+  $("map-k-events").textContent = Number(stats.parsed || 0).toLocaleString();
+  $("map-k-unknown").textContent = unknown.toLocaleString();
+  $("flow-sub").textContent = rows.length
+    ? devices + (devices === 1 ? " device" : " devices") + " becoming " + meanings
+      + (meanings === 1 ? " shared meaning" : " shared meanings")
+    : "waiting for traffic";
+  $("map-note").textContent = mapNote();
+
+  mapDraw();
+}
+
+function mapDraw() { flowDraw(); }
+
+/* Reorder both columns so ribbons cross as little as possible.
+   The barycentre heuristic: put each entry at the weighted average position of
+   the things it connects to, sort by that, and sweep the other way. Weighting
+   by record count means a device's dominant meaning decides where it sits
+   rather than a trickle to somewhere else. Three sweeps is enough at these
+   sizes -- the count stops improving long before that -- and the result is
+   deterministic, so the picture does not reshuffle between refreshes.
+   Unrecognised is pinned to the bottom of each column throughout. */
+function flowUntangle(rows, cols, links) {
+  const pinned = (list) => list.filter((n) => n.kind === "unknown");
+  const free = (list) => list.filter((n) => n.kind !== "unknown");
+  const indexOf = (list) => {
+    const m = new Map();
+    list.forEach((n, i) => m.set(n.id, i));
+    return m;
+  };
+  const sweep = (moving, fixedIndex, key) => {
+    const movable = free(moving);
+    const centre = new Map();
+    for (const n of movable) {
+      let weight = 0, sum = 0;
+      for (const l of links) {
+        if (l[key === "from" ? "from" : "to"] !== n.id) continue;
+        const other = fixedIndex.get(key === "from" ? l.to : l.from);
+        if (other === undefined) continue;
+        weight += l.value; sum += l.value * other;
+      }
+      // Nothing to hang off: keep it where it already is rather than
+      // collapsing every unconnected entry onto position zero.
+      centre.set(n.id, weight ? sum / weight : moving.indexOf(n));
+    }
+    movable.sort((a, b) =>
+      centre.get(a.id) - centre.get(b.id) || b.value - a.value);
+    return movable.concat(pinned(moving));
+  };
+
+  // Barycentre usually improves things but is not guaranteed to, so each
+  // sweep is scored and the best arrangement seen is what gets drawn. That
+  // makes the result no worse than the volume ordering it started from.
+  let best = { rows: rows.slice(), cols: cols.slice(),
+               score: flowCrossings(rows, cols, links) };
+  for (let pass = 0; pass < 3; pass++) {
+    const ordered = sweep(rows, indexOf(cols), "from");
+    rows.length = 0; rows.push(...ordered);
+    const orderedCols = sweep(cols, indexOf(rows), "to");
+    cols.length = 0; cols.push(...orderedCols);
+    const score = flowCrossings(rows, cols, links);
+    if (score < best.score) best = { rows: rows.slice(), cols: cols.slice(), score };
+  }
+  rows.length = 0; rows.push(...best.rows);
+  cols.length = 0; cols.push(...best.cols);
+  return best.score;
+}
+
+/* How many pairs of ribbons cross. Two links cross exactly when their
+   endpoints are in opposite vertical order on the two sides. Reported so the
+   untangling can be checked rather than assumed. */
+function flowCrossings(rows, cols, links) {
+  const ri = new Map(rows.map((n, i) => [n.id, i]));
+  const ci = new Map(cols.map((n, i) => [n.id, i]));
+  let n = 0;
+  for (let i = 0; i < links.length; i++) {
+    for (let j = i + 1; j < links.length; j++) {
+      const a = links[i], b = links[j];
+      const dr = ri.get(a.from) - ri.get(b.from);
+      const dc = ci.get(a.to) - ci.get(b.to);
+      if (dr * dc < 0) n++;
+    }
+  }
+  return n;
+}
+
+/* Assign every entry a y position and a height. Two stacking passes and a
+   scale factor -- that is the entire layout, and why it cannot tangle. */
+function flowLayout(width, height) {
+  const inner = height - FLOW_PAD.top - FLOW_PAD.bottom;
+  const place = (list) => {
+    const total = list.reduce((s, n) => s + n.value, 0) || 1;
+    const gaps = FLOW_GAP * Math.max(0, list.length - 1);
+    const usable = Math.max(20, inner - gaps);
+    let y = FLOW_PAD.top;
+    for (const n of list) {
+      n.h = Math.max(FLOW_MIN, (n.value / total) * usable);
+      n.y = y;
+      y += n.h + FLOW_GAP;
+    }
+    // A minimum height for thin entries can push the stack past the bottom.
+    // Squeeze it back rather than letting the last rows fall off the canvas.
+    const overflow = (y - FLOW_GAP) - (height - FLOW_PAD.bottom);
+    if (overflow > 0 && list.length) {
+      const shrink = Math.max(0.25, 1 - overflow / Math.max(1, y - FLOW_PAD.top));
+      let cy = FLOW_PAD.top;
+      for (const n of list) { n.h = Math.max(2, n.h * shrink); n.y = cy; cy += n.h + FLOW_GAP; }
+    }
+  };
+  place(FLOW.rows);
+  place(FLOW.cols);
+
+  const leftX = FLOW_PAD.left + FLOW_LABEL;
+  const rightX = width - FLOW_PAD.right - FLOW_LABEL - FLOW_BAR;
+  for (const r of FLOW.rows) { r.x = leftX; r.cursor = r.y; }
+  for (const c of FLOW.cols) { c.x = rightX; c.cursor = c.y; }
+  return { leftX, rightX };
+}
+
+function flowDraw() {
+  const svg = $("flow-svg");
+  const width = svg.clientWidth, height = svg.clientHeight;
+  if (!width || !height) return;
+  svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+  svg.replaceChildren();
+  if (!FLOW.rows.length) return;
+
+  const { leftX, rightX } = flowLayout(width, height);
+  const byId = new Map();
+  for (const n of FLOW.rows.concat(FLOW.cols)) byId.set(n.id, n);
+  const colour = (n) => n.kind === "device" ? "var(--node-device)"
+    : n.kind === "unknown" ? "var(--node-unknown)" : (n.hue || FLOW_HUES[0]);
+
+  /* Ribbons are drawn largest first so a thin one is never buried under a
+     thick one, and each is anchored by a running cursor on both endpoints so
+     the pieces of a bar meet edge to edge with no gap or overlap. */
+  const ordered = FLOW.links.slice().sort((a, b) => b.value - a.value);
+  const rowScale = FLOW.rows.reduce((s, n) => s + n.value, 0) || 1;
+  const colScale = FLOW.cols.reduce((s, n) => s + n.value, 0) || 1;
+  const gRibbon = svgEl("g", {});
+  svg.append(gRibbon);
+
+  for (const link of ordered) {
+    const a = byId.get(link.from), b = byId.get(link.to);
+    if (!a || !b) continue;
+    const ha = Math.max(1, (link.value / a.value) * a.h);
+    const hb = Math.max(1, (link.value / b.value) * b.h);
+    const y0 = a.cursor, y1 = b.cursor;
+    a.cursor += ha; b.cursor += hb;
+
+    const x0 = leftX + FLOW_BAR, x1 = rightX;
+    const mid = (x0 + x1) / 2;
+    // Two cubics sharing the ribbon's own thickness: the top edge out, the
+    // bottom edge back. A single stroked path could not change width.
+    const d = "M" + x0 + "," + y0
+      + "C" + mid + "," + y0 + " " + mid + "," + y1 + " " + x1 + "," + y1
+      + "L" + x1 + "," + (y1 + hb)
+      + "C" + mid + "," + (y1 + hb) + " " + mid + "," + (y0 + ha) + " " + x0 + "," + (y0 + ha)
+      + "Z";
+    const on = !FLOW.hover || FLOW.hover === a.id || FLOW.hover === b.id;
+    // A ribbon takes the colour of where it ends up, matching that meaning's
+    // bar. With one colour for everything, a path that crosses another is
+    // impossible to follow by eye; with this, it stays followable even where
+    // the untangling could not remove the crossing.
+    const path = svgEl("path", {
+      d: d, class: "ribbon", fill: colour(b),
+      // Same reasoning as the bars: 0.05 was a blackout, and sweeping the
+      // pointer across the picture flashed the whole thing on and off.
+      "fill-opacity": on ? (FLOW.hover ? 0.78 : 0.55) : 0.16,
+      // A hairline of the band's own colour along its edge. Without it two
+      // bands of similar hue that touch read as one wider band.
+      stroke: colour(b), "stroke-opacity": on ? 0.3 : 0.08, "stroke-width": 1,
+    });
+    const pct = FLOW.total ? (link.value / FLOW.total) * 100 : 0;
+    const hint = svgEl("title", {});
+    hint.textContent = a.label + " → " + b.label + ": "
+      + Math.round(link.value).toLocaleString()
+      + " records (" + pct.toFixed(1) + "% of everything received)";
+    path.append(hint);
+    gRibbon.append(path);
+  }
+
+  const drawBar = (n, anchorEnd) => {
+    const dim = FLOW.hover && FLOW.hover !== n.id
+      && !FLOW.links.some((l) => (l.from === n.id && l.to === FLOW.hover)
+                              || (l.to === n.id && l.from === FLOW.hover));
+    // Dimmed, not extinguished. At 0.28 the un-hovered half of the picture
+    // dropped out so hard that moving the pointer across it read as the screen
+    // flashing -- a visitor described it as stinging. 0.55 still tells you what
+    // is connected without punishing you for pointing at something.
+    const g = svgEl("g", { opacity: dim ? 0.55 : 1, class: "flow-bar-group" });
+    g.append(svgEl("rect", {
+      x: n.x, y: n.y, width: FLOW_BAR, height: n.h, rx: FLOW_BAR / 2,
+      fill: colour(n), class: "bar",
+    }));
+    const tx = anchorEnd ? n.x - 10 : n.x + FLOW_BAR + 10;
+    // Appended to the group up front: getComputedTextLength only reports a
+    // width for an element the renderer has actually laid out.
+    const label = svgEl("text", {
+      x: tx, y: n.y + n.h / 2 - 2, class: "lbl",
+      "text-anchor": anchorEnd ? "end" : "start", "dominant-baseline": "middle",
+    });
+    // Truncate to the space actually reserved, measured, not to a character
+    // count. A 34-character limit let "Apache HTTP Server (NCSA combined)"
+    // through at exactly 34 and it ran off the left edge of the panel: the
+    // reserve is in pixels and proportional text has no fixed character width.
+    // Set in full here and shortened after the group is in the document --
+    // getComputedTextLength only reports a width for a laid-out element.
+    label.textContent = n.label;
+    label.dataset.full = n.label;
+    // The count only. The percentage was a second number competing with the
+    // first for no gain -- the band's own width already says "share", and a
+    // reader who wants the exact figure gets it on hover.
+    const amount = svgEl("text", {
+      x: tx, y: n.y + n.h / 2 + 12, class: "amt",
+      "text-anchor": anchorEnd ? "end" : "start", "dominant-baseline": "middle",
+    });
+    amount.textContent = Math.round(n.value).toLocaleString() + " logs";
+    // The OCSF name, small and grey, under the plain one. A jury reads the
+    // line above it; a technical judge sees the standard is really there.
+    const under = n.under ? svgEl("text", {
+      x: tx, y: n.y + n.h / 2 + 25, class: "ocsf",
+      "text-anchor": anchorEnd ? "end" : "start", "dominant-baseline": "middle",
+    }) : null;
+    if (under) under.textContent = n.under;
+    // Only label a band tall enough to hold the text; a sliver would print its
+    // name straight through its neighbour's.
+    if (n.h >= 34 && under) { g.append(label); g.append(amount); g.append(under); }
+    else if (n.h >= 15) { g.append(label); g.append(amount); }
+    else if (n.h >= 7) { label.setAttribute("y", n.y + n.h / 2); g.append(label); }
+    g.dataset.id = n.id;
+    // Do not append an SVG <title> here. The map already has a richer custom
+    // tooltip; using both makes browsers display two explanations at once.
+    return g;
+  };
+
+  const gNodes = svgEl("g", {});
+  for (const r of FLOW.rows) gNodes.append(drawBar(r, true));
+  for (const c of FLOW.cols) gNodes.append(drawBar(c, false));
+  svg.append(gNodes);
+
+  // Now that they are laid out, shorten any label wider than the space
+  // reserved for it. "Apache HTTP Server (NCSA combined)" used to run off the
+  // left edge of the panel because the old limit counted characters while the
+  // reserve is in pixels.
+  for (const node of gNodes.querySelectorAll("text.lbl")) {
+    fitLabel(node, node.dataset.full || node.textContent, FLOW_LABEL - 14);
+  }
+}
+
+/* An exploratory, Obsidian-inspired companion to the precise flow diagram.
+   It intentionally uses the same FLOW model: no decorative or fabricated
+   nodes. A stable three-zone layout keeps labels legible while circles and
+   neighbourhood highlighting provide the visual language of a knowledge
+   graph. */
+/* ------------------------------------------------- before / after strip */
+/* Three records that arrived in the last few seconds, from three different
+   products, each with the bytes the device actually wrote next to the answers
+   ULPF pulled out. The raw text is different every time and the question
+   labels never change, which is the whole argument in a form that needs no
+   vocabulary to follow.
+   (This state block was removed by mistake when the ring chart and globe were
+   cut out, and the strip threw on every poll until it came back.) */
+const ROS = { pick: [], at: 0, loading: false, lastSwap: 0 };
+const ROS_ROTATE_MS = 9000;
+
+/* Prefer records that answer the questions the card asks. A parsed record with
+   no addresses makes a card of three dashes, which argues nothing. */
+function rosScore(e) {
+  let s = 0;
+  if (e.src_ip) s += 3;
+  if (e.dst_ip) s += 5;   // both endpoints makes the strongest card
+  if (e.class_uid !== null && e.class_uid !== undefined) s += 2;
+  if (e.locator) s += 1;
+  return s;
+}
+
+/* One record per pack, best first: three cards from the same product would
+   show three near-identical lines and prove nothing about heterogeneity. */
+function rosChoose(events) {
+  const best = new Map();
+  for (const e of events) {
+    if (!e.pack || e.disposition !== "parsed" || !e.locator) continue;
+    const cur = best.get(e.pack);
+    if (!cur || rosScore(e) > rosScore(cur)) best.set(e.pack, e);
+  }
+  return [...best.values()].sort((a, b) => rosScore(b) - rosScore(a));
+}
+
+function rosMeaning(e) {
+  const name = CLASS_NAME[e.class_uid];
+  const acts = ACTIVITY[e.class_uid];
+  const act = acts && acts[e.activity_id];
+  if (!name) return e.class_uid ? "Class " + e.class_uid : "—";
+  return act ? name + " · " + act : name;
+}
+
+/* An em dash reads as "this tool failed". The truth is narrower and better
+   for us: the device never wrote that field, and ULPF did not invent one. Say
+   so, in the same words a non-technical reader would use. */
+function rosEndpoint(ip, port) {
+  if (!ip) return "not stated by the device";
+  return port ? ip + " : " + port : String(ip);
+}
+
+function rosCard(entry) {
+  const e = entry.event;
+  const card = el("div", "roscard");
+  const product = [e.vendor, e.product]
+    .filter((x) => x && x !== "Unknown")
+    .filter((x, i, a) => i === 0 || !String(x).toLowerCase().startsWith(String(a[0]).toLowerCase()))
+    .join(" ") || e.pack || "Unknown device";
+  const who = el("div", "who", product);
+  who.title = product;
+  card.append(who);
+
+  card.append(el("div", "step", "What the device wrote"));
+  const raw = el("div", "rawline", entry.raw || "(original text not retrievable)");
+  card.append(raw);
+
+  const arrow = el("div", "rosarrow");
+  arrow.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M6 13l6 6 6-6"/></svg>';
+  card.append(arrow);
+
+  card.append(el("div", "step", "What ULPF understood"));
+  const dl = el("dl");
+  const add = (k, v, mono) => {
+    dl.append(el("dt", null, k));
+    dl.append(el("dd", mono ? "mono" : null, v));
+  };
+  add("Who started it", rosEndpoint(e.src_ip, e.src_port), !!e.src_ip);
+  add("Who it reached", rosEndpoint(e.dst_ip, e.dst_port), !!e.dst_ip);
+  add("When", fmtTime(e.time) || "not stated by the device");
+  card.append(dl);
+  card.append(el("div", "meaning", rosMeaning(e)));
+  return card;
+}
+
+/* Fetch the originals for the chosen records, then render. One request per
+   card, at most three, and only when the selection changes -- not on every
+   two-second poll, which would read the vault 90 times a minute for a panel
+   nobody is looking at. */
+async function rosRender(chosen) {
+  if (ROS.loading) return;
+  ROS.loading = true;
+  try {
+    const entries = await Promise.all(chosen.map(async (event) => {
+      try {
+        const data = await api("/api/raw/" + encodeURIComponent(event.locator));
+        return { event, raw: (data && data.text) ? String(data.text).trim() : null };
+      } catch (err) {
+        return { event, raw: null };
+      }
+    }));
+    const cols = $("ros-cols");
+    cols.replaceChildren();
+    for (const entry of entries) cols.append(rosCard(entry));
+    $("ros-sub").textContent = entries.length
+      + (entries.length === 1 ? " record, live from the vault" : " records, live from the vault");
+  } finally {
+    ROS.loading = false;
+  }
+}
+
+/* Rotate through the products rather than pinning the same three: with nine
+   sources running, a fixed three hides two thirds of the argument. */
+function rosUpdate(events, force) {
+  const ranked = rosChoose(events || []);
+  if (!ranked.length) {
+    $("ros-cols").replaceChildren(el("div", "rosempty",
+      "Nothing to show yet. Once records arrive, three of them appear here with the original text beside what ULPF made of it."));
+    $("ros-sub").textContent = "waiting for traffic";
+    return;
+  }
+  const now = performance.now();
+  if (!force && ROS.lastSwap && now - ROS.lastSwap < ROS_ROTATE_MS) return;
+  ROS.lastSwap = now;
+  if (force) ROS.at = (ROS.at + 3) % Math.max(1, ranked.length);
+  const chosen = [];
+  for (let i = 0; i < Math.min(3, ranked.length); i++) {
+    chosen.push(ranked[(ROS.at + i) % ranked.length]);
+  }
+  if (!force) ROS.at = (ROS.at + 3) % ranked.length;
+  rosRender(chosen);
+}
+
+$("ros-next").addEventListener("click", () => rosUpdate(latestEvents, true));
+
+
+/* ------------------------------------------------------ tabs on Live Map */
+/* Three ways of looking at the same collector. The flow diagram answers
+   "where does everything end up", the globe answers "is anything arriving
+   right now", the trend answers "how much, and is it keeping up". Only the
+   visible one animates -- the collector shares this machine. */
+/* Plain-language explainer per tab. Deliberately free of jargon: the reader
+   this is written for has never opened a log file, and every sentence they
+   cannot parse is a sentence that makes the project look complicated rather
+   than useful. Each entry is one sentence saying what the picture is, then
+   three short steps saying how to read it. */
+const LEDE = {
+  flow: {
+    what: 'Every product writes its logs in its own way, so a security team cannot search across all of them at '
+        + 'once. ULPF reads each one and rewrites it into <b>one shared set of meanings</b>. '
+        + '<b>On the left is what sent the log. On the right is what it became.</b> Follow any band across.',
+    steps: [
+      ['Left side: the products', 'Nine different things here — an intrusion detector, a firewall, a web server, a mail server. Each writes logs nothing else can read.'],
+      ['Right side: plain meanings', 'The same handful of statements, whatever sent them. One search now works across every product on the left.'],
+      ['Red is the honest part', 'Anything ULPF cannot read yet is kept exactly as it arrived, never dropped, and shown here rather than hidden.'],
+    ],
+  },
+  trend: {
+    what: 'How much work ULPF is doing. <b>Each point is one measurement</b>: how many logs arrived in the last '
+        + 'couple of seconds. A line climbing means more traffic; a flat line along the bottom means nothing is '
+        + 'being sent right now.',
+    steps: [
+      ['The four numbers', 'What is arriving now, the busiest it has been, its usual speed, and how much of everything it understood.'],
+      ['Steady is healthy', 'The line should track the traffic. It keeping up is the point.'],
+      ['Hover anywhere', 'Reads back the exact speed at that moment and how long ago it was.'],
+    ],
+  },
+};
+
+function ledeShow(name) {
+  const entry = LEDE[name];
+  if (!entry) return;
+  $("lede-what").innerHTML = entry.what;
+  const list = $("lede-steps");
+  list.replaceChildren();
+  for (const [title, body] of entry.steps) {
+    const li = el("li");
+    li.append(el("b", null, title), document.createTextNode(body));
+    list.append(li);
+  }
+}
+
+(function tabs() {
+  const buttons = [...document.querySelectorAll(".tabbar .tab")];
+  function select(name) {
+    ledeShow(name);
+    for (const b of buttons) b.setAttribute("aria-selected", String(b.dataset.tab === name));
+    for (const b of buttons) {
+      const panel = $("tab-" + b.dataset.tab);
+      if (panel) panel.hidden = b.dataset.tab !== name;
+    }
+    // Both drawings size themselves from their container, which measures zero
+    // while hidden, so each needs a redraw on the frame after it is shown.
+    requestAnimationFrame(() => {
+      if (name === "flow") mapDraw();
+      if (name === "trend") trendDraw();
+    });
+  }
+  for (const b of buttons) b.addEventListener("click", () => select(b.dataset.tab));
+  window.__mapSelectTab = select;
+  const initial = buttons.find((b) => b.getAttribute("aria-selected") === "true");
+  ledeShow(initial ? initial.dataset.tab : "flow");
+})();
+
+/* --------------------------------------------------- throughput over time */
+/* Records per second, measured in the browser from the same two-second poll
+   the rest of the console runs on. Every point is a real measurement: the
+   difference in `received` between two polls divided by the seconds between
+   them. Nothing is smoothed or interpolated -- a flat line means the
+   collector really was idle.
+
+   Kept client-side deliberately. The collector does not retain a time series
+   and adding one would mean state, a lock and a retention policy for a number
+   the console can derive itself. The cost is that history starts when the page
+   opens, which the empty state says out loud rather than implying the graph is
+   the whole story. */
+
+const TREND = {
+  points: [],            // { t: ms, eps: number }
+  lastReceived: null,
+  lastAt: 0,
+  peak: 0,
+  hover: null,
+};
+const TREND_WINDOW_MS = 6 * 60 * 1000;   // six minutes of history
+const TREND_PAD = { top: 18, right: 18, bottom: 26, left: 56 };
+
+function trendUpdate(stats) {
+  const now = performance.now();
+  const received = Number(stats.received || 0);
+  if (TREND.lastReceived !== null && now > TREND.lastAt) {
+    const seconds = (now - TREND.lastAt) / 1000;
+    // A restarted collector resets its counter; a negative delta is that, not
+    // negative throughput, so it starts a fresh baseline instead of a spike.
+    const delta = received - TREND.lastReceived;
+    if (delta >= 0 && seconds > 0.4) {
+      const eps = delta / seconds;
+      TREND.points.push({ t: now, eps });
+      TREND.peak = Math.max(TREND.peak, eps);
+    }
+  }
+  TREND.lastReceived = received;
+  TREND.lastAt = now;
+  while (TREND.points.length && now - TREND.points[0].t > TREND_WINDOW_MS) TREND.points.shift();
+
+  const live = TREND.points.filter((p) => p.eps > 0);
+  const current = TREND.points.length ? TREND.points[TREND.points.length - 1].eps : 0;
+  const average = live.length ? live.reduce((s, p) => s + p.eps, 0) / live.length : 0;
+  $("tr-now").textContent = Math.round(current).toLocaleString();
+  $("tr-peak").textContent = Math.round(TREND.peak).toLocaleString();
+  $("tr-avg").textContent = Math.round(average).toLocaleString();
+  $("tr-cov").textContent = stats.received
+    ? ((stats.coverage || 0) * 100).toFixed(2) + "%" : "—";
+  $("trend-sub").textContent = TREND.points.length
+    ? TREND.points.length + " measurements, newest on the right"
+    : "collecting";
+  $("trend-empty").hidden = TREND.points.length > 1;
+  $("trend-note").textContent =
+    "Each point is one measurement: how many records arrived between two refreshes, divided by the seconds "
+    + "between them. History starts when this page was opened and covers the last six minutes.";
+  trendDraw();
+}
+
+function trendDraw() {
+  const svg = $("trend-svg");
+  const w = svg.clientWidth, h = svg.clientHeight;
+  if (!w || !h) return;
+  svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+  svg.replaceChildren();
+  const pts = TREND.points;
+  if (pts.length < 2) return;
+
+  const x0 = TREND_PAD.left, x1 = w - TREND_PAD.right;
+  const y0 = TREND_PAD.top, y1 = h - TREND_PAD.bottom;
+  const tMin = pts[0].t, tMax = pts[pts.length - 1].t;
+  const span = Math.max(1, tMax - tMin);
+  // Headroom above the peak so the line never touches the top edge, and a
+  // floor so an idle collector does not draw a flat line at full scale.
+  const peak = Math.max(10, ...pts.map((p) => p.eps)) * 1.15;
+
+  const sx = (t) => x0 + ((t - tMin) / span) * (x1 - x0);
+  const sy = (v) => y1 - (v / peak) * (y1 - y0);
+
+  const svgn = svgEl;   // the file already has this helper
+
+  // Horizontal guides, labelled. Four is enough to read a value off without
+  // turning the plot into graph paper.
+  for (let i = 0; i <= 4; i++) {
+    const v = (peak / 4) * i;
+    const y = sy(v);
+    svg.append(svgn("line", {
+      x1: x0, x2: x1, y1: y, y2: y,
+      stroke: "var(--border)", "stroke-width": 1,
+      "stroke-dasharray": i === 0 ? "" : "3 5",
+    }));
+    const label = svgn("text", { x: x0 - 9, y: y, "text-anchor": "end", "dominant-baseline": "middle" });
+    label.textContent = Math.round(v).toLocaleString();
+    svg.append(label);
+  }
+
+  const path = pts.map((p, i) => (i ? "L" : "M") + sx(p.t).toFixed(1) + "," + sy(p.eps).toFixed(1)).join("");
+
+  const gradId = "trend-fill";
+  const defs = svgn("defs", {});
+  const grad = svgn("linearGradient", { id: gradId, x1: "0", y1: "0", x2: "0", y2: "1" });
+  const s1 = svgn("stop", { offset: "0%", "stop-color": "var(--primary)", "stop-opacity": "0.26" });
+  const s2 = svgn("stop", { offset: "100%", "stop-color": "var(--primary)", "stop-opacity": "0" });
+  grad.append(s1, s2); defs.append(grad); svg.append(defs);
+
+  svg.append(svgn("path", {
+    d: path + "L" + sx(tMax).toFixed(1) + "," + y1 + "L" + sx(tMin).toFixed(1) + "," + y1 + "Z",
+    fill: "url(#" + gradId + ")",
+  }));
+  svg.append(svgn("path", {
+    d: path, fill: "none", stroke: "var(--primary)",
+    "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round",
+  }));
+
+  // The newest reading, marked and labelled: on a live chart that is the
+  // number anyone is actually looking for.
+  const last = pts[pts.length - 1];
+  svg.append(svgn("circle", {
+    cx: sx(last.t), cy: sy(last.eps), r: 4.5,
+    fill: "var(--primary)", stroke: "#FFFFFF", "stroke-width": 2,
+  }));
+
+  const secondsAgo = Math.round((tMax - tMin) / 1000);
+  const left = svgn("text", { x: x0, y: y1 + 15, "text-anchor": "start" });
+  left.textContent = secondsAgo >= 60
+    ? Math.round(secondsAgo / 60) + " min ago"
+    : secondsAgo + "s ago";
+  const right = svgn("text", { x: x1, y: y1 + 15, "text-anchor": "end" });
+  right.textContent = "now";
+  svg.append(left, right);
+
+  if (TREND.hover) {
+    const hx = sx(TREND.hover.t);
+    svg.append(svgn("line", {
+      x1: hx, x2: hx, y1: y0, y2: y1,
+      stroke: "var(--primary)", "stroke-width": 1, "stroke-dasharray": "3 3", "stroke-opacity": "0.6",
+    }));
+    svg.append(svgn("circle", {
+      cx: hx, cy: sy(TREND.hover.eps), r: 4,
+      fill: "var(--primary)", stroke: "#FFFFFF", "stroke-width": 2,
+    }));
+  }
+}
+
+(function trendBindInput() {
+  const svg = $("trend-svg");
+  const tip = $("trend-tip");
+  svg.addEventListener("pointermove", (e) => {
+    const pts = TREND.points;
+    if (pts.length < 2) return;
+    const box = svg.getBoundingClientRect();
+    const x = e.clientX - box.left, y = e.clientY - box.top;
+    const x0 = TREND_PAD.left, x1 = svg.clientWidth - TREND_PAD.right;
+    const tMin = pts[0].t, tMax = pts[pts.length - 1].t;
+    const t = tMin + ((x - x0) / Math.max(1, x1 - x0)) * (tMax - tMin);
+    let nearest = pts[0];
+    for (const p of pts) if (Math.abs(p.t - t) < Math.abs(nearest.t - t)) nearest = p;
+    TREND.hover = nearest;
+    trendDraw();
+    const ago = Math.round((tMax - nearest.t) / 1000);
+    tip.replaceChildren(
+      el("b", null, Math.round(nearest.eps).toLocaleString() + " records/sec"),
+      el("div", "m", ago === 0 ? "just now" : ago + " seconds ago")
+    );
+    tip.classList.add("on");
+    tip.style.left = Math.min(x + 14, Math.max(8, svg.clientWidth - 190)) + "px";
+    tip.style.top = Math.max(8, y - 12) + "px";
+  });
+  svg.addEventListener("pointerleave", () => {
+    if (TREND.hover) { TREND.hover = null; trendDraw(); }
+    tip.classList.remove("on");
+  });
+
+  const full = $("trend-full");
+  full.addEventListener("click", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else if ($("trend-panel").requestFullscreen) {
+      $("trend-panel").requestFullscreen().catch(() => {
+        full.textContent = "Full screen unavailable"; full.disabled = true;
+      });
+    }
+  });
+  document.addEventListener("fullscreenchange", () => {
+    requestAnimationFrame(() => { trendDraw(); mapDraw(); });
+  });
+
+  let timer = 0;
+  window.addEventListener("resize", () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(trendDraw, 90);
+  });
+})();
+
+window.flowDraw = flowDraw;
 
 refresh();
 setInterval(refresh, 2000);

@@ -153,6 +153,11 @@
 
   <div class="stats">
     <div class="stat accent"><div class="k">Streams running</div><div class="v" id="s-running">0</div><div class="n" id="s-of">of 0 available</div></div>
+    <!-- The combined rate. Every row states its own EPS and nothing stated the
+         sum, so ten rows reading "20 EPS" looked like the collector should be
+         receiving 20 a second while the console showed hundreds. The rate is
+         per stream; this is what actually arrives. -->
+    <div class="stat accent"><div class="k">Combined rate</div><div class="v" id="s-combined">0</div><div class="n" id="s-combined-note">logs per second into the collector</div></div>
     <div class="stat good"><div class="k">Records sent</div><div class="v" id="s-sent">0</div><div class="n" id="s-rate">idle</div></div>
     <div class="stat"><div class="k">Collector target</div><div class="v mono" id="s-target" style="font-size:15px">—</div><div class="n">UDP syslog receiver</div></div>
     <div class="stat"><div class="k">Corpus directory</div><div class="v mono" id="s-dir" style="font-size:13px">—</div><div class="n" id="s-present">—</div></div>
@@ -161,7 +166,7 @@
   <div class="panel">
     <div class="panel-head">
       <h2>Sources</h2>
-      <span class="sub">every line is an unmodified record from a published capture</span>
+      <span class="sub">every line is an unmodified record from a published capture, replayed on a loop</span>
       <div class="right">
         <span class="pill neutral" id="conn"><i></i> connecting</span>
         <div style="display:flex; border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; margin-right:8px">
@@ -364,6 +369,16 @@ function render(data) {
   const present = sources.filter((s) => s.present).length;
   $("s-running").textContent = data.running || 0;
   $("s-of").textContent = "of " + present + " available";
+  // Sum of the per-stream rates: this is the number that shows up in the main
+  // console, and the one nobody could derive from the table on their own.
+  const live = sources.filter((x) => x.running);
+  const combined = live.reduce((sum, x) => sum + Number(x.eps || 0), 0);
+  $("s-combined").textContent = combined.toLocaleString();
+  $("s-combined-note").textContent = live.length
+    ? live.length + " × " + (live[0] && live.every((x) => x.eps === live[0].eps)
+        ? live[0].eps + " EPS = " + combined + " logs per second"
+        : "streams = " + combined + " logs per second")
+    : "logs per second into the collector";
   $("s-sent").textContent = Number(data.total_sent || 0).toLocaleString();
   $("s-target").textContent = data.target || "—";
   
