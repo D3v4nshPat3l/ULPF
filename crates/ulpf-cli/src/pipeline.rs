@@ -24,6 +24,14 @@ pub struct Stats {
     pub extract_failed: u64,
     pub normalize_failed: u64,
     pub bytes_in: u64,
+    /// Records no pack claimed that still carry at least one indicator or
+    /// named field, so an analyst can find them by searching.
+    ///
+    /// Reported separately from `parsed` on purpose. Folding these into
+    /// coverage would inflate the number the project is judged on: a record
+    /// here has a real timestamp and searchable content, but nobody has told
+    /// ULPF what it means, and that is a weaker claim than normalization.
+    pub searchable_unidentified: u64,
     /// Events claimed, by pack id.
     pub by_pack: BTreeMap<String, u64>,
 }
@@ -176,6 +184,12 @@ impl Pipeline {
         self.attestor.attest(&mut event)?;
 
         self.stats.record(&disposition);
+        // Counted after the event is fully built, from the event itself, so
+        // the figure is what a searcher would actually find rather than what
+        // the extractors were asked to look for.
+        if matches!(disposition, ulpf_core::Disposition::Unidentified) && is_searchable(&event) {
+            self.stats.searchable_unidentified += 1;
+        }
         Ok(Processed {
             event,
             disposition,
@@ -201,14 +215,65 @@ impl Pipeline {
         metadata.logged_time = Some(envelope.received_at);
         metadata.log_format = Some("unknown".to_string());
 
+        // When the line states a time, use it. Stamping every unidentified
+        // record with the moment ULPF received it asserts something false:
+        // replaying a 2005 capture produced events dated today, and nothing
+        // downstream could tell that the timestamp was the collector's clock
+        // rather than the device's. Which of the two was used is recorded, so
+        // a reader never has to guess.
+        let text = String::from_utf8_lossy(raw);
+        let generic = ulpf_decode::generic::extract(&text);
+        let detected = ulpf_pack::time::detect_leading_time(&text);
+        let (event_time, time_source) = match detected {
+            Some(d) if d.year_stated => (d.nanos, "log"),
+            // RFC 3164 has no year field, so the year is the collector's
+            // assumption even though the month, day and clock are the
+            // device's. Labelled distinctly rather than passed off as either.
+            Some(d) => (d.nanos, "log-year-assumed"),
+            None => (envelope.received_at, "receipt"),
+        };
+
         let mut event = EventBuilder::new()
-            .class(ulpf_ocsf::class::NETWORK_ACTIVITY)
+            // Base Event, not Network Activity. A record nobody identified
+            // could be from a database, a printer or a badge reader; calling
+            // it network traffic is a claim ULPF has no basis for. Class 0 is
+            // the schema's own answer for "an event, kind unknown".
+            .class(ulpf_ocsf::class::BASE_EVENT)
             .activity(ulpf_ocsf::network_activity::UNKNOWN)
-            .time(envelope.received_at)
-            .severity(Severity::Informational)
+            .time(event_time)
+            // RFC 5424 severity when the line carried a <PRI> header, and
+            // Informational when it did not -- not a guess either way, since
+            // the absence of a priority is itself the absence of a claim.
+            .severity(
+                generic
+                    .syslog_severity
+                    .map(syslog_severity_to_ocsf)
+                    .unwrap_or(Severity::Informational),
+            )
             .metadata(metadata)
             .raw(raw, Fingerprint::over_raw(self.hash, raw))
             .build()?;
+        event.set_unmapped("ulpf_time_source", serde_json::json!(time_source));
+
+        // Keep the device's own field names. `salvage_into` below records the
+        // entities it recognises but discards the vocabulary around them, so
+        // `outcome=deny` vanished entirely -- "deny" is not an address, a port
+        // or a URL. OCSF `unmapped` is the object the schema provides for
+        // exactly this: attributes the producer could not map.
+        if !generic.fields.is_empty() {
+            let mut named = serde_json::Map::new();
+            for (key, value) in &generic.fields {
+                named.insert(key.clone(), serde_json::Value::String(value.clone()));
+            }
+            event.set_unmapped("ulpf_fields", serde_json::Value::Object(named));
+        }
+        // RFC 5424 severity, mapped onto the OCSF scale. Both are ordered
+        // scales of the same idea, so this is a translation rather than a
+        // judgement -- but it is a translation, so it is recorded as one and
+        // only applied when the line actually carried a <PRI> header.
+        if let Some(code) = generic.syslog_severity {
+            event.set_unmapped("ulpf_syslog_severity", serde_json::json!(code));
+        }
 
         salvage_into(&mut event, raw);
         Ok(event)
@@ -293,6 +358,43 @@ fn existing_observables(event: &OcsfEvent) -> std::collections::HashSet<(u64, St
 /// Deliberately only `observables`: this says an address is present, it does
 /// not claim the address is the source. A wrong `src_endpoint.ip` is worse
 /// than an absent one, because a detection rule acts on it.
+/// Whether an unidentified record carries anything an analyst could search
+/// for: a recognised indicator, or a field the device named itself.
+///
+/// Raw text alone does not count. Every record has that, so counting it would
+/// make the figure meaningless -- it would simply equal the number of records
+/// received.
+fn is_searchable(event: &OcsfEvent) -> bool {
+    let map = event.as_map();
+    let has_observables = map
+        .get("observables")
+        .and_then(|v| v.as_array())
+        .is_some_and(|a| !a.is_empty());
+    let has_fields = map
+        .get("unmapped")
+        .and_then(|v| v.get("ulpf_fields"))
+        .and_then(|v| v.as_object())
+        .is_some_and(|o| !o.is_empty());
+    has_observables || has_fields
+}
+
+/// RFC 5424 §6.2.1 severity onto the OCSF `severity_id` scale.
+///
+/// Both are ordered severities, but they are not the same length, so the ends
+/// compress: syslog Alert and Critical both land on OCSF Critical, and Debug
+/// joins Informational because OCSF has nothing below it. Written out rather
+/// than computed so the choice at each step is visible and arguable.
+fn syslog_severity_to_ocsf(code: u8) -> Severity {
+    match code {
+        0 => Severity::Fatal,         // Emergency: system is unusable
+        1 | 2 => Severity::Critical,  // Alert, Critical
+        3 => Severity::High,          // Error
+        4 => Severity::Medium,        // Warning
+        5 => Severity::Low,           // Notice
+        _ => Severity::Informational, // Informational, Debug
+    }
+}
+
 fn salvage_into(event: &mut OcsfEvent, raw: &[u8]) {
     let text = String::from_utf8_lossy(raw);
     let salvaged = ulpf_decode::salvage::salvage(&text);

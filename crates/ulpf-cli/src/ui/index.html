@@ -612,7 +612,7 @@
           <div class="mapstat device"><div class="v" id="map-k-devices">0</div><div class="k">products sending logs</div><div class="k2">Source Packs that have claimed at least one record</div></div>
           <div class="mapstat meaning"><div class="v" id="map-k-meanings">0</div><div class="k">shared meanings in use</div><div class="k2">distinct OCSF event classes produced so far</div></div>
           <div class="mapstat"><div class="v" id="map-k-events">0</div><div class="k">records normalised</div><div class="k2">read, mapped to OCSF and sealed, since start</div></div>
-          <div class="mapstat unknown"><div class="v" id="map-k-unknown">0</div><div class="k">records not recognised</div><div class="k2">vaulted intact; no pack detector matched them</div></div>
+          <div class="mapstat unknown"><div class="v" id="map-k-unknown">0</div><div class="k">records not recognised</div><div class="k2" id="map-k-unknown-sub">vaulted intact; no pack detector matched them</div></div>
         </div>
 
         <div class="tabbar" role="tablist" aria-label="Live map views">
@@ -1221,7 +1221,7 @@ const ENCODING = {0:"Unknown",1:"Hex",2:"Base64",3:"Base64URL",99:"Other"};
 const SERIALIZATION = {0:"Unknown",1:"Flat",2:"JCS",3:"JWS",4:"COSE",5:"DSSE",99:"Other"};
 const CATEGORY = {1:"System Activity",2:"Findings",3:"Identity & Access Management",4:"Network Activity",
                   5:"Discovery",6:"Application Activity",7:"Remediation",8:"Unmanned Systems"};
-const CLASS_NAME = {1008:"Event Log Activity",2001:"Security Finding",2004:"Detection Finding",
+const CLASS_NAME = {0:"Base Event",1008:"Event Log Activity",2001:"Security Finding",2004:"Detection Finding",
                    3002:"Authentication",4001:"Network Activity",4002:"HTTP Activity",
                    4009:"Email Activity",6003:"API Activity"};
 /* activity_id is class-specific. Every table below is copied from the class's
@@ -2294,6 +2294,10 @@ const FLOW_HUES = [
    shows; the OCSF name sits under it in small grey text, so a technical judge
    still sees that we map to a real standard. */
 const PLAIN_MEANING = {
+  // Class 0 is what a record carries when no pack identified it: preserved,
+  // timestamped and searchable, but its kind is genuinely unknown. Saying so
+  // is the honest label -- anything more specific would be a claim.
+  0: "Kept and searchable, kind unknown",
   1008: "A system event was logged",
   2001: "A security finding was reported",
   2004: "A security tool raised an alert",
@@ -2466,6 +2470,17 @@ function flowUpdate(stats, events, packs, clusters) {
   $("map-k-meanings").textContent = meanings.toLocaleString();
   $("map-k-events").textContent = Number(stats.parsed || 0).toLocaleString();
   $("map-k-unknown").textContent = unknown.toLocaleString();
+  // Say what became of them. "Not recognised" alone reads as "lost", and they
+  // are not: every one is vaulted whole, timestamped from its own line where
+  // the line states a time, and many carry indicators or the field names the
+  // device used. Reported as a share of the unrecognised, never folded into
+  // coverage -- structured is a weaker claim than normalised, and merging the
+  // two would inflate the number the project is judged on.
+  const searchable = Number(stats.searchable_unidentified || 0);
+  $("map-k-unknown-sub").textContent = unknown
+    ? "vaulted intact; " + searchable.toLocaleString() + " of them ("
+      + Math.round((searchable / unknown) * 100) + "%) carry an indicator or a named field"
+    : "vaulted intact; no pack detector matched them";
   $("flow-sub").textContent = rows.length
     ? devices + (devices === 1 ? " device" : " devices") + " becoming " + meanings
       + (meanings === 1 ? " shared meaning" : " shared meanings")

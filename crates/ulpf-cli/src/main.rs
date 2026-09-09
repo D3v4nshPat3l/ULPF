@@ -885,6 +885,13 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
         stats.coverage() * 100.0
     );
     eprintln!("  unidentified      {}", stats.unidentified);
+    if stats.unidentified > 0 {
+        let share = stats.searchable_unidentified as f64 / stats.unidentified as f64 * 100.0;
+        eprintln!(
+            "    of those, searchable  {} ({:.1}% carry an indicator or a named field)",
+            stats.searchable_unidentified, share
+        );
+    }
     eprintln!("  extract failed    {}", stats.extract_failed);
     eprintln!("  normalize failed  {}", stats.normalize_failed);
     eprintln!("  bytes in          {}", stats.bytes_in);

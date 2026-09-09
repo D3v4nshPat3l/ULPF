@@ -349,6 +349,7 @@ async fn stats(State(state): State<Shared>) -> Json<Value> {
         "received": st.received,
         "parsed": st.parsed,
         "unidentified": st.unidentified,
+        "searchable_unidentified": st.searchable_unidentified,
         "extract_failed": st.extract_failed,
         "normalize_failed": st.normalize_failed,
         "bytes_in": st.bytes_in,
