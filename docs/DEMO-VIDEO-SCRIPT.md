@@ -1,10 +1,14 @@
-# Demo video script — 2 minutes
+# Demo video script — 3 minutes
 
 SIH 2026 · PS 26156 · NTRO · Universal Log Pre-processing Framework
 
-**Hard limit: 120 seconds.** The shot list below is timed to 118, leaving two
+**Target: 180 seconds.** The shot list below is timed to 176, leaving four
 seconds of headroom. Record the screen at 1920×1080; the console is designed to
 read on a projector, so do not shrink the window.
+
+If the submission cap turns out to be two minutes rather than three, cut in the
+order given at the end — the script is built so the first 118 seconds stand on
+their own.
 
 **Before recording**, have all of this already running — never record a build
 or a `docker compose up`:
@@ -21,7 +25,7 @@ on *Last 15 minutes*, `full_log` added as a column. ULPF console open at
 
 ## Shot list
 
-### 0:00 – 0:12 · The problem, in their own logs (12s)
+### 0:00 – 0:18 · The problem, in their own logs (18s)
 
 **Screen:** Wazuh Discover, `full_log` column, sources already sending raw.
 
@@ -37,7 +41,7 @@ does not feel the mess here, nothing after it lands.
 
 ---
 
-### 0:12 – 0:22 · One click (10s)
+### 0:18 – 0:30 · One click (12s)
 
 **Screen:** Switch to the `/dev` tab. Press **ULPF** on the target switch.
 
@@ -49,7 +53,7 @@ the whole video — make it unmistakable that nothing else changed.
 
 ---
 
-### 0:22 – 0:40 · The same traffic, normalized (18s)
+### 0:30 – 0:54 · The same traffic, normalized (24s)
 
 **Screen:** Back to Wazuh Discover. Refresh. Expand one new document.
 
@@ -65,7 +69,7 @@ each as it is named.
 
 ---
 
-### 0:40 – 0:52 · The console (12s)
+### 0:54 – 1:10 · The console (16s)
 
 **Screen:** ULPF console Overview, traffic flowing.
 
@@ -73,12 +77,13 @@ each as it is named.
 > The collector's own view. Coverage against OCSF, bytes vaulted before
 > anything was parsed, and which Source Pack claimed each record.
 
-**Direction:** The donut is the shot. It shows several vendors at once, which
-is the "unified visibility" requirement in one frame.
+**Direction:** The live table is the shot — several vendors resolving to one
+schema at once, which is the "unified visibility" requirement in one frame.
+Let the Pack column be readable; it is what shows the traffic is mixed.
 
 ---
 
-### 0:52 – 1:12 · Nothing is lost, and tampering shows (20s)
+### 1:10 – 1:36 · Nothing is lost, and tampering shows (26s)
 
 **Screen:** Raw logs tab, then Integrity, then Tamper.
 
@@ -96,7 +101,7 @@ below over the still frame.
 
 ---
 
-### 1:12 – 1:38 · A device it has never seen (26s)
+### 1:36 – 2:12 · A device it has never seen (36s)
 
 **Screen:** Simulator, switch on the unknown appliance. Console → Clusters.
 
@@ -119,7 +124,24 @@ differentiator; most submissions guess.
 
 ---
 
-### 1:38 – 1:52 · Scale and the evidence (14s)
+### 2:12 – 2:34 · Prove one record, disclose nothing else (22s)
+
+**Screen:** Terminal. `ulpf prove` then `ulpf verify-proof`, side by side with
+the console still running.
+
+**Narration:**
+> Four hundred and sixteen bytes proving one record out of thirty-two million
+> was in the log when the checkpoint was signed. It verifies against a public
+> key alone — no vault, no chain, no other event. That is what makes an extract
+> from a log you cannot share, shareable.
+
+**Direction:** Let `PROOF VALID` and the `position: 1 of N` line be readable.
+This shot is the answer to "how is this different from a parser", and two
+minutes had no room for it.
+
+---
+
+### 2:34 – 2:56 · Scale and the evidence (22s)
 
 **Screen:** Terminal, `python tools/measure_coverage.py` output already on
 screen, then the throughput table.
@@ -133,7 +155,7 @@ is judged. Let the table be visible and keep the claim about *method*.
 
 ---
 
-### 1:52 – 1:58 · Close (6s)
+### 2:56 – 3:00 · Close (4s)
 
 **Screen:** The one-line architecture diagram from the README.
 
@@ -151,10 +173,12 @@ is judged. Let the table be visible and keep the claim about *method*.
   measured rate, the voiceover says "projected" or does not mention it.
 - **One take per shot, cut between.** A continuous take will overrun.
 
-## What to cut first if you are over time
+## What to cut, in order, if you are over time
 
-1. The console Overview shot (0:40–0:52) — the donut is nice, not essential.
-2. The scale shot (1:38–1:52) — the numbers are in the deck and the README.
+1. **The console shot** (0:54–1:10) — the comparison already showed the output.
+2. **The proof shot** (2:12–2:34) — the strongest technical moment, but the
+   only one that needs a terminal. Cutting it takes you to roughly two minutes.
+3. **The scale shot** — the numbers are in the deck and the README.
 
 Never cut the tamper shot or the one-click comparison. Those two are the
-submission.
+submission, and everything else is supporting material.
