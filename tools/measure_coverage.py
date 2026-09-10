@@ -118,7 +118,11 @@ def binary() -> pathlib.Path:
 
 
 def measure(
-    exe: pathlib.Path, packs: str, corpus: pathlib.Path, timeout: int
+    exe: pathlib.Path,
+    packs: str,
+    corpus: pathlib.Path,
+    timeout: int,
+    work_root: pathlib.Path,
 ) -> tuple[int, int]:
     """Run one corpus through the pipeline and return (received, parsed).
 
@@ -128,7 +132,18 @@ def measure(
     fixed 30-minute cap silently turned every corpus above roughly 36 million
     records into a "0 events" result that was then reported as absent.
     """
-    work = pathlib.Path(tempfile.mkdtemp(prefix="ulpf-cov-"))
+    # Beside the corpora, not in the system temp directory.
+    #
+    # Every measured corpus is vaulted as it is read, so the scratch space a
+    # run needs is a fraction of the corpus but still gigabytes for the large
+    # ones. The system temp directory is on the OS volume, which is routinely
+    # the smallest one on the machine: measuring Blue Coat and the full Zeek
+    # capture filled it, both runs died, and -- because a dead run produces no
+    # counters -- both were then reported as *absent*, which reads as "you did
+    # not download them" rather than "this failed". The corpora live on a
+    # volume with room for them by definition, so the scratch goes there.
+    work_root.mkdir(parents=True, exist_ok=True)
+    work = pathlib.Path(tempfile.mkdtemp(prefix="ulpf-cov-", dir=work_root))
     try:
         result = subprocess.run(
             [
@@ -180,6 +195,15 @@ def main() -> None:
     )
     parser.add_argument("--baseline", default="tools/coverage_baseline.json")
     parser.add_argument(
+        "--work-dir",
+        default=None,
+        help=(
+            "scratch space for the vault each run writes (default: a "
+            ".measure-work directory beside --data, which keeps it off the "
+            "OS volume)"
+        ),
+    )
+    parser.add_argument(
         "--timeout",
         type=int,
         default=36000,
@@ -195,6 +219,7 @@ def main() -> None:
 
     exe = binary()
     data = pathlib.Path(args.data)
+    work_root = pathlib.Path(args.work_dir) if args.work_dir else data / ".measure-work"
     if not data.exists():
         print(f"{data} not found. Run: python tools/fetch_datasets.py", file=sys.stderr)
         raise SystemExit(1)
@@ -207,6 +232,7 @@ def main() -> None:
     perimeter_events = 0
     perimeter_parsed = 0
     missing = []
+    failed = []
     measured = {}
 
     selected = {"all": CORPORA, "perimeter": PERIMETER, "universal": UNIVERSAL}[args.set]
@@ -220,9 +246,12 @@ def main() -> None:
         # corpus, so a smaller number is never mistaken for the real one.
         if filename != candidates[0]:
             label = f"{label} [sample]"
-        events, parsed = measure(exe, args.packs, corpus, args.timeout)
+        events, parsed = measure(exe, args.packs, corpus, args.timeout, work_root)
         if events == 0:
-            missing.append(filename)
+            # The file is on disk, so this is a run that failed -- out of
+            # scratch space, a timeout, a crash -- and saying "absent" would
+            # send the reader off to re-download something they already have.
+            failed.append(filename)
             continue
         total_events += events
         total_parsed += parsed
@@ -268,10 +297,11 @@ def main() -> None:
         # pack would hide from the check that exists to catch it. There is no
         # longer a tier exception, because there are no longer tiers - a corpus
         # is either measured or named as absent.
-        if missing:
+        if missing or failed:
+            blocked = missing + failed
             print(
-                f"refusing to check with {len(missing)} corpus/corpora absent: "
-                f"{', '.join(missing)}",
+                f"refusing to check with {len(blocked)} corpus/corpora unmeasured: "
+                f"{', '.join(blocked)}",
                 file=sys.stderr,
             )
             raise SystemExit(1)

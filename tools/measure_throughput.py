@@ -63,10 +63,20 @@ def binary() -> pathlib.Path:
 
 
 def one_rate(
-    exe: pathlib.Path, packs: str, corpus: pathlib.Path, port: int, eps: int, seconds: int
+    exe: pathlib.Path,
+    packs: str,
+    corpus: pathlib.Path,
+    port: int,
+    eps: int,
+    seconds: int,
+    work_root: pathlib.Path,
 ) -> dict:
     """Offer `eps` for `seconds`, and report what the collector kept."""
-    work = pathlib.Path(tempfile.mkdtemp(prefix="ulpf-tput-"))
+    # Beside the corpora rather than in the system temp directory: every
+    # accepted record is vaulted, and the OS volume is routinely the smallest
+    # on the machine.
+    work_root.mkdir(parents=True, exist_ok=True)
+    work = pathlib.Path(tempfile.mkdtemp(prefix="ulpf-tput-", dir=work_root))
     count = eps * seconds
     try:
         collector = subprocess.Popen(
@@ -150,6 +160,11 @@ def main() -> None:
     )
     parser.add_argument("--port", type=int, default=5610)
     parser.add_argument(
+        "--work-dir",
+        default=None,
+        help="scratch for each run's vault (default: .measure-work beside --data)",
+    )
+    parser.add_argument(
         "--json", metavar="PATH", help="also write the measured rows as JSON"
     )
     args = parser.parse_args()
@@ -160,6 +175,11 @@ def main() -> None:
         print(f"{corpus} not found. Run: python tools/fetch_datasets.py", file=sys.stderr)
         raise SystemExit(1)
 
+    work_root = (
+        pathlib.Path(args.work_dir)
+        if args.work_dir
+        else pathlib.Path(args.data) / ".measure-work"
+    )
     rates = [int(r) for r in args.rates.split(",") if r.strip()]
     print(f"corpus: {corpus}  ({corpus.stat().st_size / 1e6:.1f} MB)")
     print(f"{args.seconds}s per rate, loopback UDP, fresh vault and chain each run\n")
@@ -168,7 +188,7 @@ def main() -> None:
 
     rows = []
     for eps in rates:
-        row = one_rate(exe, args.packs, corpus, args.port, eps, args.seconds)
+        row = one_rate(exe, args.packs, corpus, args.port, eps, args.seconds, work_root)
         rows.append(row)
         print(
             f"{row['offered_eps']:>9,} {row['sent']:>9,} {row['received']:>9,} "

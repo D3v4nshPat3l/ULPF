@@ -39,3 +39,6 @@ media/
 
 # working documents, never shipped
 .work/
+
+# measurement scratch, written beside the corpora
+/realdata/.measure-work/
