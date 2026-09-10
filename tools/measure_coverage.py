@@ -19,63 +19,58 @@ import subprocess
 import sys
 import tempfile
 
-# (category, source file, label used in the report)
+# (category, candidate source files, label used in the report)
 #
 # PERIMETER is the set the headline coverage figure is measured on, and it is
 # the set the problem statement's Current Scope sentence describes. It is
 # reported on its own so that adding a non-perimeter source can never quietly
 # move the number that answers the statement.
+#
+# Each entry names the files that can satisfy it, best first. The complete
+# corpus is always preferred; the 2,000-line Loghub sample is a fallback so a
+# machine part-way through a fetch still produces a table, and the report says
+# which one was actually measured.
+#
+# Measuring the sample when the full corpus exists is how a coverage figure
+# quietly becomes meaningless: four of the perimeter sources below were scored
+# on 2,000 lines each for exactly that reason, while the complete corpora sat
+# in the same Zenodo deposit unfetched.
 PERIMETER = [
-    ("firewall", "iptables.log", "iptables (Honeynet SotM34)"),
-    ("IDS", "snort.log", "Snort (Honeynet SotM34)"),
-    ("IDS", "dragon-nids.log", "Enterasys Dragon (Honeynet)"),
-    ("web", "apache-access.log", "Apache access (Honeynet)"),
-    ("web", "Apache_2k.log", "Apache error (Loghub)"),
-    ("auth", "OpenSSH_2k.log", "OpenSSH (Loghub)"),
-    ("host", "linux-messages.log", "Linux syslog (Honeynet)"),
-    ("host", "Linux_2k.log", "Linux (Loghub)"),
-    ("mail", "sendmail.log", "Sendmail MTA (Honeynet)"),
-    ("proxy", "Proxifier_2k.log", "Proxifier (Loghub)"),
-    ("proxy", "squid-access.log", "Squid proxy (Honeynet)"),
-    ("proxy", "bluecoat-proxy.log", "Blue Coat ProxySG (Honeynet)"),
-    ("network", "zeek-conn.log", "Zeek conn.log (MACCDC 2012, prefix)"),
+    ("firewall", ["iptables.log"], "iptables (Honeynet SotM34)"),
+    ("IDS", ["snort.log"], "Snort (Honeynet SotM34)"),
+    ("IDS", ["dragon-nids.log"], "Enterasys Dragon (Honeynet)"),
+    ("web", ["apache-access.log"], "Apache access (Honeynet)"),
+    ("web", ["Apache.full.log", "Apache_2k.log"], "Apache error (Loghub)"),
+    ("auth", ["OpenSSH.full.log", "OpenSSH_2k.log"], "OpenSSH (Loghub)"),
+    ("host", ["linux-messages.log"], "Linux syslog (Honeynet)"),
+    ("host", ["Linux.full.log", "Linux_2k.log"], "Linux (Loghub)"),
+    ("mail", ["sendmail.log"], "Sendmail MTA (Honeynet)"),
+    ("proxy", ["Proxifier.full.log", "Proxifier_2k.log"], "Proxifier (Loghub)"),
+    ("proxy", ["squid-access.log"], "Squid proxy (Honeynet)"),
+    ("proxy", ["bluecoat-proxy.log"], "Blue Coat ProxySG (Honeynet)"),
+    ("network", ["zeek-conn-full.log", "zeek-conn.log"], "Zeek conn.log (MACCDC 2012)"),
 ]
-
-# Corpora that live in a tier beyond `standard`, and so are legitimately absent
-# on a machine — or a CI runner — that fetched only the standard tier.
-#
-# They are measured when present and simply not reported when absent. Every
-# other corpus staying absent is still a hard failure: a corpus that vanished
-# is exactly how a broken pack hides from the check meant to catch it. This set
-# is the narrow exception, not a relaxation of that rule.
-#
-# Blue Coat is 8,130,590 records and ~2.6 GB extracted. Keeping it in the
-# standard tier exhausted a GitHub runner's disk; keeping it in the corpora
-# list unconditionally then made `--check` refuse to run at all.
-#
-# zeek-conn.log is the same situation at a similar scale: the full MACCDC
-# 2012 conn.log is ~524 MB compressed (~2.6 GB extracted), so
-# `fetch_datasets.py` fetches a bounded prefix in the `large` tier rather
-# than the whole file, same as Blue Coat.
-OPTIONAL_CORPORA = {"bluecoat-proxy.log", "zeek-conn.log"}
 
 # Sources outside the Current Scope sentence, kept because "universal" is in
 # the framework's name and a reviewer is entitled to ask whether it holds
 # outside the perimeter. Measured and reported separately, never blended into
 # the headline figure.
 UNIVERSAL = [
-    ("bigdata", "HDFS_2k.log", "HDFS (Loghub)"),
-    ("hpc", "BGL_2k.log", "Blue Gene/L RAS (Loghub)"),
-    ("hpc", "Thunderbird_2k.log", "Thunderbird (Loghub)"),
-    ("hpc", "HPC_2k.log", "HPC node state (Loghub)"),
-    ("bigdata", "Hadoop_2k.log", "Hadoop YARN (Loghub)"),
-    ("bigdata", "Spark_2k.log", "Spark (Loghub)"),
-    ("bigdata", "Zookeeper_2k.log", "ZooKeeper (Loghub)"),
-    ("cloud", "OpenStack_2k.log", "OpenStack Nova (Loghub)"),
-    ("host", "Windows_2k.log", "Windows CBS (Loghub)"),
-    ("host", "Mac_2k.log", "macOS system (Loghub)"),
-    ("mobile", "Android_2k.log", "Android logcat (Loghub)"),
-    ("mobile", "HealthApp_2k.log", "HealthApp (Loghub)"),
+    ("bigdata", ["HDFS_v1.full.log", "HDFS_2k.log"], "HDFS v1 (Loghub)"),
+    ("bigdata", ["HDFS_v2.full.log"], "HDFS v2 (Loghub)"),
+    ("bigdata", ["HDFS_v3.full.log"], "HDFS v3 TraceBench (Loghub)"),
+    ("hpc", ["BGL.full.log", "BGL_2k.log"], "Blue Gene/L RAS (Loghub)"),
+    ("hpc", ["Thunderbird.full.log", "Thunderbird_2k.log"], "Thunderbird (Loghub)"),
+    ("hpc", ["HPC.full.log", "HPC_2k.log"], "HPC node state (Loghub)"),
+    ("bigdata", ["Hadoop.full.log", "Hadoop_2k.log"], "Hadoop YARN (Loghub)"),
+    ("bigdata", ["Spark.full.log", "Spark_2k.log"], "Spark (Loghub)"),
+    ("bigdata", ["Zookeeper.full.log", "Zookeeper_2k.log"], "ZooKeeper (Loghub)"),
+    ("cloud", ["OpenStack.full.log", "OpenStack_2k.log"], "OpenStack Nova (Loghub)"),
+    ("host", ["Windows.full.log", "Windows_2k.log"], "Windows CBS (Loghub)"),
+    ("host", ["Mac.full.log", "Mac_2k.log"], "macOS system (Loghub)"),
+    ("mobile", ["Android_v1.full.log", "Android_2k.log"], "Android logcat v1 (Loghub)"),
+    ("mobile", ["Android_v2.full.log"], "Android logcat v2 (Loghub)"),
+    ("mobile", ["HealthApp.full.log", "HealthApp_2k.log"], "HealthApp (Loghub)"),
 ]
 
 # `tools/make_demo_source.py` writes a synthetic corpus into the same directory
@@ -85,12 +80,12 @@ UNIVERSAL = [
 SYNTHETIC = {"apx-ngfw-synthetic.log"}
 
 CORPORA = PERIMETER + UNIVERSAL
-assert not (SYNTHETIC & {source for _, source, _ in CORPORA}), (
+assert not (SYNTHETIC & {f for _, files, _ in CORPORA for f in files}), (
     "a synthetic corpus must never appear in the measured set"
 )
 
 # Files whose label belongs to the headline figure.
-PERIMETER_FILES = {source for _, source, _ in PERIMETER}
+PERIMETER_FILES = {f for _, files, _ in PERIMETER for f in files}
 
 RECEIVED = re.compile(r"received\s+(\d+)")
 PARSED = re.compile(r"parsed\s+(\d+)")
@@ -122,8 +117,17 @@ def binary() -> pathlib.Path:
     raise SystemExit(1)
 
 
-def measure(exe: pathlib.Path, packs: str, corpus: pathlib.Path) -> tuple[int, int]:
-    """Run one corpus through the pipeline and return (received, parsed)."""
+def measure(
+    exe: pathlib.Path, packs: str, corpus: pathlib.Path, timeout: int
+) -> tuple[int, int]:
+    """Run one corpus through the pipeline and return (received, parsed).
+
+    `timeout` is per corpus and has to accommodate the largest of them.
+    Thunderbird alone is 211 million records: at the ~20,000 events/sec this
+    pipeline sustains on one core that is close to three hours, and the old
+    fixed 30-minute cap silently turned every corpus above roughly 36 million
+    records into a "0 events" result that was then reported as absent.
+    """
     work = pathlib.Path(tempfile.mkdtemp(prefix="ulpf-cov-"))
     try:
         result = subprocess.run(
@@ -137,7 +141,7 @@ def measure(exe: pathlib.Path, packs: str, corpus: pathlib.Path) -> tuple[int, i
             ],
             capture_output=True,
             text=True,
-            timeout=1800,
+            timeout=timeout,
         )
         # The run summary is written to stderr.
         text = result.stderr + result.stdout
@@ -166,6 +170,12 @@ def main() -> None:
     )
     parser.add_argument("--baseline", default="tools/coverage_baseline.json")
     parser.add_argument(
+        "--timeout",
+        type=int,
+        default=36000,
+        help="seconds one corpus may take (default 36000; Thunderbird needs hours)",
+    )
+    parser.add_argument(
         "--tolerance",
         type=float,
         default=0.05,
@@ -189,12 +199,17 @@ def main() -> None:
     missing = []
     measured = {}
 
-    for category, filename, label in CORPORA:
-        corpus = data / filename
-        if not corpus.exists():
-            missing.append(filename)
+    for category, candidates, label in CORPORA:
+        corpus = next((data / name for name in candidates if (data / name).exists()), None)
+        if corpus is None:
+            missing.append(candidates[0])
             continue
-        events, parsed = measure(exe, args.packs, corpus)
+        filename = corpus.name
+        # Say so when the fallback sample was measured instead of the full
+        # corpus, so a smaller number is never mistaken for the real one.
+        if filename != candidates[0]:
+            label = f"{label} [sample]"
+        events, parsed = measure(exe, args.packs, corpus, args.timeout)
         if events == 0:
             missing.append(filename)
             continue
@@ -224,12 +239,8 @@ def main() -> None:
         )
 
     if missing:
-        tiered = [f for f in missing if f in OPTIONAL_CORPORA]
-        absent = [f for f in missing if f not in OPTIONAL_CORPORA]
-        if tiered:
-            print(f"\nnot measured (in a larger tier): {', '.join(tiered)}")
-        if absent:
-            print(f"\nnot measured (absent): {', '.join(absent)}")
+        print("\nnot measured (absent): " + ", ".join(missing))
+        print("run: python tools/fetch_datasets.py")
 
     total_pct = 100.0 * total_parsed / total_events if total_events else 0.0
 
@@ -239,14 +250,13 @@ def main() -> None:
 
     if args.check:
         # A partial run must not pass: a missing corpus is exactly how a broken
-        # pack would hide from the check that exists to catch it. Corpora that
-        # live in a larger tier are the one exception - they are absent by
-        # design here, not by accident.
-        unexpected = [f for f in missing if f not in OPTIONAL_CORPORA]
-        if unexpected:
+        # pack would hide from the check that exists to catch it. There is no
+        # longer a tier exception, because there are no longer tiers - a corpus
+        # is either measured or named as absent.
+        if missing:
             print(
-                f"refusing to check with {len(unexpected)} corpus/corpora absent: "
-                f"{', '.join(unexpected)}",
+                f"refusing to check with {len(missing)} corpus/corpora absent: "
+                f"{', '.join(missing)}",
                 file=sys.stderr,
             )
             raise SystemExit(1)
