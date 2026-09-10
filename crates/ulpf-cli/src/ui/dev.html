@@ -194,7 +194,6 @@
             <th>Category</th>
             <th class="num">Rate (EPS)</th>
             <th class="num">Sent</th>
-            <th class="num">Size</th>
             <th>State</th>
           </tr>
         </thead>
@@ -220,13 +219,6 @@ function pill(kind, text) {
   const p = el("span", "pill " + kind);
   p.append(el("i"), document.createTextNode(text));
   return p;
-}
-function fmtBytes(n) {
-  if (!n) return "—";
-  const u = ["B", "KB", "MB", "GB"];
-  let i = 0, v = n;
-  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
-  return (i === 0 ? v : v.toFixed(1)) + " " + u[i];
 }
 /* Same token this origin's main console page stores (see index.html) — the
    simulator dashboard is served by the same authenticated collector, so it
@@ -328,7 +320,6 @@ function buildRow(src) {
   tr.append(tdEps);
 
   tr.append(el("td", "num", Number(src.sent || 0).toLocaleString()));
-  tr.append(el("td", "num", fmtBytes(src.bytes)));
 
   const tdState = el("td");
   if (!src.present) tdState.append(pill("bad", "absent"));

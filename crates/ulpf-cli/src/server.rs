@@ -1538,16 +1538,39 @@ async fn tamper(
     }
     // The table renders newest-first; translate to buffer order.
     let idx = len - 1 - body.index;
-    let before = s.recent[idx]
-        .event
-        .get_path(&body.path)
-        .cloned()
-        .unwrap_or(Value::Null);
+    let before = s.recent[idx].event.get_path(&body.path).cloned();
+
+    // Refuse an attribute this event does not carry.
+    //
+    // `set_path` no-ops where the parent object is absent, so altering, say,
+    // `src_endpoint.ip` on a plain syslog record reported a change it had not
+    // made and verification then passed - which reads exactly like tamper
+    // detection failing. The demonstration is worth nothing if its negative
+    // result can be produced by picking the wrong row.
+    let Some(before) = before else {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "event {} has no '{}' to alter. Pick an event that carries that attribute; the events table shows which rows have a source IP.",
+                body.index, body.path
+            ),
+        ));
+    };
 
     s.recent[idx]
         .event
         .set_path(&body.path, Value::String(body.value.clone()))
         .map_err(|e| ApiError(StatusCode::BAD_REQUEST, e.to_string()))?;
+
+    // Confirm the write landed rather than trusting it. A silently ignored
+    // mutation is the failure mode this whole guard exists for.
+    let after = s.recent[idx].event.get_path(&body.path).cloned();
+    if after.as_ref() != Some(&Value::String(body.value.clone())) {
+        return Err(ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("could not alter '{}' on event {}", body.path, body.index),
+        ));
+    }
 
     Ok(Json(json!({
         "uid": s.recent[idx].event.uid(),
