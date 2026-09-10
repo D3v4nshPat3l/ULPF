@@ -1,82 +1,121 @@
 <title>Raw to OCSF</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
 <style>
-  :root{
-    --bg:#14151b;
-    --surface:#1b1c25;
-    --surface-2:#22232e;
-    --line:#2c2d3a;
-    --ink:#e9e9f1;
-    --ink-dim:#8d8ea0;
-    --ink-faint:#5c5d6c;
-    --raw:#ffb454;
-    --raw-dim:#6b5636;
-    --parsed:#a78bfa;
-    --parsed-dim:#4a4458;
-    --good:#4ade80;
+  :root {
+    --bg: #14151b;
+    --surface: #1b1c25;
+    --surface-2: #22232e;
+    --line: #2c2d3a;
+    --ink: #e9e9f1;
+    --ink-dim: #8d8ea0;
+    --ink-faint: #5c5d6c;
+    --raw: #ffb454;
+    --raw-dim: #6b5636;
+    --parsed: #a78bfa;
+    --parsed-dim: #4a4458;
+    --good: #4ade80;
 
     /* The SIEM table's palette, deliberately light — the same tokens
        scene01_problem.py (this project's first Manim block) already uses for
        its "problem" slide, reused here on purpose so the whole animation
        series reads as one film rather than several unrelated pages. */
-    --siem-bg:#f7f8fa;
-    --siem-surface:#ffffff;
-    --siem-border:#d8dce5;
-    --siem-ink:#15181f;
-    --siem-dim:#6b7280;
-    --siem-accent:#0a5ca8;
-    --siem-good:#0f6b4f;
-    --siem-bad:#a52f22;
+    --siem-bg: #f7f8fa;
+    --siem-surface: #ffffff;
+    --siem-border: #d8dce5;
+    --siem-ink: #15181f;
+    --siem-dim: #6b7280;
+    --siem-accent: #0a5ca8;
+    --siem-good: #0f6b4f;
+    --siem-bad: #a52f22;
   }
 
-  *{box-sizing:border-box;}
-  body{
-    background:var(--bg);
-    color:var(--ink);
-    font-family:"Archivo",system-ui,sans-serif;
-    margin:0;
-    padding:36px clamp(18px,3.2vw,64px) 48px;
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Archivo", system-ui, sans-serif;
+    margin: 0;
+    padding: 36px clamp(18px, 3.2vw, 64px) 48px;
   }
 
   /* Wide, not infinite -- a very wide monitor still gets a comfortable cap
      rather than three panels stretched to the point the eye loses them. */
-  .page{max-width:1880px;margin:0 auto;}
-
-  .eyebrow{
-    display:flex;align-items:center;gap:9px;
-    font-size:12px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
-    color:var(--ink-dim);margin-bottom:22px;
+  .page {
+    max-width: 1880px;
+    margin: 0 auto;
   }
-  .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--parsed);
-    box-shadow:0 0 0 3px rgba(167,139,250,.18);}
 
-  h1{
-    font-size:clamp(28px,4vw,42px);
-    font-weight:700;
-    line-height:1.12;
-    letter-spacing:-.01em;
-    margin:0 0 14px;
-    text-wrap:balance;
-    max-width:18ch;
+  .eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    margin-bottom: 22px;
   }
-  h1 span{color:var(--parsed);}
 
-  .sub{
-    font-size:15.5px;
-    line-height:1.6;
-    color:var(--ink-dim);
-    max-width:64ch;
-    margin:0 0 28px;
+  .eyebrow .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--parsed);
+    box-shadow: 0 0 0 3px rgba(167, 139, 250, .18);
   }
-  .sub code{
-    font-family:"JetBrains Mono",monospace;
-    font-size:13.5px;
-    background:var(--surface-2);
-    padding:1px 6px;
-    border-radius:4px;
-    color:var(--ink);
+
+  .hero {
+    display: flex;
+    align-items: flex-start;
+    gap: clamp(24px, 4vw, 48px);
+    margin-bottom: 28px;
+  }
+
+  @media (max-width:720px) {
+    .hero {
+      flex-direction: column;
+      gap: 14px;
+    }
+  }
+
+  h1 {
+    font-size: clamp(36px, 5.5vw, 58px);
+    font-weight: 700;
+    line-height: 1.12;
+    letter-spacing: -.01em;
+    margin: 0;
+    text-wrap: balance;
+    max-width: 18ch;
+    flex-shrink: 0;
+  }
+
+  h1 span {
+    color: var(--parsed);
+  }
+
+  .sub {
+    font-size: 15.5px;
+    line-height: 1.6;
+    color: var(--ink-dim);
+    max-width: 48ch;
+    margin: 0;
+    padding-top: 8px;
+  }
+
+  .sub code {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13.5px;
+    background: var(--surface-2);
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--ink);
   }
 
   /* Two columns, not three. The raw stack (three cards) runs tall; the
@@ -85,47 +124,110 @@
      the parsed panel and the SIEM table in the second column lets that
      column's total height keep pace with the raw stack instead of leaving
      empty space beside it. */
-  .workbench{
-    position:relative;
-    display:grid;
-    grid-template-columns:1fr 1.05fr;
-    gap:24px;
-    align-items:start;
-  }
-  .right-stack{
-    display:flex;
-    flex-direction:column;
-    gap:24px;
-  }
-  @media (max-width:860px){
-    .workbench{grid-template-columns:1fr;}
+  .workbench {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 1.05fr;
+    gap: 24px;
+    align-items: start;
   }
 
-  .panel{
-    background:var(--surface);
-    border:1px solid var(--line);
-    border-radius:14px;
-    overflow:hidden;
+  .right-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
   }
 
-  .panel-head{
-    display:flex;align-items:center;justify-content:space-between;gap:10px;
-    padding:12px 18px;
-    border-bottom:1px solid var(--line);
-    background:var(--surface-2);
-    font-family:"JetBrains Mono",monospace;
-    font-size:12.5px;
+  @media (max-width:860px) {
+    .workbench {
+      grid-template-columns: 1fr;
+    }
   }
-  .raw-panel .panel-head .prompt{color:var(--good);font-weight:500;}
-  .raw-panel .panel-head .path{color:var(--ink-faint);}
-  .out-panel .panel-head{color:var(--ink-dim);}
-  .pack-tag{
-    font-family:"Archivo",sans-serif;
-    font-size:10.5px;font-weight:600;letter-spacing:.04em;
-    color:var(--parsed);
-    background:rgba(167,139,250,.12);
-    padding:3px 8px;border-radius:20px;
-    white-space:nowrap;
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-2);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12.5px;
+  }
+
+  .raw-panel .panel-head .prompt {
+    color: var(--good);
+    font-weight: 500;
+  }
+
+  .raw-panel .panel-head .path {
+    color: var(--ink-faint);
+  }
+
+  .out-panel .panel-head {
+    color: var(--ink-dim);
+  }
+
+  .pack-tag {
+    font-family: "Archivo", sans-serif;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    color: var(--parsed);
+    background: rgba(167, 139, 250, .12);
+    padding: 3px 8px;
+    border-radius: 20px;
+    white-space: nowrap;
+    transition: color .3s ease, background-color .3s ease;
+  }
+
+  .pack-tag.fail {
+    color: #f87171;
+    background: rgba(248, 113, 113, .12);
+  }
+
+  /* What the parsed panel shows instead of rows, in without-ULPF mode --
+     the point is an absence, so the panel says so plainly rather than
+     rendering empty rows that could read as a loading state. */
+  .fail-block {
+    padding: 40px 24px;
+    text-align: center;
+  }
+
+  .fail-icon {
+    width: 40px;
+    height: 40px;
+    line-height: 40px;
+    margin: 0 auto 14px;
+    border-radius: 50%;
+    background: rgba(248, 113, 113, .12);
+    color: #f87171;
+    font-size: 18px;
+    font-weight: 700;
+  }
+
+  .fail-title {
+    font-family: "Archivo", sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--ink);
+    margin-bottom: 8px;
+  }
+
+  .fail-sub {
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--ink-dim);
+    max-width: 34ch;
+    margin: 0 auto;
   }
 
   /* ------------------------------------------------------------ raw cards
@@ -133,155 +235,322 @@
      the eye sees all the incoming shapes before any of them changes, not
      one at a time behind a click. `waiting` / `active` / `done` are the same
      three states a real queue has: not yet its turn, being worked, finished. */
-  .raw-stack{
-    padding:14px;
-    display:flex;flex-direction:column;gap:12px;
-  }
-  .raw-card{
-    background:var(--surface-2);
-    border:1px solid var(--line);
-    border-radius:11px;
-    overflow:hidden;
-    opacity:.4;
-    transition:opacity .45s ease, border-color .45s ease, box-shadow .45s ease;
-    cursor:pointer;
-  }
-  .raw-card.active{
-    opacity:1;
-    border-color:var(--parsed-dim);
-    box-shadow:0 0 0 1px rgba(167,139,250,.25), 0 10px 26px rgba(124,92,214,.12);
-  }
-  .raw-card.done{opacity:.82;}
-  .raw-card-head{
-    display:flex;align-items:center;justify-content:space-between;gap:8px;
-    padding:9px 14px;
-    border-bottom:1px solid var(--line);
-  }
-  .raw-card-name{
-    font-family:"Archivo",sans-serif;font-size:12px;font-weight:700;color:var(--ink);
-  }
-  .raw-card-state{
-    font-family:"JetBrains Mono",monospace;font-size:9px;font-weight:600;
-    letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);
-  }
-  .raw-card.active .raw-card-state{color:var(--raw);}
-  .raw-card.done .raw-card-state{color:var(--good);}
-
-  .raw-line{
-    margin:0;
-    padding:14px;
-    font-family:"JetBrains Mono",monospace;
-    font-size:11.5px;
-    line-height:1.9;
-    color:var(--ink-dim);
-    white-space:pre-wrap;
-    word-break:break-word;
-  }
-  .frag{
-    color:var(--ink-dim);
-    border-radius:4px;
-    padding:1px 2px;
-    transition:color .35s ease, background-color .35s ease, box-shadow .35s ease;
-  }
-  .frag.active{
-    color:var(--raw);
-    background:rgba(255,180,84,.16);
-    box-shadow:0 0 0 1px rgba(255,180,84,.35);
-  }
-  .frag.done{
-    color:var(--raw);
-    border-bottom:1.5px solid var(--raw-dim);
+  .raw-stack {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
   }
 
-  .source-note{
-    display:flex;align-items:center;gap:7px;flex-wrap:wrap;
-    padding:0 14px 12px;
-    font-size:10.5px;color:var(--ink-faint);
+  .raw-card {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    overflow: hidden;
+    opacity: .4;
+    transition: opacity .45s ease, border-color .45s ease, box-shadow .45s ease;
+    cursor: pointer;
   }
-  .source-note code{font-family:"JetBrains Mono",monospace;color:var(--ink-dim);}
-  .badge{
-    display:inline-flex;align-items:center;gap:5px;
-    font-size:10px;font-weight:600;color:var(--good);
-    background:rgba(74,222,128,.1);
-    padding:2px 7px;border-radius:20px;
-    white-space:nowrap;
-  }
-  .badge::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--good);}
 
-  .rows{padding:8px 4px;min-height:5.5em;transition:opacity .22s ease;}
-  .row{
-    display:grid;
-    grid-template-columns:1fr auto;
-    align-items:baseline;
-    gap:14px;
-    padding:11px 18px;
-    border-bottom:1px solid var(--line);
-    transition:background-color .5s ease;
+  .raw-card.active {
+    opacity: 1;
+    border-color: var(--parsed-dim);
+    box-shadow: 0 0 0 1px rgba(167, 139, 250, .25), 0 10px 26px rgba(124, 92, 214, .12);
   }
-  .row:last-child{border-bottom:none;}
-  .row.pulse{background:rgba(167,139,250,.10);}
-  .k{
-    font-family:"JetBrains Mono",monospace;
-    font-size:12.5px;
-    color:var(--ink-faint);
-  }
-  .v{
-    font-family:"JetBrains Mono",monospace;
-    font-size:13.5px;
-    font-weight:500;
-    color:var(--ink-faint);
-    font-variant-numeric:tabular-nums;
-    text-align:right;
-    max-width:280px;
-    transition:color .4s ease;
-  }
-  .v.set{color:var(--parsed);}
-  .v .unit{color:var(--ink-dim);font-weight:400;font-size:11.5px;margin-left:2px;}
-  .v .sub{
-    display:block;font-size:10.5px;color:var(--ink-faint);font-weight:400;
-    margin-top:2px;white-space:normal;text-align:right;
-  }
-  .row.derived{background:rgba(167,139,250,.035);}
-  .row.derived .k{display:flex;align-items:center;gap:7px;}
-  .tag{
-    font-family:"Archivo",sans-serif;
-    font-size:9.5px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;
-    color:var(--ink-faint);
-    border:1px solid var(--line);
-    padding:1px 6px;border-radius:20px;
-  }
-  .v .meaning{display:block;color:inherit;font-weight:600;font-size:14px;}
-  .v .meaning + .sub{margin-top:3px;}
 
-  .controls{
-    display:flex;align-items:center;gap:18px;flex-wrap:wrap;
-    margin-top:34px;
+  .raw-card.done {
+    opacity: .82;
   }
-  #replay{
-    font-family:"Archivo",sans-serif;
-    font-size:13px;font-weight:600;
-    color:var(--ink);
-    background:var(--surface-2);
-    border:1px solid var(--line);
-    padding:10px 18px;
-    border-radius:9px;
-    cursor:pointer;
-    transition:border-color .2s ease, transform .2s ease;
-  }
-  #replay:hover{border-color:var(--parsed-dim);}
-  #replay:focus-visible{outline:2px solid var(--parsed);outline-offset:2px;}
-  #replay:active{transform:scale(.97);}
 
-  .closing{
-    font-size:14.5px;
-    color:var(--ink-dim);
-    margin:0;
-    opacity:0;
-    transform:translateY(4px);
-    transition:opacity .6s ease, transform .6s ease;
+  /* The without-ULPF tint: same active/done mechanics, red instead of
+     violet, so a card visibly reads as "this one failed" without needing
+     its own separate state machine. */
+  .raw-card.active.failing {
+    border-color: rgba(248, 113, 113, .45);
+    box-shadow: 0 0 0 1px rgba(248, 113, 113, .3), 0 10px 26px rgba(220, 60, 60, .12);
   }
-  .closing.show{opacity:1;transform:translateY(0);}
-  .closing span{color:var(--parsed);font-weight:600;}
+
+  .raw-card.failing .raw-card-state {
+    color: #f87171;
+  }
+
+  .raw-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .raw-card-name {
+    font-family: "Archivo", sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  .raw-card-state {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  .raw-card.active .raw-card-state {
+    color: var(--raw);
+  }
+
+  .raw-card.done .raw-card-state {
+    color: var(--good);
+  }
+
+  .raw-line {
+    margin: 0;
+    padding: 14px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11.5px;
+    line-height: 1.9;
+    color: var(--ink-dim);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .frag {
+    color: var(--ink-dim);
+    border-radius: 4px;
+    padding: 1px 2px;
+    transition: color .35s ease, background-color .35s ease, box-shadow .35s ease;
+  }
+
+  .frag.active {
+    color: var(--raw);
+    background: rgba(255, 180, 84, .16);
+    box-shadow: 0 0 0 1px rgba(255, 180, 84, .35);
+  }
+
+  .frag.done {
+    color: var(--raw);
+    border-bottom: 1.5px solid var(--raw-dim);
+  }
+
+  .source-note {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+    padding: 0 14px 12px;
+    font-size: 10.5px;
+    color: var(--ink-faint);
+  }
+
+  .source-note code {
+    font-family: "JetBrains Mono", monospace;
+    color: var(--ink-dim);
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--good);
+    background: rgba(74, 222, 128, .1);
+    padding: 2px 7px;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+
+  .badge::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--good);
+  }
+
+  .rows {
+    padding: 8px 4px;
+    min-height: 5.5em;
+    transition: opacity .22s ease;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: baseline;
+    gap: 14px;
+    padding: 11px 18px;
+    border-bottom: 1px solid var(--line);
+    transition: background-color .5s ease;
+  }
+
+  .row:last-child {
+    border-bottom: none;
+  }
+
+  .row.pulse {
+    background: rgba(167, 139, 250, .10);
+  }
+
+  .k {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12.5px;
+    color: var(--ink-faint);
+  }
+
+  .v {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    max-width: 280px;
+    transition: color .4s ease;
+  }
+
+  .v.set {
+    color: var(--parsed);
+  }
+
+  .v .unit {
+    color: var(--ink-dim);
+    font-weight: 400;
+    font-size: 11.5px;
+    margin-left: 2px;
+  }
+
+  .v .sub {
+    display: block;
+    font-size: 10.5px;
+    color: var(--ink-faint);
+    font-weight: 400;
+    margin-top: 2px;
+    white-space: normal;
+    text-align: right;
+  }
+
+  .row.derived {
+    background: rgba(167, 139, 250, .035);
+  }
+
+  .row.derived .k {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .tag {
+    font-family: "Archivo", sans-serif;
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    border: 1px solid var(--line);
+    padding: 1px 6px;
+    border-radius: 20px;
+  }
+
+  .v .meaning {
+    display: block;
+    color: inherit;
+    font-weight: 600;
+    font-size: 14px;
+  }
+
+  .v .meaning+.sub {
+    margin-top: 3px;
+  }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+    margin-top: 34px;
+  }
+
+  #replay {
+    font-family: "Archivo", sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    padding: 10px 18px;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: border-color .2s ease, transform .2s ease;
+  }
+
+  #replay:hover {
+    border-color: var(--parsed-dim);
+  }
+
+  #replay:focus-visible {
+    outline: 2px solid var(--parsed);
+    outline-offset: 2px;
+  }
+
+  #replay:active {
+    transform: scale(.97);
+  }
+
+  /* The mode switch. Calm violet for "with" (matches the parsed panel's own
+     accent, since that panel is the thing this mode is about); red for
+     "without", for the same reason the failing raw-card border is red --
+     one colour, used consistently everywhere it appears on the page. */
+  #modeToggle {
+    font-family: "Archivo", sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--parsed);
+    background: rgba(167, 139, 250, .1);
+    border: 1px solid var(--parsed-dim);
+    padding: 10px 18px;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: border-color .2s ease, color .2s ease, background-color .2s ease, transform .2s ease;
+  }
+
+  #modeToggle:focus-visible {
+    outline: 2px solid var(--parsed);
+    outline-offset: 2px;
+  }
+
+  #modeToggle:active {
+    transform: scale(.97);
+  }
+
+  #modeToggle.without {
+    color: #f87171;
+    background: rgba(248, 113, 113, .1);
+    border-color: rgba(248, 113, 113, .4);
+  }
+
+  .closing {
+    font-size: 14.5px;
+    color: var(--ink-dim);
+    margin: 0;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity .6s ease, transform .6s ease;
+  }
+
+  .closing.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .closing span {
+    color: var(--parsed);
+    font-weight: 600;
+  }
 
   /* ------------------------------------------------------- the SIEM column
      Same panel chrome as the raw and parsed columns (dark header bar, same
@@ -292,7 +561,9 @@
      each cell here is a value read straight from the parsed panel next
      door. Columns beyond what the column width comfortably shows scroll
      inside this panel only -- the page itself never scrolls sideways. */
-  .siem-col .panel-head{color:var(--ink-dim);}
+  .siem-col .panel-head {
+    color: var(--ink-dim);
+  }
 
   /* The spotlight state: the panel leaves the grid and takes over most of
      the screen, so a new row is unmistakable without moving the page under
@@ -300,108 +571,233 @@
      handles the resting state) lets the table's own scroll area claim
      whatever room the head and footnote don't need, rather than leaving a
      tall modal with a short table stranded in the top third of it. */
-  .siem-backdrop{
-    position:fixed;inset:0;
-    background:rgba(10,10,14,.62);
-    z-index:90;
-    opacity:0;
-    pointer-events:none;
-    transition:opacity .35s ease;
+  .siem-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 10, 14, .62);
+    z-index: 90;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .35s ease;
   }
-  .siem-backdrop.show{opacity:1;pointer-events:auto;}
 
-  .siem-col.maximized{
-    position:fixed;
-    top:4vh;left:4vw;right:4vw;bottom:4vh;
-    z-index:100;
-    display:flex;flex-direction:column;
-    box-shadow:0 30px 90px rgba(0,0,0,.5);
-    animation:siemPop .3s cubic-bezier(.25,.8,.4,1);
+  .siem-backdrop.show {
+    opacity: 1;
+    pointer-events: auto;
   }
-  @keyframes siemPop{
-    from{transform:scale(.94);opacity:0;}
-    to{transform:scale(1);opacity:1;}
-  }
-  .siem-col.maximized .siem-scroll{flex:1;overflow-y:auto;}
-  .siem-col.maximized table.siem{font-size:15px;}
-  .siem-col.maximized table.siem th{font-size:11.5px;padding:12px 20px;}
-  .siem-col.maximized table.siem td{font-size:14px;padding:16px 20px;}
-  .siem-col.maximized .siem-desc{max-width:420px;}
-  .siem-tag{
-    font-family:"Archivo",sans-serif;
-    font-size:10.5px;font-weight:600;letter-spacing:.04em;
-    color:var(--siem-accent);
-    background:#eaf1fb;
-    padding:3px 8px;border-radius:20px;
-    white-space:nowrap;
-  }
-  .siem-scroll{background:var(--siem-bg);overflow-x:auto;}
-  table.siem{
-    width:100%;border-collapse:collapse;
-    font-size:12.5px;color:var(--siem-ink);
-    min-width:460px;
-  }
-  table.siem thead th{
-    text-align:left;
-    font-family:"Archivo",sans-serif;
-    font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
-    color:var(--siem-dim);
-    background:#eef1f6;
-    padding:9px 14px;
-    border-bottom:1px solid var(--siem-border);
-    white-space:nowrap;
-    position:sticky;top:0;
-  }
-  table.siem td{
-    padding:11px 14px;
-    border-bottom:1px solid var(--siem-border);
-    font-family:"JetBrains Mono",monospace;
-    font-size:12px;
-    vertical-align:top;
-  }
-  table.siem tbody tr:last-child td{border-bottom:none;}
-  table.siem tbody tr{transition:background-color .7s ease;}
-  table.siem tbody tr.flash{background:#eaf1fb;}
-  table.siem tbody tr.pending td{color:#aab0bd;font-style:italic;}
-  .siem-device{
-    font-family:"Archivo",sans-serif !important;
-    font-weight:700;font-size:12px;font-style:normal !important;color:var(--siem-ink);
-  }
-  .siem-desc{max-width:230px;}
-  .siem-desc .sig{display:block;overflow-wrap:break-word;color:var(--siem-ink);}
-  .siem-desc .cls{display:block;font-size:10px;color:var(--siem-dim);margin-top:2px;font-family:"Archivo",sans-serif;font-style:normal;}
-  .siem-net{white-space:nowrap;}
-  .lvl{
-    display:inline-flex;align-items:center;gap:5px;
-    font-family:"Archivo",sans-serif;
-    font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;
-    padding:3px 9px;border-radius:20px;white-space:nowrap;
-  }
-  .lvl::before{content:"";width:6px;height:6px;border-radius:50%;flex:none;}
-  .lvl.info{background:#eef1f6;color:var(--siem-dim);}
-  .lvl.info::before{background:#9aa1af;}
-  .lvl.critical{background:#fbeae7;color:var(--siem-bad);}
-  .lvl.critical::before{background:var(--siem-bad);}
 
-  .siem-foot-note{
-    padding:11px 16px;
-    background:#eef1f6;
-    border-top:1px solid var(--siem-border);
-    font-size:10.5px;line-height:1.55;color:var(--siem-dim);
+  .siem-col.maximized {
+    position: fixed;
+    top: 4vh;
+    left: 4vw;
+    right: 4vw;
+    bottom: 4vh;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 30px 90px rgba(0, 0, 0, .5);
+    animation: siemPop .3s cubic-bezier(.25, .8, .4, 1);
   }
-  .siem-foot-note code{font-family:"JetBrains Mono",monospace;}
+
+  @keyframes siemPop {
+    from {
+      transform: scale(.94);
+      opacity: 0;
+    }
+
+    to {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+
+  .siem-col.maximized .siem-scroll {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .siem-col.maximized table.siem {
+    font-size: 15px;
+  }
+
+  .siem-col.maximized table.siem th {
+    font-size: 11.5px;
+    padding: 12px 20px;
+  }
+
+  .siem-col.maximized table.siem td {
+    font-size: 14px;
+    padding: 16px 20px;
+  }
+
+  .siem-col.maximized .siem-desc {
+    max-width: 420px;
+  }
+
+  .siem-tag {
+    font-family: "Archivo", sans-serif;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    color: var(--siem-accent);
+    background: #eaf1fb;
+    padding: 3px 8px;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+
+  .siem-scroll {
+    background: var(--siem-bg);
+    overflow-x: auto;
+  }
+
+  table.siem {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    color: var(--siem-ink);
+    min-width: 460px;
+  }
+
+  table.siem thead th {
+    text-align: left;
+    font-family: "Archivo", sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--siem-dim);
+    background: #eef1f6;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--siem-border);
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+  }
+
+  table.siem td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--siem-border);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    vertical-align: top;
+  }
+
+  table.siem tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  table.siem tbody tr {
+    transition: background-color .7s ease;
+  }
+
+  table.siem tbody tr.flash {
+    background: #eaf1fb;
+  }
+
+  table.siem tbody tr.pending td {
+    color: #aab0bd;
+    font-style: italic;
+  }
+
+  .siem-device {
+    font-family: "Archivo", sans-serif !important;
+    font-weight: 700;
+    font-size: 12px;
+    font-style: normal !important;
+    color: var(--siem-ink);
+  }
+
+  .siem-desc {
+    max-width: 230px;
+  }
+
+  .siem-desc .sig {
+    display: block;
+    overflow-wrap: break-word;
+    color: var(--siem-ink);
+  }
+
+  .siem-desc .cls {
+    display: block;
+    font-size: 10px;
+    color: var(--siem-dim);
+    margin-top: 2px;
+    font-family: "Archivo", sans-serif;
+    font-style: normal;
+  }
+
+  .siem-net {
+    white-space: nowrap;
+  }
+
+  .lvl {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: "Archivo", sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+
+  .lvl::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex: none;
+  }
+
+  .lvl.info {
+    background: #eef1f6;
+    color: var(--siem-dim);
+  }
+
+  .lvl.info::before {
+    background: #9aa1af;
+  }
+
+  .lvl.critical {
+    background: #fbeae7;
+    color: var(--siem-bad);
+  }
+
+  .lvl.critical::before {
+    background: var(--siem-bad);
+  }
+
+  .siem-foot-note {
+    padding: 11px 16px;
+    background: #eef1f6;
+    border-top: 1px solid var(--siem-border);
+    font-size: 10.5px;
+    line-height: 1.55;
+    color: var(--siem-dim);
+  }
+
+  .siem-foot-note code {
+    font-family: "JetBrains Mono", monospace;
+  }
 </style>
 
 <div class="page">
   <div class="eyebrow"><span class="dot"></span>ULPF · Source Pack in action</div>
 
-  <h1>One line in.<br><span>One shape</span> out.</h1>
-  <p class="sub">Three real devices arrive in three real formats. Watch them
-    queue on the left, cross <code>OCSF 1.9</code> one at a time on the
-    right, and land in a shared alert table below it.</p>
+  <div class="hero">
+    <h1>One line in.<br><span>One shape</span> out.</h1>
+    <p class="sub">Three real devices arrive in three real formats. Watch them
+      queue on the left, cross <code>OCSF 1.9</code> one at a time on the
+      right, and land in a shared alert table below it.</p>
+  </div>
 
   <div class="controls">
     <button id="replay" type="button">↻ Replay all</button>
+    <button id="modeToggle" type="button">✓ With ULPF</button>
     <p class="closing" id="closing"></p>
   </div>
 
@@ -431,7 +827,13 @@
         <div class="siem-scroll">
           <table class="siem">
             <thead>
-              <tr><th>Time</th><th>Device</th><th>Description</th><th>Level</th><th>Network</th></tr>
+              <tr>
+                <th>Time</th>
+                <th>Device</th>
+                <th>Description</th>
+                <th>Level</th>
+                <th>Network</th>
+              </tr>
             </thead>
             <tbody id="siemBody"></tbody>
           </table>
@@ -446,353 +848,456 @@
 </div>
 
 <script>
-(function(){
-  var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  (function () {
+    var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // ------------------------------------------------------------- devices
-  // Each device is one real Source Pack fixture: the raw line exactly as the
-  // pack's own test carries it, the OCSF fields that pack maps, and one row
-  // for the shared alert table below. `k` is the OCSF attribute path shown
-  // as the field's label; `value` is the final formatted display value.
-  var DEVICES = [
-    {
-      key: "fortinet",
-      tabLabel: "Fortinet FortiGate",
-      prompt: "ulpf@collector",
-      path: "intake — udp/5514",
-      packTag: "fortinet-fortigate-traffic",
-      sourceFile: "packs/fortinet-fortigate-traffic.yaml — fixture #1",
-      rawHtml: '&lt;134&gt;date=2026-08-31 time=10:23:45 <span class="frag" data-key="hostname">devname="<span class="val">FGT-DEL-01</span>"</span> devid="FG100F1234567890" logid="0000000013" type="traffic" subtype="forward" level="notice" vd="root" <span class="frag" data-key="time">eventtime=<span class="val">1788171825971231921</span></span> <span class="frag" data-key="srcip">srcip=<span class="val">10.2.4.7</span></span> <span class="frag" data-key="srcport">srcport=<span class="val">52341</span></span> srcintf="port1" <span class="frag" data-key="dstip">dstip=<span class="val">8.8.8.8</span></span> <span class="frag" data-key="dstport">dstport=<span class="val">443</span></span> dstintf="wan1" proto=6 <span class="frag" data-key="activity">action="accept"</span> policyid=42 sessionid=10045 duration=30 <span class="frag" data-key="bytesout">sentbyte=<span class="val">2500</span></span> <span class="frag" data-key="bytesin">rcvdbyte=<span class="val">2200</span></span>',
-      fields: [
-        { key:"hostname", k:"device.hostname", value:"FGT-DEL-01" },
-        { key:"srcip",    k:"src_endpoint.ip", value:"10.2.4.7" },
-        { key:"srcport",  k:"src_endpoint.port", value:"52341" },
-        { key:"dstip",    k:"dst_endpoint.ip", value:"8.8.8.8" },
-        { key:"dstport",  k:"dst_endpoint.port", value:"443" },
-        { key:"bytesout", k:"traffic.bytes_out", value:'2,500<span class="unit">B</span>' },
-        { key:"bytesin",  k:"traffic.bytes_in", value:'2,200<span class="unit">B</span>' },
-        { key:"time",     k:"time", value:'2026-08-31 10:23:45.971<span class="unit">UTC</span><span class="sub">from eventtime=1788171825971231921 (nanosecond epoch)</span>' }
-      ],
-      derived: [
-        { key:"activity", k:"activity_id", tag:"via pack", value:'<span class="meaning">Traffic</span><span class="sub">activity_id 6 · from action="accept"</span>' },
-        { key:"class", k:"class_uid", tag:"assigned", value:'<span class="meaning">Network Activity</span><span class="sub">class_uid 4001 · type_uid 400106</span>' }
-      ],
-      siem: {
-        time:"10:23:45", device:"FGT-DEL-01", sig:"Traffic — accepted", cls:"Network Activity (4001)",
-        level:"info", levelLabel:"Informational", net:"10.2.4.7:52341 → 8.8.8.8:443"
+    // ------------------------------------------------------------- devices
+    // Each device is one real Source Pack fixture: the raw line exactly as the
+    // pack's own test carries it, the OCSF fields that pack maps, and one row
+    // for the shared alert table below. `k` is the OCSF attribute path shown
+    // as the field's label; `value` is the final formatted display value.
+    var DEVICES = [
+      {
+        key: "fortinet",
+        tabLabel: "Fortinet FortiGate",
+        prompt: "ulpf@collector",
+        path: "intake — udp/5514",
+        packTag: "fortinet-fortigate-traffic",
+        sourceFile: "packs/fortinet-fortigate-traffic.yaml — fixture #1",
+        rawHtml: '&lt;134&gt;date=2026-08-31 time=10:23:45 <span class="frag" data-key="hostname">devname="<span class="val">FGT-DEL-01</span>"</span> devid="FG100F1234567890" logid="0000000013" type="traffic" subtype="forward" level="notice" vd="root" <span class="frag" data-key="time">eventtime=<span class="val">1788171825971231921</span></span> <span class="frag" data-key="srcip">srcip=<span class="val">10.2.4.7</span></span> <span class="frag" data-key="srcport">srcport=<span class="val">52341</span></span> srcintf="port1" <span class="frag" data-key="dstip">dstip=<span class="val">8.8.8.8</span></span> <span class="frag" data-key="dstport">dstport=<span class="val">443</span></span> dstintf="wan1" proto=6 <span class="frag" data-key="activity">action="accept"</span> policyid=42 sessionid=10045 duration=30 <span class="frag" data-key="bytesout">sentbyte=<span class="val">2500</span></span> <span class="frag" data-key="bytesin">rcvdbyte=<span class="val">2200</span></span>',
+        fields: [
+          { key: "hostname", k: "device.hostname", value: "FGT-DEL-01" },
+          { key: "srcip", k: "src_endpoint.ip", value: "10.2.4.7" },
+          { key: "srcport", k: "src_endpoint.port", value: "52341" },
+          { key: "dstip", k: "dst_endpoint.ip", value: "8.8.8.8" },
+          { key: "dstport", k: "dst_endpoint.port", value: "443" },
+          { key: "bytesout", k: "traffic.bytes_out", value: '2,500<span class="unit">B</span>' },
+          { key: "bytesin", k: "traffic.bytes_in", value: '2,200<span class="unit">B</span>' },
+          { key: "time", k: "time", value: '2026-08-31 10:23:45.971<span class="unit">UTC</span><span class="sub">from eventtime=1788171825971231921 (nanosecond epoch)</span>' }
+        ],
+        derived: [
+          { key: "activity", k: "activity_id", tag: "via pack", value: '<span class="meaning">Traffic</span><span class="sub">activity_id 6 · from action="accept"</span>' },
+          { key: "class", k: "class_uid", tag: "assigned", value: '<span class="meaning">Network Activity</span><span class="sub">class_uid 4001 · type_uid 400106</span>' }
+        ],
+        siem: {
+          time: "10:23:45", device: "FGT-DEL-01", sig: "Traffic — accepted", cls: "Network Activity (4001)",
+          level: "info", levelLabel: "Informational", net: "10.2.4.7:52341 → 8.8.8.8:443"
+        }
+      },
+      {
+        key: "squid",
+        tabLabel: "Squid Proxy",
+        prompt: "ulpf@collector",
+        path: "intake — udp/5514",
+        packTag: "squid-proxy-access",
+        sourceFile: "packs/squid-proxy-access.yaml — fixture #1",
+        rawHtml: '<span class="frag" data-key="time">timestamp=<span class="val">1756636800.123</span></span>&nbsp;&nbsp;&nbsp;&nbsp;152 <span class="frag" data-key="srcip">client=<span class="val">10.0.0.50</span></span> TCP_MISS/<span class="frag" data-key="status">http_status=<span class="val">200</span></span> <span class="frag" data-key="size">size=<span class="val">12345</span></span> <span class="frag" data-key="method">method=<span class="val">GET</span></span> <span class="frag" data-key="url">url=<span class="val">http://example.com/page</span></span> <span class="frag" data-key="user">user=<span class="val">user1</span></span> DIRECT/93.184.216.34 text/html',
+        fields: [
+          { key: "time", k: "time", value: '2025-08-31 10:40:00.123<span class="unit">UTC</span>' },
+          { key: "srcip", k: "src_endpoint.ip", value: "10.0.0.50" },
+          { key: "status", k: "http_response.code", value: "200" },
+          { key: "size", k: "traffic.bytes", value: '12,345<span class="unit">B</span>' },
+          { key: "method", k: "http_request.http_method", value: "GET" },
+          { key: "url", k: "http_request.url.url_string", value: "http://example.com/page" },
+          { key: "user", k: "actor.user.name", value: "user1" }
+        ],
+        derived: [
+          { key: "activity", k: "activity_id", tag: "via pack", value: '<span class="meaning">GET</span><span class="sub">activity_id 3 · from method=GET</span>' },
+          { key: "class", k: "class_uid", tag: "assigned", value: '<span class="meaning">HTTP Activity</span><span class="sub">class_uid 4002</span>' }
+        ],
+        siem: {
+          time: "10:40:00", device: "Squid Proxy", sig: "GET example.com/page (200)", cls: "HTTP Activity (4002)",
+          level: "info", levelLabel: "Informational", net: "10.0.0.50 → example.com/page"
+        }
+      },
+      {
+        key: "suricata",
+        tabLabel: "Suricata IDS",
+        prompt: "ulpf@collector",
+        path: "intake — udp/5514",
+        packTag: "suricata-eve-alert",
+        sourceFile: "packs/suricata-eve-alert.yaml — fixture #2 (trimmed for the slide; full JSON in the pack file)",
+        rawHtml: '{"<span class="frag" data-key="time">timestamp":"<span class="val">2016-01-04T16:25:54.239580+0000</span></span>","event_type":"alert","<span class="frag" data-key="srcip">src_ip":"<span class="val">113.20.11.49</span></span>","<span class="frag" data-key="srcport">src_port":<span class="val">80</span></span>,"<span class="frag" data-key="dstip">dest_ip":"<span class="val">192.168.122.145</span></span>","<span class="frag" data-key="dstport">dest_port":<span class="val">49314</span></span>,"<span class="frag" data-key="proto">proto":"<span class="val">TCP</span></span>","alert":{"<span class="frag" data-key="sigid">signature_id":<span class="val">2022290</span></span>,"<span class="frag" data-key="sig">signature":"<span class="val">ET EXPLOIT_KIT Evil Redirector Leading to EK Mon Dec 21 2015 5</span></span>","category":"Exploit Kit Activity Detected","severity":1}}',
+        fields: [
+          { key: "time", k: "time", value: '2016-01-04 16:25:54.239<span class="unit">UTC</span>' },
+          { key: "srcip", k: "src_endpoint.ip", value: "113.20.11.49" },
+          { key: "srcport", k: "src_endpoint.port", value: "80" },
+          { key: "dstip", k: "dst_endpoint.ip", value: "192.168.122.145" },
+          { key: "dstport", k: "dst_endpoint.port", value: "49314" },
+          { key: "proto", k: "connection_info.protocol_name", value: "TCP" },
+          { key: "sigid", k: "finding_info.uid", value: "2022290" },
+          { key: "sig", k: "finding_info.title", value: "ET EXPLOIT_KIT Evil Redirector Leading to EK Mon Dec 21 2015 5" }
+        ],
+        derived: [
+          { key: "severity", k: "severity_id", tag: "via pack", value: '<span class="meaning">Critical</span><span class="sub">severity_id 5 · from alert.severity=1</span>' },
+          { key: "class", k: "class_uid", tag: "assigned", value: '<span class="meaning">Detection Finding</span><span class="sub">class_uid 2004</span>' }
+        ],
+        siem: {
+          time: "16:25:54", device: "Suricata (OISF)", sig: "ET EXPLOIT_KIT Evil Redirector Leading to EK Mon Dec 21 2015 5", cls: "Detection Finding (2004)",
+          level: "critical", levelLabel: "Critical", net: "113.20.11.49:80 → 192.168.122.145:49314"
+        }
       }
-    },
-    {
-      key: "squid",
-      tabLabel: "Squid Proxy",
-      prompt: "ulpf@collector",
-      path: "intake — udp/5514",
-      packTag: "squid-proxy-access",
-      sourceFile: "packs/squid-proxy-access.yaml — fixture #1",
-      rawHtml: '<span class="frag" data-key="time">timestamp=<span class="val">1756636800.123</span></span>&nbsp;&nbsp;&nbsp;&nbsp;152 <span class="frag" data-key="srcip">client=<span class="val">10.0.0.50</span></span> TCP_MISS/<span class="frag" data-key="status">http_status=<span class="val">200</span></span> <span class="frag" data-key="size">size=<span class="val">12345</span></span> <span class="frag" data-key="method">method=<span class="val">GET</span></span> <span class="frag" data-key="url">url=<span class="val">http://example.com/page</span></span> <span class="frag" data-key="user">user=<span class="val">user1</span></span> DIRECT/93.184.216.34 text/html',
-      fields: [
-        { key:"time",   k:"time", value:'2025-08-31 10:40:00.123<span class="unit">UTC</span>' },
-        { key:"srcip",  k:"src_endpoint.ip", value:"10.0.0.50" },
-        { key:"status", k:"http_response.code", value:"200" },
-        { key:"size",   k:"traffic.bytes", value:'12,345<span class="unit">B</span>' },
-        { key:"method", k:"http_request.http_method", value:"GET" },
-        { key:"url",    k:"http_request.url.url_string", value:"http://example.com/page" },
-        { key:"user",   k:"actor.user.name", value:"user1" }
-      ],
-      derived: [
-        { key:"activity", k:"activity_id", tag:"via pack", value:'<span class="meaning">GET</span><span class="sub">activity_id 3 · from method=GET</span>' },
-        { key:"class", k:"class_uid", tag:"assigned", value:'<span class="meaning">HTTP Activity</span><span class="sub">class_uid 4002</span>' }
-      ],
-      siem: {
-        time:"10:40:00", device:"Squid Proxy", sig:"GET example.com/page (200)", cls:"HTTP Activity (4002)",
-        level:"info", levelLabel:"Informational", net:"10.0.0.50 → example.com/page"
-      }
-    },
-    {
-      key: "suricata",
-      tabLabel: "Suricata IDS",
-      prompt: "ulpf@collector",
-      path: "intake — udp/5514",
-      packTag: "suricata-eve-alert",
-      sourceFile: "packs/suricata-eve-alert.yaml — fixture #2 (trimmed for the slide; full JSON in the pack file)",
-      rawHtml: '{"<span class="frag" data-key="time">timestamp":"<span class="val">2016-01-04T16:25:54.239580+0000</span></span>","event_type":"alert","<span class="frag" data-key="srcip">src_ip":"<span class="val">113.20.11.49</span></span>","<span class="frag" data-key="srcport">src_port":<span class="val">80</span></span>,"<span class="frag" data-key="dstip">dest_ip":"<span class="val">192.168.122.145</span></span>","<span class="frag" data-key="dstport">dest_port":<span class="val">49314</span></span>,"<span class="frag" data-key="proto">proto":"<span class="val">TCP</span></span>","alert":{"<span class="frag" data-key="sigid">signature_id":<span class="val">2022290</span></span>,"<span class="frag" data-key="sig">signature":"<span class="val">ET EXPLOIT_KIT Evil Redirector Leading to EK Mon Dec 21 2015 5</span></span>","category":"Exploit Kit Activity Detected","severity":1}}',
-      fields: [
-        { key:"time",   k:"time", value:'2016-01-04 16:25:54.239<span class="unit">UTC</span>' },
-        { key:"srcip",  k:"src_endpoint.ip", value:"113.20.11.49" },
-        { key:"srcport",k:"src_endpoint.port", value:"80" },
-        { key:"dstip",  k:"dst_endpoint.ip", value:"192.168.122.145" },
-        { key:"dstport",k:"dst_endpoint.port", value:"49314" },
-        { key:"proto",  k:"connection_info.protocol_name", value:"TCP" },
-        { key:"sigid",  k:"finding_info.uid", value:"2022290" },
-        { key:"sig",    k:"finding_info.title", value:"ET EXPLOIT_KIT Evil Redirector Leading to EK Mon Dec 21 2015 5" }
-      ],
-      derived: [
-        { key:"severity", k:"severity_id", tag:"via pack", value:'<span class="meaning">Critical</span><span class="sub">severity_id 5 · from alert.severity=1</span>' },
-        { key:"class", k:"class_uid", tag:"assigned", value:'<span class="meaning">Detection Finding</span><span class="sub">class_uid 2004</span>' }
-      ],
-      siem: {
-        time:"16:25:54", device:"Suricata (OISF)", sig:"ET EXPLOIT_KIT Evil Redirector Leading to EK Mon Dec 21 2015 5", cls:"Detection Finding (2004)",
-        level:"critical", levelLabel:"Critical", net:"113.20.11.49:80 → 192.168.122.145:49314"
+    ];
+
+    var byKey = {};
+    DEVICES.forEach(function (d) { byKey[d.key] = d; });
+
+    var rawStack = document.getElementById("rawStack");
+    var rowsEl = document.getElementById("rows");
+    var replayBtn = document.getElementById("replay");
+    var modeToggle = document.getElementById("modeToggle");
+    var closing = document.getElementById("closing");
+    var packTag = document.getElementById("packTag");
+    var siemBody = document.getElementById("siemBody");
+
+    var playing = false;
+
+    // "with" is the real pipeline; "without" is the strawman every jury
+    // already has in their head -- a system with no pack for this device,
+    // which is not a hypothetical, it is what every one of these three
+    // formats looked like to anything that had never seen it before ULPF's
+    // Source Packs existed.
+    var currentMode = "with";
+
+    function setMode(mode) {
+      currentMode = mode;
+      if (mode === "without") {
+        modeToggle.textContent = "✕ Without ULPF";
+        modeToggle.classList.add("without");
+      } else {
+        modeToggle.textContent = "✓ With ULPF";
+        modeToggle.classList.remove("without");
       }
     }
-  ];
 
-  var byKey = {};
-  DEVICES.forEach(function(d){ byKey[d.key] = d; });
+    function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+    function rowEl(key) { return rowsEl.querySelector('.row[data-row="' + key + '"]'); }
+    function valEl(key) { return document.getElementById("v-" + key); }
 
-  var rawStack = document.getElementById("rawStack");
-  var rowsEl = document.getElementById("rows");
-  var replayBtn = document.getElementById("replay");
-  var closing = document.getElementById("closing");
-  var packTag = document.getElementById("packTag");
-  var siemBody = document.getElementById("siemBody");
-
-  var playing = false;
-
-  function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
-  function rowEl(key){ return rowsEl.querySelector('.row[data-row="' + key + '"]'); }
-  function valEl(key){ return document.getElementById("v-" + key); }
-
-  // ---------------------------------------------------------- raw cards
-  // Every vendor's raw line is built once, up front, and stays on screen the
-  // whole time -- the thing being demonstrated is that they all arrive
-  // looking nothing alike, which a click-through-one-at-a-time view can't
-  // show as plainly as all three sitting there together can.
-  DEVICES.forEach(function(d){
-    var card = document.createElement("div");
-    card.className = "raw-card";
-    card.dataset.device = d.key;
-    card.innerHTML =
-      '<div class="raw-card-head"><span class="raw-card-name">' + d.tabLabel + '</span><span class="raw-card-state">waiting</span></div>' +
-      '<pre class="raw-line">' + d.rawHtml + '</pre>' +
-      '<div class="source-note"><span class="badge">genuine device output</span><span><code>' + d.sourceFile.replace(" — ", "</code> — ") + '</span></div>';
-    card.addEventListener("click", function(){ if (!playing) playOne(d); });
-    rawStack.appendChild(card);
-  });
-
-  function cardFor(key){ return rawStack.querySelector('.raw-card[data-device="' + key + '"]'); }
-  function frag(cardEl, key){ return cardEl.querySelector('.frag[data-key="' + key + '"]'); }
-
-  function setCardState(cardEl, state){
-    cardEl.classList.remove("waiting", "active", "done");
-    cardEl.classList.add(state);
-    cardEl.querySelector(".raw-card-state").textContent = state;
-  }
-
-  // -------------------------------------------------------- parsed panel
-  // One panel, reused by every vendor in turn -- a short fade stands in for
-  // "this is being cleared and handed to the next one", rather than an
-  // abrupt swap that reads as a glitch.
-  function renderParsedPanelFor(d){
-    packTag.textContent = d.packTag;
-    var html = d.fields.map(function(f){
-      return '<div class="row" data-row="' + f.key + '"><span class="k">' + f.k + '</span><span class="v" id="v-' + f.key + '">—</span></div>';
-    }).join("");
-    html += d.derived.map(function(f){
-      return '<div class="row derived" data-row="' + f.key + '"><span class="k">' + f.k + '<span class="tag">' + f.tag + '</span></span><span class="v" id="v-' + f.key + '">—</span></div>';
-    }).join("");
-    rowsEl.innerHTML = html;
-  }
-
-  async function fadeSwapParsedPanel(d){
-    rowsEl.style.opacity = "0";
-    await wait(reduceMotion ? 0 : 220);
-    renderParsedPanelFor(d);
-    rowsEl.style.opacity = "1";
-  }
-
-  // ---------------------------------------------------------- spotlight
-  // Instead of moving the page to the table, the table itself briefly takes
-  // over the screen -- no scroll position to manage, and it works exactly
-  // the same regardless of how tall the page is or where the viewer had
-  // scrolled to. Skipped outright under reduced motion, same reasoning as
-  // the scroll cycle it replaced: a repeating full-screen swap is motion the
-  // viewer asked not to have, not motion to just play without a transition.
-  var siemColEl = document.querySelector(".siem-col");
-  var siemBackdrop = document.createElement("div");
-  siemBackdrop.className = "siem-backdrop";
-  siemBackdrop.addEventListener("click", restoreSiem);
-  document.body.appendChild(siemBackdrop);
-
-  function maximizeSiem(){
-    if (reduceMotion) return;
-    siemColEl.classList.add("maximized");
-    siemBackdrop.classList.add("show");
-  }
-
-  function restoreSiem(){
-    siemColEl.classList.remove("maximized");
-    siemBackdrop.classList.remove("show");
-  }
-
-  function closingLine(d){
-    return "“" + d.tabLabel + "” parsed — " + d.fields.length + " fields lifted straight from the line, 2 more resolved through the pack.";
-  }
-
-  // -------------------------------------------------------------- siem
-  // A real table row per device, appended in device order and never
-  // recreated once it exists -- `ensureSiemRow` stamps the row's identifying
-  // attribute *before* the insert-position lookup, so that lookup's own
-  // querySelector can never fail to see a row this same call just created.
-  // (That ordering bug once sent an earlier version into an infinite loop of
-  // recreating the same "missing" row.)
-  function pendingMarkup(key){
-    return '<td>—</td><td class="siem-device">' + byKey[key].tabLabel + '</td>' +
-      '<td class="siem-desc">awaiting parse…</td><td>—</td><td>—</td>';
-  }
-
-  function ensureSiemRow(key){
-    var tr = siemBody.querySelector('tr[data-device="' + key + '"]');
-    if (tr) return tr;
-    tr = document.createElement("tr");
-    tr.className = "pending";
-    tr.dataset.device = key;
-    var order = DEVICES.map(function(d){ return d.key; });
-    var idx = order.indexOf(key);
-    var before = null;
-    for (var i = idx + 1; i < order.length; i++){
-      var cand = siemBody.querySelector('tr[data-device="' + order[i] + '"]');
-      if (cand){ before = cand; break; }
-    }
-    siemBody.insertBefore(tr, before);
-    tr.innerHTML = pendingMarkup(key);
-    return tr;
-  }
-
-  function resetSiemRow(key){
-    var tr = ensureSiemRow(key);
-    tr.className = "pending";
-    tr.innerHTML = pendingMarkup(key);
-  }
-
-  function fillSiemRow(d){
-    var tr = ensureSiemRow(d.key);
-    tr.classList.remove("pending");
-    var s = d.siem;
-    tr.innerHTML =
-      '<td>' + s.time + '</td>' +
-      '<td class="siem-device">' + s.device + '</td>' +
-      '<td class="siem-desc"><span class="sig">' + s.sig + '</span><span class="cls">' + s.cls + '</span></td>' +
-      '<td><span class="lvl ' + s.level + '">' + s.levelLabel + '</span></td>' +
-      '<td class="siem-net">' + s.net + '</td>';
-    tr.classList.add("flash");
-    setTimeout(function(){ tr.classList.remove("flash"); }, 900);
-  }
-
-  DEVICES.forEach(function(d){ ensureSiemRow(d.key); });
-
-  // ---------------------------------------------------------------- play
-  // One vendor, start to finish: its card lights up, the shared parsed panel
-  // is handed to it, its fields fly across, and its row lands in the SIEM
-  // list. `playAll` below is just this, run once per vendor in order.
-  async function playOne(d){
-    var wasPlaying = playing;
-    playing = true;
-    var card = cardFor(d.key);
-    setCardState(card, "active");
-    closing.classList.remove("show");
-    await fadeSwapParsedPanel(d);
-
-    if (reduceMotion){
-      d.fields.concat(d.derived).forEach(function(f){
-        var el = frag(card, f.key);
-        if (el) el.classList.add("done");
-        var v = valEl(f.key);
-        if (v){ v.innerHTML = f.value; v.classList.add("set"); }
-      });
-      fillSiemRow(d);
-      setCardState(card, "done");
-      closing.textContent = closingLine(d);
-      closing.classList.add("show");
-      playing = wasPlaying;
-      return;
-    }
-
-    // No travelling clone -- the source fragment lights up, holds for a
-    // beat so the eye actually registers which text it is, then the same
-    // value pops straight into its row. Simpler, and reads just as clearly
-    // as motion did for "this text is where that value came from".
-    async function revealField(f){
-      await wait(340);
-      var row = rowEl(f.key);
-      if (row) row.classList.add("pulse");
-      var v = valEl(f.key);
-      if (v){ v.innerHTML = f.value; v.classList.add("set"); }
-      await wait(320);
-      var el = frag(card, f.key);
-      if (el){ el.classList.remove("active"); el.classList.add("done"); }
-      if (row) row.classList.remove("pulse");
-    }
-
-    await wait(250);
-    d.fields.forEach(function(f){
-      var el = frag(card, f.key);
-      if (el) el.classList.add("active");
+    // ---------------------------------------------------------- raw cards
+    // Every vendor's raw line is built once, up front, and stays on screen the
+    // whole time -- the thing being demonstrated is that they all arrive
+    // looking nothing alike, which a click-through-one-at-a-time view can't
+    // show as plainly as all three sitting there together can.
+    DEVICES.forEach(function (d) {
+      var card = document.createElement("div");
+      card.className = "raw-card";
+      card.dataset.device = d.key;
+      card.innerHTML =
+        '<div class="raw-card-head"><span class="raw-card-name">' + d.tabLabel + '</span><span class="raw-card-state">waiting</span></div>' +
+        '<pre class="raw-line">' + d.rawHtml + '</pre>' +
+        '<div class="source-note"><span class="badge">genuine device output</span><span><code>' + d.sourceFile.replace(" — ", "</code> — ") + '</span></div>';
+      card.addEventListener("click", function () { if (!playing) playOne(d); });
+      rawStack.appendChild(card);
     });
-    await wait(220);
-    await Promise.all(d.fields.map(revealField));
 
-    await wait(200);
-    var triggerFrag = frag(card, "activity") || frag(card, "action") || null;
-    if (triggerFrag) triggerFrag.classList.add("active");
-    await wait(350);
-    d.derived.forEach(function(f, idx){
-      setTimeout(function(){
-        var v = valEl(f.key);
+    function cardFor(key) { return rawStack.querySelector('.raw-card[data-device="' + key + '"]'); }
+    function frag(cardEl, key) { return cardEl.querySelector('.frag[data-key="' + key + '"]'); }
+
+    function setCardState(cardEl, state) {
+      cardEl.classList.remove("waiting", "active", "done");
+      cardEl.classList.add(state);
+      cardEl.querySelector(".raw-card-state").textContent = state;
+    }
+
+    // -------------------------------------------------------- parsed panel
+    // One panel, reused by every vendor in turn -- a short fade stands in for
+    // "this is being cleared and handed to the next one", rather than an
+    // abrupt swap that reads as a glitch.
+    function renderParsedPanelFor(d) {
+      packTag.textContent = d.packTag;
+      packTag.classList.remove("fail");
+      var html = d.fields.map(function (f) {
+        return '<div class="row" data-row="' + f.key + '"><span class="k">' + f.k + '</span><span class="v" id="v-' + f.key + '">—</span></div>';
+      }).join("");
+      html += d.derived.map(function (f) {
+        return '<div class="row derived" data-row="' + f.key + '"><span class="k">' + f.k + '<span class="tag">' + f.tag + '</span></span><span class="v" id="v-' + f.key + '">—</span></div>';
+      }).join("");
+      rowsEl.innerHTML = html;
+    }
+
+    async function fadeSwapParsedPanel(d) {
+      rowsEl.style.opacity = "0";
+      await wait(reduceMotion ? 0 : 220);
+      renderParsedPanelFor(d);
+      rowsEl.style.opacity = "1";
+    }
+
+    // ---------------------------------------------------------- spotlight
+    // Instead of moving the page to the table, the table itself briefly takes
+    // over the screen -- no scroll position to manage, and it works exactly
+    // the same regardless of how tall the page is or where the viewer had
+    // scrolled to. Skipped outright under reduced motion, same reasoning as
+    // the scroll cycle it replaced: a repeating full-screen swap is motion the
+    // viewer asked not to have, not motion to just play without a transition.
+    var siemColEl = document.querySelector(".siem-col");
+    var siemBackdrop = document.createElement("div");
+    siemBackdrop.className = "siem-backdrop";
+    siemBackdrop.addEventListener("click", restoreSiem);
+    document.body.appendChild(siemBackdrop);
+
+    function maximizeSiem() {
+      if (reduceMotion) return;
+      siemColEl.classList.add("maximized");
+      siemBackdrop.classList.add("show");
+    }
+
+    function restoreSiem() {
+      siemColEl.classList.remove("maximized");
+      siemBackdrop.classList.remove("show");
+    }
+
+    function closingLine(d) {
+      return "“" + d.tabLabel + "” parsed — " + d.fields.length + " fields lifted straight from the line, 2 more resolved through the pack.";
+    }
+
+    // -------------------------------------------------------------- siem
+    // A real table row per device, appended in device order and never
+    // recreated once it exists -- `ensureSiemRow` stamps the row's identifying
+    // attribute *before* the insert-position lookup, so that lookup's own
+    // querySelector can never fail to see a row this same call just created.
+    // (That ordering bug once sent an earlier version into an infinite loop of
+    // recreating the same "missing" row.)
+    function pendingMarkup(key) {
+      return '<td>—</td><td class="siem-device">' + byKey[key].tabLabel + '</td>' +
+        '<td class="siem-desc">awaiting parse…</td><td>—</td><td>—</td>';
+    }
+
+    function ensureSiemRow(key) {
+      var tr = siemBody.querySelector('tr[data-device="' + key + '"]');
+      if (tr) return tr;
+      tr = document.createElement("tr");
+      tr.className = "pending";
+      tr.dataset.device = key;
+      var order = DEVICES.map(function (d) { return d.key; });
+      var idx = order.indexOf(key);
+      var before = null;
+      for (var i = idx + 1; i < order.length; i++) {
+        var cand = siemBody.querySelector('tr[data-device="' + order[i] + '"]');
+        if (cand) { before = cand; break; }
+      }
+      siemBody.insertBefore(tr, before);
+      tr.innerHTML = pendingMarkup(key);
+      return tr;
+    }
+
+    function resetSiemRow(key) {
+      var tr = ensureSiemRow(key);
+      tr.className = "pending";
+      tr.innerHTML = pendingMarkup(key);
+    }
+
+    // Takes the key and the siem payload separately, not a device object --
+    // the without-ULPF path needs to land a row that is *not* `d.siem`, and
+    // a second near-identical function just to change that one line would
+    // be the more likely thing to drift out of sync later.
+    function fillSiemRow(key, s) {
+      var tr = ensureSiemRow(key);
+      tr.classList.remove("pending");
+      tr.innerHTML =
+        '<td>' + s.time + '</td>' +
+        '<td class="siem-device">' + s.device + '</td>' +
+        '<td class="siem-desc"><span class="sig">' + s.sig + '</span><span class="cls">' + s.cls + '</span></td>' +
+        '<td><span class="lvl ' + s.level + '">' + s.levelLabel + '</span></td>' +
+        '<td class="siem-net">' + s.net + '</td>';
+      tr.classList.add("flash");
+      setTimeout(function () { tr.classList.remove("flash"); }, 900);
+    }
+
+    DEVICES.forEach(function (d) { ensureSiemRow(d.key); });
+
+    // ---------------------------------------------------------------- play
+    // The without-ULPF path for one device: the raw card is exactly the
+    // same, and that sameness is the point -- the only difference is that
+    // nothing ever reads it. No fields activate on the card, because
+    // nothing here is being extracted from it.
+    async function playOneWithoutUlpf(d, card) {
+      rowsEl.style.opacity = "0";
+      await wait(reduceMotion ? 0 : 220);
+      packTag.textContent = "no pack matched";
+      packTag.classList.add("fail");
+      rowsEl.innerHTML =
+        '<div class="fail-block">' +
+        '<div class="fail-icon">✕</div>' +
+        '<div class="fail-title">No Source Pack recognizes this format</div>' +
+        '<div class="fail-sub">Nothing is extracted — no device, no fields, no OCSF class. The line is either dropped or kept as unsearchable raw text.</div>' +
+        '</div>';
+      rowsEl.style.opacity = "1";
+
+      await wait(reduceMotion ? 0 : 500);
+      closing.textContent = "“" + d.tabLabel + "” — not recognized. No pack, no fields, no searchable record.";
+      closing.classList.add("show");
+
+      await wait(reduceMotion ? 0 : 300);
+      fillSiemRow(d.key, {
+        time: "—",
+        device: "Unknown",
+        sig: "Format not recognized",
+        cls: "no matching Source Pack",
+        level: "critical",
+        levelLabel: "Unparsed",
+        net: "—"
+      });
+      setCardState(card, "done");
+      card.classList.add("failing");
+
+      if (!reduceMotion) {
+        maximizeSiem();
+        await wait(1300);
+        restoreSiem();
+        await wait(400);
+      }
+    }
+
+    // One vendor, start to finish: its card lights up, the shared parsed panel
+    // is handed to it, its fields fly across, and its row lands in the SIEM
+    // list. `playAll` below is just this, run once per vendor in order.
+    async function playOne(d) {
+      var wasPlaying = playing;
+      playing = true;
+      var card = cardFor(d.key);
+      setCardState(card, "active");
+      card.classList.toggle("failing", currentMode === "without");
+      closing.classList.remove("show");
+
+      // The minimum scroll needed to bring this device's whole card into
+      // view -- `block: "nearest"` does nothing if it's already fully
+      // visible, and only moves as far as it has to otherwise. That's the
+      // difference from the spotlight below: this is about not missing part
+      // of a raw card in a tall stack, not about drawing attention to it.
+      if (!reduceMotion) {
+        card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        await wait(450);
+      }
+
+      if (currentMode === "without") {
+        await playOneWithoutUlpf(d, card);
+        playing = wasPlaying;
+        return;
+      }
+
+      await fadeSwapParsedPanel(d);
+
+      if (reduceMotion) {
+        d.fields.concat(d.derived).forEach(function (f) {
+          var el = frag(card, f.key);
+          if (el) el.classList.add("done");
+          var v = valEl(f.key);
+          if (v) { v.innerHTML = f.value; v.classList.add("set"); }
+        });
+        fillSiemRow(d.key, d.siem);
+        setCardState(card, "done");
+        closing.textContent = closingLine(d);
+        closing.classList.add("show");
+        playing = wasPlaying;
+        return;
+      }
+
+      // No travelling clone -- the source fragment lights up, holds for a
+      // beat so the eye actually registers which text it is, then the same
+      // value pops straight into its row. Simpler, and reads just as clearly
+      // as motion did for "this text is where that value came from".
+      async function revealField(f) {
+        await wait(340);
         var row = rowEl(f.key);
         if (row) row.classList.add("pulse");
-        if (v){ v.innerHTML = f.value; v.classList.add("set"); }
-        setTimeout(function(){ if (row) row.classList.remove("pulse"); }, 500);
-      }, idx * 260);
-    });
-    await wait(700);
-    if (triggerFrag){ triggerFrag.classList.remove("active"); triggerFrag.classList.add("done"); }
+        var v = valEl(f.key);
+        if (v) { v.innerHTML = f.value; v.classList.add("set"); }
+        await wait(320);
+        var el = frag(card, f.key);
+        if (el) { el.classList.remove("active"); el.classList.add("done"); }
+        if (row) row.classList.remove("pulse");
+      }
 
-    await wait(250);
-    closing.textContent = closingLine(d);
-    closing.classList.add("show");
+      await wait(250);
+      d.fields.forEach(function (f) {
+        var el = frag(card, f.key);
+        if (el) el.classList.add("active");
+      });
+      await wait(220);
+      await Promise.all(d.fields.map(revealField));
 
-    await wait(250);
-    fillSiemRow(d);
-    setCardState(card, "done");
+      await wait(200);
+      var triggerFrag = frag(card, "activity") || frag(card, "action") || null;
+      if (triggerFrag) triggerFrag.classList.add("active");
+      await wait(350);
+      d.derived.forEach(function (f, idx) {
+        setTimeout(function () {
+          var v = valEl(f.key);
+          var row = rowEl(f.key);
+          if (row) row.classList.add("pulse");
+          if (v) { v.innerHTML = f.value; v.classList.add("set"); }
+          setTimeout(function () { if (row) row.classList.remove("pulse"); }, 500);
+        }, idx * 260);
+      });
+      await wait(700);
+      if (triggerFrag) { triggerFrag.classList.remove("active"); triggerFrag.classList.add("done"); }
 
-    // Take over the screen to show this one landing, then hand it back so
-    // the next device's collector cards are what the viewer sees -- the same
-    // round trip, once per device, for as many devices as there are.
-    maximizeSiem();
-    await wait(1700);
-    restoreSiem();
-    await wait(500);
+      await wait(250);
+      closing.textContent = closingLine(d);
+      closing.classList.add("show");
 
-    playing = wasPlaying;
-  }
+      await wait(250);
+      fillSiemRow(d.key, d.siem);
+      setCardState(card, "done");
 
-  async function playAll(){
-    if (playing) return;
-    playing = true;
-    DEVICES.forEach(function(d){
-      setCardState(cardFor(d.key), "waiting");
-      resetSiemRow(d.key);
-    });
-    rowsEl.innerHTML = "";
-    closing.classList.remove("show");
+      // Take over the screen to show this one landing, then hand it back so
+      // the next device's collector cards are what the viewer sees -- the same
+      // round trip, once per device, for as many devices as there are.
+      maximizeSiem();
+      await wait(1700);
+      restoreSiem();
+      await wait(500);
 
-    for (var i = 0; i < DEVICES.length; i++){
-      await playOne(DEVICES[i]);
-      if (i < DEVICES.length - 1) await wait(reduceMotion ? 150 : 550);
+      playing = wasPlaying;
     }
 
-    closing.textContent = DEVICES.length + " vendors, " + DEVICES.length + " formats — one shared shape, one table.";
-    closing.classList.add("show");
-    playing = false;
-  }
+    async function playAll() {
+      if (playing) return;
+      playing = true;
+      DEVICES.forEach(function (d) {
+        var c = cardFor(d.key);
+        setCardState(c, "waiting");
+        c.classList.remove("failing");
+        // A fragment's `.active`/`.done` class outlives the run that set it --
+        // nothing removes it after the fact, only the next run's own reveal
+        // step re-adds "active" on top. That left a highlighted, underlined
+        // fragment from a prior "with" run still showing through the very
+        // next "without" run, where nothing should be highlighted at all.
+        d.fields.concat(d.derived).forEach(function (f) {
+          var el = frag(c, f.key);
+          if (el) el.classList.remove("active", "done");
+        });
+        resetSiemRow(d.key);
+      });
+      rowsEl.innerHTML = "";
+      packTag.textContent = "—";
+      packTag.classList.remove("fail");
+      closing.classList.remove("show");
 
-  replayBtn.addEventListener("click", playAll);
+      for (var i = 0; i < DEVICES.length; i++) {
+        await playOne(DEVICES[i]);
+        if (i < DEVICES.length - 1) await wait(reduceMotion ? 150 : 550);
+      }
 
-  if (document.fonts && document.fonts.ready){
-    document.fonts.ready.then(playAll);
-  } else {
-    playAll();
-  }
-})();
+      closing.textContent = currentMode === "without"
+        ? DEVICES.length + " vendors, " + DEVICES.length + " formats — " + DEVICES.length + " blind spots."
+        : DEVICES.length + " vendors, " + DEVICES.length + " formats — one shared shape, one table.";
+      closing.classList.add("show");
+      playing = false;
+    }
+
+    replayBtn.addEventListener("click", playAll);
+    modeToggle.addEventListener("click", function () {
+      if (playing) return;
+      setMode(currentMode === "with" ? "without" : "with");
+      playAll();
+    });
+
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(playAll);
+    } else {
+      playAll();
+    }
+  })();
 </script>
