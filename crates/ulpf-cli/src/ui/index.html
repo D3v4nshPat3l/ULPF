@@ -1000,7 +1000,7 @@
           <div class="stat good"><div class="k">Normalized to OCSF</div><div class="v" id="st-parsed">0</div><div class="n" id="st-cov">0.0000% coverage</div></div>
           <div class="stat warn"><div class="k">Needs a pack</div><div class="v" id="st-unid">0</div><div class="n" id="st-unid-note">no unparsed records</div></div>
           <div class="stat"><div class="k">Vaulted</div><div class="v" id="st-bytes">0 B</div><div class="n">append-only, before parsing</div></div>
-          <div class="stat accent"><div class="k">Chain sequence</div><div class="v" id="st-seq">0</div><div class="n" id="st-chain">no checkpoint yet</div></div>
+          <div class="stat accent"><div class="k">Sealed this session</div><div class="v" id="st-seq">0</div><div class="n" id="st-chain">no checkpoint yet</div></div>
         </div>
 
         <div class="panel">
@@ -1479,6 +1479,7 @@ function renderEvents(rows) {
    I/O against the vault, and paying for it on every 2s tick behind a view
    nobody is looking at would be a self-inflicted throughput cost. */
 let rawRecords = [];
+let rawTotalReceived = 0;  // the real count behind the window, from the API
 let rawSelected = null;   // locator of the selected record, not an index:
                           // the list is a moving window and indices shift.
 
@@ -1489,9 +1490,18 @@ function rawViewActive() {
 
 function renderRawList() {
   const list = $("raw-list");
-  $("raw-count").textContent = rawRecords.length
-    ? rawRecords.length.toLocaleString() + " records"
-    : "0 records";
+  // This list is a page off the end of a moving window, not a population. It
+  // asks for 200 and the collector keeps 500, so once 200 records have ever
+  // arrived the length is 200 for the rest of the session -- and reading
+  // "200 records" as a count is then simply wrong. Say what it is: the newest
+  // N, out of however many have really been received.
+  $("raw-count").textContent = !rawRecords.length
+    ? "no records yet"
+    : rawTotalReceived > rawRecords.length
+      ? "newest " + rawRecords.length.toLocaleString()
+        + " of " + rawTotalReceived.toLocaleString() + " received"
+      : rawRecords.length.toLocaleString()
+        + (rawRecords.length === 1 ? " record" : " records");
   $("tally-raw").textContent = compactCount(rawRecords.length);
 
   if (!rawRecords.length) {
@@ -1580,6 +1590,7 @@ async function refreshRawFeed() {
   try {
     const data = await api("/api/raw-feed?limit=200");
     rawRecords = data.records || [];
+    rawTotalReceived = Number(data.total_received) || 0;
   } catch (e) {
     return;   // the shared refresh loop already surfaces connectivity
   }
@@ -2788,7 +2799,16 @@ async function refresh() {
     $("st-cov").textContent = ((stats.coverage || 0) * 100).toFixed(4) + "% coverage";
     $("st-unid").textContent = Number(stats.unidentified).toLocaleString();
     $("st-bytes").textContent = fmtBytes(stats.bytes_in);
-    $("st-seq").textContent = Number(stats.chain_sequence).toLocaleString();
+    // The attestation chain outlives the process. `serve` signs a checkpoint
+    // over the leaves already on disk before it binds a socket, so this reads
+    // in the millions beside "Events received: 0" on a fresh start -- four
+    // session counters and one lifetime counter in the same row, which reads
+    // as a fabricated number rather than the true length of the chain.
+    // Show what this session added, and account for the rest underneath.
+    const seqStart = Number(stats.chain_sequence_at_start) || 0;
+    const seqNow = Number(stats.chain_sequence) || 0;
+    const seqAdded = Math.max(0, seqNow - seqStart);
+    $("st-seq").textContent = seqAdded.toLocaleString();
 
     const failed = (stats.extract_failed || 0) + (stats.normalize_failed || 0);
     $("st-unid-note").textContent = failed
@@ -2814,8 +2834,14 @@ async function refresh() {
     const chain = $("chain-pill");
     chain.className = "pill " + (stats.checkpoint_signed ? "ok" : "neutral");
     chain.replaceChildren(el("i"), document.createTextNode(
-      stats.checkpoint_signed ? "chain signed · seq " + stats.chain_sequence : "chain idle"));
-    $("st-chain").textContent = stats.chain_uid ? "chain " + stats.chain_uid : "no checkpoint yet";
+      stats.checkpoint_signed
+        ? "chain signed · " + seqNow.toLocaleString() + " sealed"
+        : "chain idle"));
+    $("st-chain").textContent = !stats.checkpoint_signed
+      ? "no checkpoint yet"
+      : seqStart
+        ? "this session · " + seqStart.toLocaleString() + " already in the chain"
+        : "this session · chain starts here";
 
     renderEvents(events.events || []);
     // Vault retrieval is real file I/O; only pay for it while the operator is

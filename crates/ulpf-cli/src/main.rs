@@ -1146,6 +1146,9 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         pipeline,
         recent: Vec::new(),
         chain_anchor: resume_anchor,
+        // Recorded before the listener binds, so "received this session" and
+        // "already in the chain" can be told apart on screen.
+        chain_sequence_at_start: latest_checkpoint.as_ref().map_or(0, |cp| cp.sequence),
         latest_checkpoint,
         checkpoint_path,
         merkle_leaves_path: merkle_leaves_path.clone(),

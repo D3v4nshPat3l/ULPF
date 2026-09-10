@@ -46,6 +46,11 @@ pub struct AppState {
     pub recent: Vec<RecentEvent>,
     pub chain_anchor: Option<ulpf_ocsf::ChainLink>,
     pub latest_checkpoint: Option<ulpf_ocsf::Checkpoint>,
+    /// Chain sequence as it stood when this process started, before it had
+    /// received anything. The attestation chain outlives a single run, so
+    /// without this the console cannot tell an operator which part of the
+    /// sequence this session is responsible for.
+    pub chain_sequence_at_start: u64,
     pub checkpoint_path: std::path::PathBuf,
     pub merkle_leaves_path: std::path::PathBuf,
     pub public_key_path: std::path::PathBuf,
@@ -360,6 +365,12 @@ async fn stats(State(state): State<Shared>) -> Json<Value> {
         "by_pack": st.by_pack,
         "schema_version": ulpf_ocsf::SCHEMA_VERSION,
         "chain_sequence": s.latest_checkpoint.as_ref().map(|cp| cp.sequence).unwrap_or(0),
+        // The chain is persistent: `serve` signs a checkpoint over the leaves
+        // already on disk before it accepts a single packet, so its sequence
+        // starts at whatever earlier runs left. Reporting that starting point
+        // lets the console say which part of the sequence this session added
+        // instead of showing millions next to "0 received".
+        "chain_sequence_at_start": s.chain_sequence_at_start,
         "chain_uid": s.latest_checkpoint.as_ref().map(|cp| cp.chain_uid.as_str()),
         "checkpoint_signed": s.latest_checkpoint.is_some(),
     }))
@@ -1328,8 +1339,9 @@ async fn raw_feed(State(state): State<Shared>, Query(query): Query<RawFeedQuery>
     // Copy what is needed out from under the lock before touching the vault.
     // Retrieval is file I/O, and holding the state mutex across it would stall
     // every arriving record for the length of the read.
-    let (rows, dir, vault_key) = {
+    let (rows, dir, vault_key, total_received) = {
         let s = lock(&state);
+        let total_received = s.pipeline.stats.received;
         let rows: Vec<Value> = s
             .recent
             .iter()
@@ -1361,7 +1373,7 @@ async fn raw_feed(State(state): State<Shared>, Query(query): Query<RawFeedQuery>
                 })
             })
             .collect();
-        (rows, s.vault_dir.clone(), s.vault_key)
+        (rows, s.vault_dir.clone(), s.vault_key, total_received)
     };
 
     let mut reader = match vault_key {
@@ -1415,7 +1427,16 @@ async fn raw_feed(State(state): State<Shared>, Query(query): Query<RawFeedQuery>
         })
         .collect();
 
-    Json(json!({ "records": records }))
+    // `records` is a page, not a population: it is capped by the caller's
+    // `limit` and by the ring buffer behind it. Returning both bounds lets the
+    // console say "latest 200 of 12,345" instead of showing the page size as
+    // though it were a count -- which sticks at exactly 200 forever.
+    Json(json!({
+        "records": records,
+        "window_limit": limit,
+        "window_capacity": RECENT_CAPACITY,
+        "total_received": total_received,
+    }))
 }
 
 async fn raw(
@@ -1597,6 +1618,7 @@ mod tests {
             recent: Vec::new(),
             chain_anchor: None,
             latest_checkpoint: None,
+            chain_sequence_at_start: 0,
             checkpoint_path: dir.path().join("chain.checkpoint.json"),
             merkle_leaves_path: dir.path().join("chain.merkle-leaves.bin"),
             public_key_path: dir.path().join("ed25519-signing.pub"),
