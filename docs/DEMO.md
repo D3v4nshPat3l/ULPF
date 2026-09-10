@@ -134,8 +134,14 @@ demonstrable by pulling the network cable.
 
 ### 2a. Bring up the SIEM
 
-A single-node Wazuh stack, on the same laptop. Full instructions and
-troubleshooting in [`deploy/wazuh/README.md`](../deploy/wazuh/README.md).
+A single-node Wazuh stack, on the same laptop.
+
+> If anything below does not behave, do not debug it here.
+> [WAZUH_INTEGRATION.md](WAZUH_INTEGRATION.md) is the exhaustive version —
+> WSL 2 and Docker Desktop setup, verifying the UDP 514 listener, proving
+> archive storage and indexing, and a troubleshooting section organised by
+> symptom. [`deploy/wazuh/README.md`](../deploy/wazuh/README.md) covers the
+> stack itself.
 
 ```bash
 cd deploy/wazuh
