@@ -39,16 +39,16 @@ non-perimeter source move the headline number.
 | IDS | `snort.log` | Honeynet SotM34 | 69,039 | 99.9986% |
 | IDS | `dragon-nids.log` | Honeynet Dragon | 42,899 | 100.0000% |
 | Proxy | `squid-access.log` | Honeynet | 533,197 | 99.9771% |
-| Proxy | `bluecoat-proxy.log` | Honeynet | 8,130,590 | see note, not yet fetched |
+| Proxy | `bluecoat-proxy.log` | Honeynet, full capture | 8,130,590 | 99.8033% |
 | Network | `zeek-conn.log` | SecRepo (MACCDC 2012) | 2,125,308 | 99.9861% |
 | Web | `apache-access.log` | Honeynet SotM34 | 3,554 | 99.9719% |
 | Web | `Apache_2k.log` | Loghub | 2,000 | 100.0000% |
 | Auth | `OpenSSH_2k.log` | Loghub | 2,000 | 100.0000% |
-| Host | `linux-messages.log` | Honeynet SotM34 | 1,166 | 94.2539% |
-| Host | `Linux_2k.log` | Loghub | 2,000 | 96.4500% |
-| Mail | `sendmail.log` | Honeynet SotM34 | 1,172 | 98.7201% |
+| Host | `linux-messages.log` | Honeynet SotM34 | 1,166 | 99.1424% |
+| Host | `Linux_2k.log` | Loghub | 2,000 | 99.9500% |
+| Mail | `sendmail.log` | Honeynet SotM34 | 1,172 | 99.3174% |
 | Proxy | `Proxifier_2k.log` | Loghub | 2,000 | 81.1000% |
-| **Total (excl. Blue Coat)** | | | **2,964,087** | **99.9679%** |
+| **Total** | | | **11,094,677** | **99.8485%** |
 
 `zeek-conn.log` is counted in the total above — it has been fetched and
 measured, unlike Blue Coat, which has not (see note). Both are `OPTIONAL_CORPORA`
@@ -62,10 +62,17 @@ extracted, so it sits in the `large` tier rather than `standard`: putting it in
 workflow died mid-fetch. Fetch it with
 `python tools/fetch_datasets.py --tier large`.
 
-A 398,380-record prefix scores **99.0148%**. The full-file figure is not quoted
-above until that run is recorded, so that no number in this table is an
-extrapolation. `measure_coverage.py` reports the corpus as absent and computes
-the perimeter total without it when it has not been fetched.
+The full file has now been run end to end: **8,130,590 records at 99.8033%**,
+and it is in the table above rather than in a footnote. Earlier revisions of
+this document quoted a 398,380-record prefix at 99.0148% and excluded the
+corpus from the total, because quoting a prefix as if it were the whole file
+would have been an extrapolation.
+
+Folding it in moves the perimeter aggregate from 99.9679% down to 99.8485%.
+That is the correct direction and worth stating plainly: the older, higher
+figure was the average of a set that left out the largest and hardest corpus
+in it. `measure_coverage.py` still reports the corpus as absent and computes
+the total without it on a machine where it has not been fetched.
 
 **Zeek conn.log note.** `zeek-conn` was one of the nine packs the README used
 to list as unverified — its column order came from a general description of
@@ -100,14 +107,14 @@ lines — are fetched with `--tier large` or `--tier xl`.
 | Big data | Spark | 2,000 | 98.0500% |
 | Big data | ZooKeeper | 2,000 | 77.9500% |
 | HPC | Blue Gene/L RAS | 2,000 | 96.3500% |
-| HPC | Thunderbird | 2,000 | 97.8000% |
+| HPC | Thunderbird | 2,000 | 100.0000% |
 | HPC | HPC node state | 2,000 | 96.9000% |
 | Cloud | OpenStack Nova | 2,000 | 87.4500% |
 | Host | Windows CBS | 2,000 | 98.9500% |
-| Host | macOS system | 2,000 | 77.1500% |
+| Host | macOS system | 2,000 | 96.0500% |
 | Mobile | Android logcat | 2,000 | 99.8500% |
 | Mobile | HealthApp | 2,000 | 93.8000% |
-| **Combined, all sources** | | **2,988,087** | **99.9085%** |
+| **Combined, all sources** | | **11,118,677** | **99.8366%** |
 
 A separate 307,524-record iptables capture (`SotM30-anton.log`) is used for
 pack development. The SotM34 iptables figure above is therefore genuine
