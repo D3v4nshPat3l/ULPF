@@ -5,6 +5,33 @@ per day. That is 11,574 EPS sustained, and this document measures what one
 collector actually reaches — with the method and the losses stated plainly,
 rather than the target asserted.
 
+## Two rates, and which machine each came from
+
+This document reports **UDP ingest**: how fast a collector can be *sent*
+records over the network before the kernel starts discarding them. That
+ceiling is bounded by the socket, not by the pipeline.
+
+It is a different measurement from **file ingest**, which is how fast the
+pipeline processes records it already has. Measured on the current machine
+over the Blue Coat capture — 8,130,590 real records, end to end, vaulted,
+parsed, normalized, fingerprinted and chained — that is **13,290 events/sec**,
+which projects to 1,148,256,000 events per day per collector.
+
+That projection is arithmetic on a measured rate (rate × 86,400). It is not a
+claim to have ingested that many records, and the two rates must not be quoted
+interchangeably.
+
+The UDP table below was measured on a different machine and predates the
+removal of a quadratic Merkle-root recomputation that cost roughly 5× on large
+runs, so it is a floor rather than a current figure. Reproduce it here with:
+
+```bash
+python tools/measure_throughput.py
+```
+
+which runs the method below automatically and prints the events/day projection
+alongside it.
+
 ## Method
 
 One host, loopback UDP, sender and collector on the same machine. The sender is
