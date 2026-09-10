@@ -11,14 +11,6 @@
   `res.ok` before it reports success.
 -->
 <title>ULPF Console</title>
-<script>
-  /* Runs before the stylesheet paints, so a stored dark choice never shows a
-     frame of light first. Wrapped: private-mode storage throws on read. */
-  try {
-    var t = localStorage.getItem("ulpf-theme");
-    if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
-  } catch (e) {}
-</script>
 <style>
   :root{
     --nav:#1D1E24; --nav-hover:#2B2D35; --nav-text:#98A2B3; --nav-active:#FFFFFF;
@@ -85,46 +77,6 @@
      underneath a dark palette. */
   :root{color-scheme:light}
 
-  @media (prefers-color-scheme:dark){
-    :root:not([data-theme="light"]){
-      color-scheme:dark;
-      --nav:#0C1015; --nav-hover:#1B222B; --nav-text:#93A0AD; --nav-active:#FFFFFF;
-      --page:#12161B; --panel:#1A2028; --sunken:#151A21; --border:#2B3641;
-      --text:#E2E8EE; --text-2:#A5B2BE; --text-3:#7C8996;
-      --primary:#4BA3DC; --primary-soft:#0E2635;
-      --success:#3FB39E; --success-soft:#0D2C28;
-      --warning:#D9A93F; --warning-soft:#332711;
-      --danger:#E4695C;  --danger-soft:#3A1A17;
-      --shadow:0 1px 3px rgba(0,0,0,.6);
-      --node-device:#5C90DB;  --node-device-soft:#16243A;
-      --node-meaning:#38B096; --node-meaning-soft:#0E2E28;
-      --node-unknown:#DE6A5D; --node-unknown-soft:#3A1C19;
-      --chart-1:#5B93D8; --chart-2:#35A78E; --chart-3:#A585CE; --chart-4:#CE9450;
-      --chart-5:#5FA8AB; --chart-6:#C77593; --chart-7:#96AD59; --chart-8:#7B93B4;
-      --grid:#232C36; --tip-meta:#9AA7B4; --hairline:rgba(255,255,255,.06);
-      --row-hover:rgba(255,255,255,.045); --row-sel:rgba(75,163,220,.14);
-      --scrim:rgba(0,0,0,.62); --on-accent:#12161B;
-    }
-  }
-  :root[data-theme="dark"]{
-    color-scheme:dark;
-    --nav:#0C1015; --nav-hover:#1B222B; --nav-text:#93A0AD; --nav-active:#FFFFFF;
-    --page:#12161B; --panel:#1A2028; --sunken:#151A21; --border:#2B3641;
-    --text:#E2E8EE; --text-2:#A5B2BE; --text-3:#7C8996;
-    --primary:#4BA3DC; --primary-soft:#0E2635;
-    --success:#3FB39E; --success-soft:#0D2C28;
-    --warning:#D9A93F; --warning-soft:#332711;
-    --danger:#E4695C;  --danger-soft:#3A1A17;
-    --shadow:0 1px 3px rgba(0,0,0,.6);
-    --node-device:#5C90DB;  --node-device-soft:#16243A;
-    --node-meaning:#38B096; --node-meaning-soft:#0E2E28;
-    --node-unknown:#DE6A5D; --node-unknown-soft:#3A1C19;
-    --chart-1:#5B93D8; --chart-2:#35A78E; --chart-3:#A585CE; --chart-4:#CE9450;
-    --chart-5:#5FA8AB; --chart-6:#C77593; --chart-7:#96AD59; --chart-8:#7B93B4;
-    --grid:#232C36; --tip-meta:#9AA7B4; --hairline:rgba(255,255,255,.06);
-    --row-hover:rgba(255,255,255,.045); --row-sel:rgba(75,163,220,.14);
-    --scrim:rgba(0,0,0,.62); --on-accent:#12161B;
-  }
   *{box-sizing:border-box}
   html,body{height:100%}
   body{
@@ -218,14 +170,30 @@
   .panel-head .right{margin-left:auto;display:flex;gap:8px;align-items:center}
   .panel-body{padding:16px}
 
-  .themebtn{
-    display:flex;align-items:center;gap:8px;width:100%;margin-bottom:10px;
-    padding:7px 9px;border:1px solid transparent;border-radius:var(--radius);
-    background:none;color:var(--nav-text);font:inherit;font-size:12.5px;
-    cursor:pointer;text-align:left;
+  /* ------------------------------------------------- source donut */
+  /* Ring rather than pie: the hole carries the total, so the panel answers
+     "how much, and from where" in one glance instead of needing a caption. */
+  .donut-body{display:flex;gap:28px;align-items:center;flex-wrap:wrap}
+  #pack-donut{flex:0 0 190px;width:190px;height:190px;max-width:100%}
+  .donut-legend{
+    flex:1 1 280px;min-width:0;list-style:none;margin:0;padding:0;
+    display:flex;flex-direction:column;gap:7px;
   }
-  .themebtn:hover{background:var(--nav-hover);color:var(--nav-active)}
-  .themebtn:focus-visible{outline:2px solid var(--primary);outline-offset:1px}
+  .donut-legend li{display:flex;align-items:center;gap:9px;font-size:var(--t-tiny);min-width:0}
+  .donut-legend .sw{width:10px;height:10px;border-radius:2px;flex:0 0 10px}
+  .donut-legend .nm{
+    flex:1 1 auto;min-width:0;color:var(--text-2);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  /* Digits line up in a column, so they are tabular. */
+  .donut-legend .ct{font-variant-numeric:tabular-nums;color:var(--text);font-weight:600}
+  .donut-legend .pc{
+    font-variant-numeric:tabular-nums;color:var(--text-3);
+    width:48px;text-align:right;flex:0 0 48px;
+  }
+  .donut-empty{color:var(--text-3)}
+  .donut-total{font:600 var(--t-stat)/1 var(--ui);fill:var(--text)}
+  .donut-total-label{font:500 var(--t-micro)/1 var(--ui);fill:var(--text-3);letter-spacing:.08em}
 
   /* --------------------------------------------- live map (flow diagram) */
   /* Colours are declared once and read back by the drawing code through
@@ -784,10 +752,6 @@
     </div>
 
     <div class="foot">
-      <button class="themebtn" id="themebtn" type="button" aria-pressed="false">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3v18" fill="currentColor" stroke="none"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
-        <span id="themebtn-label">Dark theme</span>
-      </button>
       <a href="/dev" style="color:var(--nav-text)">Traffic simulator &rarr;</a>
     </div>
   </nav>
@@ -1001,6 +965,21 @@
           <div class="stat warn"><div class="k">Needs a pack</div><div class="v" id="st-unid">0</div><div class="n" id="st-unid-note">no unparsed records</div></div>
           <div class="stat"><div class="k">Vaulted</div><div class="v" id="st-bytes">0 B</div><div class="n">append-only, before parsing</div></div>
           <div class="stat accent"><div class="k">Sealed this session</div><div class="v" id="st-seq">0</div><div class="n" id="st-chain">no checkpoint yet</div></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Events by source</h2>
+            <span class="sub">share of normalized traffic, this collector</span>
+            <div class="right"><span class="pill neutral" id="donut-sources">0 sources</span></div>
+          </div>
+          <div class="panel-body donut-body">
+            <svg id="pack-donut" viewBox="0 0 200 200" role="img"
+                 aria-label="Share of normalized events by Source Pack"></svg>
+            <ul class="donut-legend" id="pack-donut-legend">
+              <li class="donut-empty">No normalized events yet.</li>
+            </ul>
+          </div>
         </div>
 
         <div class="panel">
@@ -2711,6 +2690,93 @@ function pulsePath(values,w,h){
   const max=Math.max(1,...values),min=Math.min(0,...values),span=Math.max(1,max-min);
   return values.map((v,i)=>(i?"L":"M")+(18+(values.length===1?0:(w-36)*i/(values.length-1)))+","+(h-20-(v-min)/span*(h-42))).join(" ");
 }
+/* The Overview donut: which sources the normalized traffic actually came
+   from. A ring rather than a pie so the hole can carry the total, and drawn
+   as SVG for the same reason the other charts are -- it has to stay crisp on
+   a projector.
+
+   Colours come from the same --chart-N tokens the pulses and the flow diagram
+   read, so a source is the same colour wherever it appears. */
+const DONUT_TOP = 7;
+
+function donutArc(cx, cy, rOuter, rInner, a0, a1) {
+  const large = a1 - a0 > Math.PI ? 1 : 0;
+  const pt = (r, a) => [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  const [x0, y0] = pt(rOuter, a0), [x1, y1] = pt(rOuter, a1);
+  const [x2, y2] = pt(rInner, a1), [x3, y3] = pt(rInner, a0);
+  return `M${x0} ${y0}A${rOuter} ${rOuter} 0 ${large} 1 ${x1} ${y1}` +
+         `L${x2} ${y2}A${rInner} ${rInner} 0 ${large} 0 ${x3} ${y3}Z`;
+}
+
+function packDonutDraw(byPack) {
+  const svg = $("pack-donut"), legend = $("pack-donut-legend"), count = $("donut-sources");
+  if (!svg || !legend) return;
+
+  const entries = Object.entries(byPack || {})
+    .map(([id, n]) => [id, Number(n)])
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1]);
+  const total = entries.reduce((sum, [, n]) => sum + n, 0);
+  if (count) count.textContent = entries.length + (entries.length === 1 ? " source" : " sources");
+
+  svg.replaceChildren();
+  legend.replaceChildren();
+  if (!total) {
+    legend.append(el("li", "donut-empty", "No normalized events yet."));
+    return;
+  }
+
+  // Everything past the top few becomes one slice: a ring with thirty
+  // segments reads as noise, and the tail is not what an operator acts on.
+  const slices = entries.slice(0, DONUT_TOP)
+    .map(([id, value]) => ({ name: analyticsSourceName(id), value }));
+  const rest = entries.slice(DONUT_TOP).reduce((sum, [, n]) => sum + n, 0);
+  if (rest > 0) slices.push({ name: "Other sources", value: rest });
+
+  const colours = chartPalette();
+  const C = 100, R_OUT = 84, R_IN = 58;
+  let angle = -Math.PI / 2;
+
+  slices.forEach((slice, i) => {
+    slice.colour = colours[i % colours.length];
+    slice.share = slice.value / total;
+    const sweep = slice.share * Math.PI * 2;
+    // A single source fills the ring, and an arc whose endpoints coincide
+    // collapses to nothing -- draw it as a stroked circle instead.
+    if (slice.share > 0.9999) {
+      svg.append(svgEl("circle", {
+        cx: C, cy: C, r: (R_OUT + R_IN) / 2,
+        fill: "none", stroke: slice.colour, "stroke-width": R_OUT - R_IN,
+      }));
+    } else {
+      svg.append(svgEl("path", {
+        d: donutArc(C, C, R_OUT, R_IN, angle, angle + sweep),
+        fill: slice.colour, stroke: cssVar("--panel", "#FFFFFF"), "stroke-width": 1.5,
+      }));
+    }
+    angle += sweep;
+  });
+
+  const middle = svgEl("text", { x: C, y: C - 2, "text-anchor": "middle", class: "donut-total" });
+  middle.textContent = total.toLocaleString();
+  const caption = svgEl("text", { x: C, y: C + 16, "text-anchor": "middle", class: "donut-total-label" });
+  caption.textContent = "NORMALIZED";
+  svg.append(middle, caption);
+
+  slices.forEach((slice) => {
+    const row = el("li");
+    const swatch = el("span", "sw");
+    swatch.style.background = slice.colour;
+    row.append(
+      swatch,
+      el("span", "nm", slice.name),
+      el("span", "ct", slice.value.toLocaleString()),
+      el("span", "pc", (slice.share * 100).toFixed(1) + "%"),
+    );
+    legend.append(row);
+  });
+}
+
 function drawSourcePulses(){
   const host=$("source-pulses"),s=ANALYTICS.stats,query=$("pulse-search").value.trim().toLowerCase(),sort=$("pulse-sort").value,parsed=Math.max(1,Number(s.parsed||0));
   let rows=Object.entries(s.by_pack||{}).filter(x=>Number(x[1])>0).map(([id,total])=>{const values=ANALYTICS.packRates.get(id)||[0];return{id,total:Number(total),values,rate:Number(values.at(-1)||0),name:analyticsSourceName(id)}});
@@ -2750,51 +2816,11 @@ let lastAt = Date.now();
    read the same tokens through getComputedStyle, so a theme change has to
    re-read them and redraw -- otherwise the panels change and the charts do
    not. */
-function themeCurrent() {
-  const stamped = document.documentElement.getAttribute("data-theme");
-  if (stamped) return stamped;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
-function themeSyncButton() {
-  const btn = document.getElementById("themebtn");
-  if (!btn) return;
-  const dark = themeCurrent() === "dark";
-  btn.setAttribute("aria-pressed", dark ? "true" : "false");
-  const label = document.getElementById("themebtn-label");
-  if (label) label.textContent = dark ? "Light theme" : "Dark theme";
-}
-
-function themeRepaint() {
-  // Re-read the palettes the drawing code captured, then redraw whatever is
-  // on screen. Wrapped because a view that is not mounted has no SVG to size,
-  // and a failed redraw must not take the poll loop down with it.
-  ANALYTICS_COLOURS = chartPalette();
-  FLOW_HUES = chartPalette();
-  CHART_GRID = cssVar("--grid", "#E5E9F1");
-  themeSyncButton();
-  try { if (typeof flowDraw === "function") flowDraw(); } catch (e) {}
-  try { if (typeof ringsDraw === "function") ringsDraw(); } catch (e) {}
-}
-
-function themeApply(next) {
-  document.documentElement.setAttribute("data-theme", next);
-  try { localStorage.setItem("ulpf-theme", next); } catch (e) {}
-  themeRepaint();
-}
-
-(function themeBind() {
-  const btn = document.getElementById("themebtn");
-  if (btn) {
-    btn.addEventListener("click", () =>
-      themeApply(themeCurrent() === "dark" ? "light" : "dark"));
-  }
-  // With no explicit stamp the OS is in charge, so follow it as it changes.
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-    if (!document.documentElement.getAttribute("data-theme")) themeRepaint();
-  });
-  themeSyncButton();
-})();
+/* One theme, deliberately. The console is read in an operations room and on a
+   projector, and a palette that changes with the viewer's OS is a palette
+   nobody tuned. The SVG charts read their colours from the same CSS tokens as
+   everything else, so there is one place a colour is defined and one place it
+   is changed. */
 
 async function refresh() {
   try {
@@ -2805,6 +2831,7 @@ async function refresh() {
     window.__byPack = stats.by_pack || {};
     $("schema-ver").textContent = stats.schema_version || "1.9.0";
     lastTotalReceived = Number(stats.received) || 0;
+    packDonutDraw(stats.by_pack);
     $("st-recv").textContent = lastTotalReceived.toLocaleString();
     $("st-parsed").textContent = Number(stats.parsed).toLocaleString();
     $("st-cov").textContent = ((stats.coverage || 0) * 100).toFixed(4) + "% coverage";
