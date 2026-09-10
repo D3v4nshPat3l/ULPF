@@ -36,3 +36,6 @@ media/
 
 # Collector output when the console is run in the background during development.
 /serve.log
+
+# working documents, never shipped
+.work/

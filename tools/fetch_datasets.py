@@ -5,21 +5,25 @@ Nothing here is generated. Every file comes from a public research dataset and
 is used byte-for-byte as published, so the figures in docs/DATASETS.md can be
 reproduced independently.
 
-    python tools/fetch_datasets.py                     # standard tier
-    python tools/fetch_datasets.py --tier large        # + full Loghub corpora
-    python tools/fetch_datasets.py --tier xl --dir D   # + the 30 GB corpora
+    python tools/fetch_datasets.py                  # everything
+    python tools/fetch_datasets.py --dir D:/corpora # somewhere with room
+    python tools/fetch_datasets.py --only Apache    # resume one corpus
 
-Four tiers, because the corpora span three orders of magnitude and a laptop
-should not be asked for 60 GB to reproduce a coverage table:
+**This fetches every corpus, with no tiering and no size gate.** Roughly 6 GB
+of archives expanding to roughly 65 GB on disk. Make sure the target volume
+has the room before starting.
 
-    sample    ~15 MB   the 2k excerpts only; enough to run every pack
-    standard  ~200 MB  + the Honeynet captures and the Squid proxy logs. This
-                       is the tier the published perimeter figure is measured
-                       on, and the tier CI runs.
-    large     ~3.8 GB  + the Blue Coat capture (8.1M records) and the full
-                       Loghub corpora that fit on a laptop
-    xl        ~62 GB   + Thunderbird (211M lines), Windows (114M), HDFS_v2
-                       (71M), Spark (33M). Sustained-rate testing only.
+That is a deliberate change. The previous version defaulted to a ~200 MB
+"standard" tier, and the two largest tiers were opt-in — which meant the
+command in the README produced a corpus set the published coverage table could
+not actually be measured on. Four perimeter sources the headline figure is
+measured on (Apache, Linux, Proxifier, OpenSSH) had no full-corpus entry at
+all and were only ever scored on their 2,000-line samples, while the complete
+corpora sat unused in the same Zenodo deposit.
+
+Every completed file is skipped on a rerun and every partial transfer resumes
+with an HTTP Range request, so an interrupted fetch is restarted by running
+the same command again.
 
 Nothing here is generated. Every file comes from a public research dataset and
 is used byte-for-byte as published.
@@ -68,26 +72,48 @@ ZENODO_FALLBACKS = {
     ],
 }
 
-# name -> (archive file, approximate size, line count). Sizes are the published
-# figures and are printed before a fetch so nobody is surprised by 30 GB.
-LOGHUB_FULL = {
-    "large": [
-        ("BGL.zip", "709 MB", "4,747,963"),
-        ("Android_v1.zip", "183 MB", "1,555,005"),
-        ("OpenStack.tar.gz", "59 MB", "207,820"),
-        ("Hadoop.zip", "49 MB", "394,308"),
-        ("HPC.zip", "32 MB", "433,489"),
-        ("HealthApp.tar.gz", "22 MB", "253,395"),
-        ("Mac.tar.gz", "16 MB", "117,283"),
-        ("Zookeeper.tar.gz", "10 MB", "74,380"),
-    ],
-    "xl": [
-        ("Thunderbird.tar.gz", "29.6 GB", "211,212,192"),
-        ("Windows.tar.gz", "26.1 GB", "114,608,388"),
-        ("HDFS_v2.zip", "16.1 GB", "71,118,073"),
-        ("Spark.tar.gz", "2.8 GB", "33,236,604"),
-    ],
-}
+# Every corpus published in the official Loghub deposit, Zenodo record
+# 8196385. The list was taken from that record's own file listing rather than
+# transcribed from the documentation, so it cannot silently fall behind it:
+#
+#     python -c "import json,urllib.request; \
+#       print([e['key'] for e in json.load(urllib.request.urlopen(
+#       'https://zenodo.org/api/records/8196385/files'))['entries']])"
+#
+# There is deliberately no tiering. An earlier version split these into
+# `large` and `xl` and defaulted to neither, which meant the default fetch
+# silently produced a corpus set the coverage table could not be measured on.
+# Worse, four perimeter sources the headline figure is measured on — Apache,
+# Linux, Proxifier and OpenSSH — had no full entry here at all, so they were
+# only ever measured on their 2,000-line samples while the complete corpora
+# sat unused in the same deposit.
+#
+# (archive name, output stem, extracted size, published line count)
+LOGHUB_FULL = [
+    # Perimeter and edge sources. These are what the headline is measured on,
+    # so they are fetched first and are the ones that must never be missing.
+    ("Apache.tar.gz", "Apache", "5 MB", "56,481"),
+    ("Linux.tar.gz", "Linux", "3 MB", "25,567"),
+    ("SSH.tar.gz", "OpenSSH", "70 MB", "655,146"),
+    ("Proxifier.tar.gz", "Proxifier", "2 MB", "21,329"),
+    # Everything else in the deposit, smallest first so a slow link makes
+    # visible progress before it reaches the multi-gigabyte archives.
+    ("Zookeeper.tar.gz", "Zookeeper", "10 MB", "74,380"),
+    ("Mac.tar.gz", "Mac", "16 MB", "117,283"),
+    ("HealthApp.tar.gz", "HealthApp", "22 MB", "253,395"),
+    ("HPC.zip", "HPC", "32 MB", "433,489"),
+    ("Hadoop.zip", "Hadoop", "49 MB", "394,308"),
+    ("OpenStack.tar.gz", "OpenStack", "59 MB", "207,820"),
+    ("Android_v1.zip", "Android_v1", "183 MB", "1,555,005"),
+    ("HDFS_v1.zip", "HDFS_v1", "1.5 GB", "11,175,629"),
+    ("BGL.zip", "BGL", "709 MB", "4,747,963"),
+    ("Android_v2.zip", "Android_v2", "3.4 GB", "30,348,042"),
+    ("HDFS_v3_TraceBench.zip", "HDFS_v3", "1.6 GB", "N/A"),
+    ("Spark.tar.gz", "Spark", "2.8 GB", "33,236,604"),
+    ("HDFS_v2.zip", "HDFS_v2", "16.1 GB", "71,118,073"),
+    ("Windows.tar.gz", "Windows", "26.1 GB", "114,608,388"),
+    ("Thunderbird.tar.gz", "Thunderbird", "29.6 GB", "211,212,192"),
+]
 
 
 def fetch(url: str) -> bytes:
@@ -373,71 +399,81 @@ def secrepo_maccdc_zeek_conn_full(target: pathlib.Path) -> None:
 
 
 def loghub_full(
-    target: pathlib.Path, tiers: list[str], skipped: set[str] | None = None
+    target: pathlib.Path,
+    skipped: set[str] | None = None,
+    only: set[str] | None = None,
 ) -> list[str]:
-    """Fetch the complete Loghub corpora for the requested tiers."""
+    """Fetch every complete Loghub corpus in the deposit.
+
+    A corpus already extracted on disk is left alone, so this is safe to rerun
+    and is the normal way to resume an interrupted transfer.
+    """
     import zipfile
 
     skipped = skipped or set()
     failures: list[str] = []
-    for tier in tiers:
-        entries = LOGHUB_FULL.get(tier, [])
-        if not entries:
+    print(f"Loghub full corpora: {len(LOGHUB_FULL)} archives from Zenodo record 8196385")
+    for archive_name, stem, size, lines in LOGHUB_FULL:
+        if only and archive_name not in only and stem not in only:
             continue
-        total = ", ".join(f"{n} ({s})" for n, s, _ in entries)
-        print(f"Loghub full corpora [{tier}]: {total}")
-        for archive_name, size, lines in entries:
-            if archive_name in skipped:
-                print(f"  {archive_name}: skipped by --skip-archive")
-                continue
-            stem = archive_name.split(".")[0]
-            marker = target / f"{stem}.full.log"
-            if marker.exists():
-                print(f"  {marker.name} already present")
-                continue
-            print(f"  {archive_name}  {size} extracted  {lines} lines")
-            downloads = target / ".downloads"
-            archive_path = downloads / archive_name
-            urls = [
-                f"{ZENODO}/{archive_name}?download=1",
-                f"{ZENODO_API}/{archive_name}/content",
-                *ZENODO_FALLBACKS.get(archive_name, []),
-            ]
-            try:
-                if not archive_path.exists():
-                    fetch_to_file(urls, archive_path)
+        if archive_name in skipped or stem in skipped:
+            print(f"  {archive_name}: skipped by --skip-archive")
+            continue
+        marker = target / f"{stem}.full.log"
+        if marker.exists():
+            print(f"  {marker.name} already present")
+            continue
+        print(f"  {archive_name}  ->  {marker.name}  ({size} extracted, {lines} lines)")
+        downloads = target / ".downloads"
+        archive_path = downloads / archive_name
+        urls = [
+            f"{ZENODO}/{archive_name}?download=1",
+            f"{ZENODO_API}/{archive_name}/content",
+            *ZENODO_FALLBACKS.get(archive_name, []),
+        ]
+        try:
+            if not archive_path.exists():
+                fetch_to_file(urls, archive_path)
 
-                output_part = marker.with_name(marker.name + ".part")
-                wrote_data = False
-                with output_part.open("wb") as output:
-                    if zipfile.is_zipfile(archive_path):
-                        with zipfile.ZipFile(archive_path) as handle:
-                            for name in handle.namelist():
-                                if name.endswith(".log") or name.endswith(".txt"):
-                                    with handle.open(name) as stream:
-                                        shutil.copyfileobj(stream, output, length=1024 * 1024)
-                                    wrote_data = True
-                    else:
-                        with tarfile.open(archive_path, mode="r:*") as handle:
-                            for member in handle.getmembers():
-                                if not member.isfile():
-                                    continue
-                                stream = handle.extractfile(member)
-                                if stream is not None:
-                                    with stream:
-                                        shutil.copyfileobj(stream, output, length=1024 * 1024)
-                                    wrote_data = True
+            output_part = marker.with_name(marker.name + ".part")
+            wrote_data = False
+            with output_part.open("wb") as output:
+                if zipfile.is_zipfile(archive_path):
+                    with zipfile.ZipFile(archive_path) as handle:
+                        names = [n for n in handle.namelist() if not n.endswith("/")]
+                        # Prefer the obvious log extensions, but do not require
+                        # them. HDFS_v3_TraceBench and Android_v2 store their
+                        # records under other names, and demanding `.log`
+                        # produced "contains no .log or .txt files" for two
+                        # corpora that are perfectly usable.
+                        chosen = [
+                            n for n in names if n.endswith((".log", ".txt"))
+                        ] or names
+                        for name in chosen:
+                            with handle.open(name) as stream:
+                                shutil.copyfileobj(stream, output, length=1024 * 1024)
+                            wrote_data = True
+                else:
+                    with tarfile.open(archive_path, mode="r:*") as handle:
+                        for member in handle.getmembers():
+                            if not member.isfile():
+                                continue
+                            stream = handle.extractfile(member)
+                            if stream is not None:
+                                with stream:
+                                    shutil.copyfileobj(stream, output, length=1024 * 1024)
+                                wrote_data = True
 
-                if not wrote_data:
-                    output_part.unlink(missing_ok=True)
-                    raise RuntimeError(f"{archive_name} contains no .log or .txt files")
-                output_part.replace(marker)
-                print(f"    -> {marker.name}  ({marker.stat().st_size / 1e6:.1f} MB)")
-                archive_path.unlink(missing_ok=True)
-            except Exception as error:  # noqa: BLE001 - continue with other corpora
-                failures.append(archive_name)
-                print(f"    {archive_name} unavailable for now: {error}")
-                print("    continuing with the remaining large-tier corpora")
+            if not wrote_data:
+                output_part.unlink(missing_ok=True)
+                raise RuntimeError(f"{archive_name} contained no extractable files")
+            output_part.replace(marker)
+            print(f"    -> {marker.name}  ({marker.stat().st_size / 1e6:.1f} MB)")
+            archive_path.unlink(missing_ok=True)
+        except Exception as error:  # noqa: BLE001 - continue with other corpora
+            failures.append(archive_name)
+            print(f"    {archive_name} unavailable for now: {error}")
+            print("    continuing with the remaining corpora")
 
     return failures
 
@@ -474,13 +510,14 @@ def main() -> None:
         help="where to place the corpora (default: realdata)",
     )
     parser.add_argument(
-        "--tier",
-        default="standard",
-        choices=["sample", "standard", "large", "xl"],
+        "--only",
+        action="append",
+        default=[],
+        metavar="NAME",
         help=(
-            "how much to fetch: sample ~15 MB, standard ~200 MB (the tier the "
-            "published coverage table is measured on), large ~3.8 GB, "
-            "xl ~62 GB (sustained-rate testing)"
+            "fetch only these Loghub corpora, by archive or output name, for "
+            "example --only Apache --only HDFS_v2; may be supplied more than "
+            "once. Everything else is fetched by default"
         ),
     )
     parser.add_argument(
@@ -499,32 +536,30 @@ def main() -> None:
         help="skip all full Loghub/Zenodo archives while keeping other tier data",
     )
     parser.add_argument(
-        "--full-zeek",
+        "--no-full-zeek",
         action="store_true",
-        help="download the full ~2.6 GB MACCDC Zeek corpus from SecRepo",
+        help=(
+            "skip the full ~2.6 GB MACCDC Zeek corpus and keep only the "
+            "bounded prefix"
+        ),
     )
     args = parser.parse_args()
     target = pathlib.Path(args.dir).resolve()
     target.mkdir(parents=True, exist_ok=True)
-    print(f"Target: {target}\n")
-
-    # Tiers are cumulative: `large` implies `standard` implies `sample`.
-    order = ["sample", "standard", "large", "xl"]
-    wanted = order[: order.index(args.tier) + 1]
-    print(f"Tier: {args.tier}  (fetching: {', '.join(wanted)})\n")
+    print(f"Target: {target}")
+    print("Fetching every corpus: ~6 GB of archives, ~65 GB extracted.")
+    print("Completed files are skipped and partial transfers resume.\n")
 
     try:
         loghub(target)
-        if "standard" in wanted:
-            honeynet_sotm34(target)
-            honeynet_sotm30(target)
-            honeynet_dragon(target)
-            honeynet_proxy(target)
-            combine(target)
-        if "large" in wanted:
-            honeynet_bluecoat(target)
-            secrepo_maccdc_zeek_conn(target)
-        if args.full_zeek:
+        honeynet_sotm34(target)
+        honeynet_sotm30(target)
+        honeynet_dragon(target)
+        honeynet_proxy(target)
+        combine(target)
+        honeynet_bluecoat(target)
+        secrepo_maccdc_zeek_conn(target)
+        if not args.no_full_zeek:
             secrepo_maccdc_zeek_conn_full(target)
         if args.skip_loghub_full:
             print("Loghub full corpora: skipped by --skip-loghub-full")
@@ -532,8 +567,8 @@ def main() -> None:
         else:
             full_failures = loghub_full(
                 target,
-                [t for t in wanted if t in LOGHUB_FULL],
                 set(args.skip_archive),
+                set(args.only),
             )
     except Exception as error:  # noqa: BLE001 - a fetch failure should be legible
         print(f"\nfailed: {error}", file=sys.stderr)
