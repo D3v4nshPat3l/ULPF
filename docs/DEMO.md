@@ -15,33 +15,27 @@ than asserted.
 Four terminals, in this order. Full explanation of each step is below; this
 block is the one to copy on demo day.
 
-**Terminal 1 — the SIEM** (first run only: generate certificates)
+**Once per machine — the SIEM's certificates**
 
 ```bash
-cd deploy/wazuh
-docker compose -f generate-indexer-certs.yml run --rm generator
-docker compose up -d
-docker compose ps                 # wait until all three read "running"
+docker compose -f deploy/wazuh/generate-indexer-certs.yml run --rm generator
 ```
 
-**Terminal 2 — ULPF, with the forward leg to the SIEM turned on**
+**One command — everything, already wired together**
 
 ```bash
-cargo build --release --locked
-./target/release/ulpf serve \
-  --packs packs \
-  --vault data/vault \
-  --integrity-dir data/integrity \
-  --datasets realdata \
-  --forward-udp 127.0.0.1:514 \
-  --no-auth
+docker compose -f deploy/demo-compose.yaml up -d --build
 ```
 
-**Terminal 3 — confirm both are up**
+That brings up ULPF and a single-node Wazuh in one network namespace, with
+`--forward-udp` already pointed at the SIEM's syslog port. Nothing else to
+configure.
+
+**Confirm both are up**
 
 ```bash
+docker compose -f deploy/demo-compose.yaml ps
 curl -s http://127.0.0.1:8787/readyz
-docker exec single-node-wazuh.manager-1 sh -c 'ls -l /var/ossec/logs/archives/archives.json'
 ```
 
 **Browser — the two pages you drive the demo from**
@@ -82,7 +76,7 @@ cargo build --release --locked
 ```
 
 ```
-35 packs · 75/75 fixtures passed · 100.0% field accuracy
+35 packs · 78/78 fixtures passed · 100.0% field accuracy
 ```
 
 Every Source Pack carries its own fixtures, so this is the packs testing

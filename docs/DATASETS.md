@@ -86,10 +86,9 @@ this document quoted a 398,380-record prefix at 99.0148% and excluded the
 corpus from the total, because quoting a prefix as if it were the whole file
 would have been an extrapolation.
 
-Folding it in moves the perimeter aggregate from 99.9679% down to 99.8485%.
-That is the correct direction and worth stating plainly: the older, higher
-figure was the average of a set that left out the largest and hardest corpus
-in it. `measure_coverage.py` still reports the corpus as absent and computes
+Folding it in pulled the perimeter aggregate down, which is the correct
+direction and worth stating plainly: the older, higher figure was the average
+of a set that left out the largest and hardest corpus in it. `measure_coverage.py` still reports the corpus as absent and computes
 the total without it on a machine where it has not been fetched.
 
 **Zeek conn.log note.** `zeek-conn` was one of the nine packs the README used
@@ -105,13 +104,11 @@ silently reading one column over from where real data puts them — the exact
 "coverage stays high while specific fields are quietly wrong" failure mode
 this project has hit before (Apache/Squid method IDs).
 
-The full MACCDC 2012 `conn.log` is ~524 MB compressed (~2.6 GB extracted),
-the same order of magnitude as Blue Coat, so `fetch_datasets.py` fetches a
-bounded byte-range prefix in the `large` tier rather than the whole file — a
-**2,125,308-record prefix scores 99.9861%** with the corrected column order.
-Like Blue Coat, this is not extrapolated to the full file, and
-`measure_coverage.py` reports the corpus as absent rather than failing when
-it has not been fetched.
+The full MACCDC 2012 `conn.log` is ~524 MB compressed (~2.6 GB extracted).
+It used to be fetched as a bounded byte-range prefix, and this document quoted
+that prefix — 2,125,308 records at 99.9861% — rather than extrapolating from
+it. The whole capture is now fetched and measured: **22,694,356 records at
+99.9435%**, which is the figure in the table above.
 
 ### Sources outside the Current Scope sentence
 
@@ -132,7 +129,13 @@ lines — are fetched with `--tier large` or `--tier xl`.
 | Host | macOS system | 2,000 | 96.0500% |
 | Mobile | Android logcat | 2,000 | 99.8500% |
 | Mobile | HealthApp | 2,000 | 93.8000% |
-| **Combined, all sources** | | **11,118,677** | **99.8366%** |
+| **Combined, all sources** | | *re-measure in progress* | *see note below* |
+
+The non-perimeter rows above are still the 2,000-line Loghub excerpts. The
+full corpora for several of them are now on disk — see *Held on disk, not yet
+run* — and the combined figure is deliberately not restated until they have
+been measured, because a total mixing full corpora with excerpts describes
+neither.
 
 A separate 307,524-record iptables capture (`SotM30-anton.log`) is used for
 pack development. The SotM34 iptables figure above is therefore genuine

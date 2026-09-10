@@ -244,7 +244,7 @@ cargo test --workspace --release --locked
 ```
 
 The second command runs every pack's embedded fixtures. Expect
-`35 packs · 75/75 fixtures passed · 100.0% field accuracy`.
+`35 packs · 78/78 fixtures passed · 100.0% field accuracy`.
 
 After pulling changes, run `cargo build --release --locked` again before
 demonstrating anything. `cargo test` builds its own test binaries and leaves
