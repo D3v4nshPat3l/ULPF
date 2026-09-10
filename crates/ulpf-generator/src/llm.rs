@@ -1117,6 +1117,59 @@ fn slug(raw: &str) -> String {
     }
     out.trim_matches('-').to_string()
 }
+/// Stands in for a detector the generator could not derive. It is deliberately
+/// text no log line will contain, so a draft carrying it loads without claiming
+/// traffic, and deliberately readable, so the operator editing the draft can
+/// see what is being asked of them.
+pub const DETECTOR_PLACEHOLDER: &str = "REPLACE-WITH-A-LITERAL-UNIQUE-TO-THIS-SOURCE";
+
+/// The longest run of consecutive whitespace-separated tokens that every
+/// sample contains, when no single token was stable enough on its own.
+///
+/// `derive_detectors` judges tokens one at a time, so a source whose only
+/// fixed text is a phrase gets nothing from it. `Jun 15 04:06:18 combo --
+/// ROOT LOGIN ON tty1` is the case that exposed this: `ROOT`, `LOGIN` and
+/// `ON` are each too short or too common to be a stable literal, while
+/// `ROOT LOGIN ON` identifies the source exactly. Returning that phrase turns
+/// a draft that could not compile into one an operator can review.
+pub fn longest_common_phrase(samples: &[String]) -> Option<String> {
+    let first = samples.first()?;
+    let tokens: Vec<&str> = first.split_whitespace().collect();
+    let mut best: Option<String> = None;
+
+    for start in 0..tokens.len() {
+        // Extend while every sample still contains the phrase; the first
+        // failure ends this start position, because a longer phrase from it
+        // can only be rarer.
+        let mut end = start + 1;
+        while end <= tokens.len() {
+            let phrase = tokens[start..end].join(" ");
+            if !samples.iter().all(|sample| sample.contains(&phrase)) {
+                break;
+            }
+            // A phrase carrying a long digit run is a timestamp or an address
+            // wearing a phrase's clothes, and will not hold across records.
+            let volatile = phrase
+                .split(|c: char| !c.is_ascii_digit())
+                .map(str::len)
+                .max()
+                .unwrap_or(0)
+                >= 3;
+            let words = end - start;
+            if !volatile
+                && words >= 2
+                && phrase.len() >= 6
+                && phrase.chars().any(|c| c.is_ascii_alphabetic())
+                && best.as_ref().is_none_or(|b| phrase.len() > b.len())
+            {
+                best = Some(phrase);
+            }
+            end += 1;
+        }
+    }
+    best
+}
+
 
 /// Derive the `contains_all` literals that will claim this source.
 ///
@@ -1481,5 +1534,60 @@ Four records are unparsed.";
         let prov = pack.provenance.unwrap();
         assert_eq!(prov.author.as_deref(), Some("generated"));
         assert!(prov.approved_by.is_none());
+    }
+}
+
+#[cfg(test)]
+mod detector_fallback_tests {
+    use super::*;
+
+    /// The line from the console that produced an uncompilable draft: no token
+    /// is a stable literal on its own, so `derive_detectors` returns nothing.
+    fn root_login_samples() -> Vec<String> {
+        vec![
+            "Jun 15 04:06:18 combo -- ROOT LOGIN ON tty1".to_string(),
+            "Jun 16 11:22:07 combo -- ROOT LOGIN ON tty2".to_string(),
+            "Jul 02 09:14:55 combo -- ROOT LOGIN ON tty1".to_string(),
+        ]
+    }
+
+    #[test]
+    fn phrase_rescues_a_cluster_with_no_stable_token() {
+        let phrase = longest_common_phrase(&root_login_samples())
+            .expect("the samples share a phrase");
+        assert!(phrase.contains("ROOT LOGIN ON"), "got {phrase:?}");
+        for sample in root_login_samples() {
+            assert!(sample.contains(&phrase));
+        }
+    }
+
+    #[test]
+    fn a_phrase_must_hold_for_every_sample() {
+        let samples = vec![
+            "alpha ROOT LOGIN ON tty1".to_string(),
+            "beta SOMETHING ELSE ENTIRELY".to_string(),
+        ];
+        // "ROOT LOGIN ON" is in the first and not the second, so it cannot be
+        // the discriminator for this cluster.
+        assert!(longest_common_phrase(&samples)
+            .is_none_or(|p| !p.contains("ROOT LOGIN")));
+    }
+
+    #[test]
+    fn timestamps_are_not_phrases() {
+        // Shared text that is only a clock would match nothing tomorrow.
+        let samples = vec![
+            "2026-03-16 02:25:58 alpha".to_string(),
+            "2026-03-16 02:25:58 beta".to_string(),
+        ];
+        assert!(longest_common_phrase(&samples)
+            .is_none_or(|p| !p.contains("2026")));
+    }
+
+    #[test]
+    fn placeholder_matches_no_realistic_line() {
+        for sample in root_login_samples() {
+            assert!(!sample.contains(DETECTOR_PLACEHOLDER));
+        }
     }
 }

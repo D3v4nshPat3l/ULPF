@@ -43,7 +43,18 @@ pub fn draft_pack(cluster_id: &str, raw_log: &str) -> anyhow::Result<DraftResult
     // list (`srcip`, `dstport`) regardless of the input, so a device using
     // `src_addr` got a pack that matched nothing and scored 0.
     let decoders = crate::llm::infer_decoders(&samples);
-    let detect = crate::llm::derive_detectors(&samples);
+    // A draft whose detector has no positive predicate does not compile at
+    // all: the console reported "identity.detect contains an empty detector"
+    // and offered the operator a pack they could not approve or usefully edit.
+    // derive_detectors judges tokens individually, so a source whose only
+    // fixed text is a phrase yields nothing; fall back to the longest phrase
+    // every sample shares before giving up.
+    let mut detect = crate::llm::derive_detectors(&samples);
+    if detect.is_empty() {
+        if let Some(phrase) = crate::llm::longest_common_phrase(&samples) {
+            detect.push(phrase);
+        }
+    }
     let available = crate::llm::available_field_names(&samples);
     let field_map = crate::llm::infer_field_map(&available);
 
@@ -121,8 +132,18 @@ pub fn draft_pack(cluster_id: &str, raw_log: &str) -> anyhow::Result<DraftResult
         log_format: Some(source_profile.wire_format.clone()),
         // Detectors derived from the samples. An empty list claims nothing, so
         // the drafted pack would have loaded and then matched no traffic.
+        // Still empty means the samples share no stable text at all. The draft
+        // is emitted anyway, because an operator who can see and edit it is
+        // better served than one handed a compile error, but it carries a
+        // placeholder that matches nothing rather than a detector that claims
+        // everything. Its fixtures fail by construction, so approval is
+        // refused until a real discriminator replaces it.
         detect: vec![ulpf_pack::spec::Detector {
-            contains_all: detect,
+            contains_all: if detect.is_empty() {
+                vec![crate::llm::DETECTOR_PLACEHOLDER.to_string()]
+            } else {
+                detect
+            },
             contains_any: Vec::new(),
             contains_none: Vec::new(),
             starts_with: None,
