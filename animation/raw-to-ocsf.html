@@ -289,10 +289,44 @@
      interior turns light -- a deliberate signal that this is a different,
      downstream system's screen, not more of ULPF's own internals. A real
      table, not a card list: Wazuh's own alert view is rows and columns, and
-     each cell here is a value that just flew across from the parsed panel
-     next door. Columns beyond what the column width comfortably shows
-     scroll inside this panel only -- the page itself never scrolls sideways. */
+     each cell here is a value read straight from the parsed panel next
+     door. Columns beyond what the column width comfortably shows scroll
+     inside this panel only -- the page itself never scrolls sideways. */
   .siem-col .panel-head{color:var(--ink-dim);}
+
+  /* The spotlight state: the panel leaves the grid and takes over most of
+     the screen, so a new row is unmistakable without moving the page under
+     it. `display:flex` here (only while maximized -- the grid layout above
+     handles the resting state) lets the table's own scroll area claim
+     whatever room the head and footnote don't need, rather than leaving a
+     tall modal with a short table stranded in the top third of it. */
+  .siem-backdrop{
+    position:fixed;inset:0;
+    background:rgba(10,10,14,.62);
+    z-index:90;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .35s ease;
+  }
+  .siem-backdrop.show{opacity:1;pointer-events:auto;}
+
+  .siem-col.maximized{
+    position:fixed;
+    top:4vh;left:4vw;right:4vw;bottom:4vh;
+    z-index:100;
+    display:flex;flex-direction:column;
+    box-shadow:0 30px 90px rgba(0,0,0,.5);
+    animation:siemPop .3s cubic-bezier(.25,.8,.4,1);
+  }
+  @keyframes siemPop{
+    from{transform:scale(.94);opacity:0;}
+    to{transform:scale(1);opacity:1;}
+  }
+  .siem-col.maximized .siem-scroll{flex:1;overflow-y:auto;}
+  .siem-col.maximized table.siem{font-size:15px;}
+  .siem-col.maximized table.siem th{font-size:11.5px;padding:12px 20px;}
+  .siem-col.maximized table.siem td{font-size:14px;padding:16px 20px;}
+  .siem-col.maximized .siem-desc{max-width:420px;}
   .siem-tag{
     font-family:"Archivo",sans-serif;
     font-size:10.5px;font-weight:600;letter-spacing:.04em;
@@ -569,23 +603,28 @@
     rowsEl.style.opacity = "1";
   }
 
-  // ------------------------------------------------------- auto-scroll
-  // The workbench can run taller than one screen once three raw cards, a
-  // parsed panel and a growing table are all on the page at once. Skipped
-  // outright under reduced motion -- a repeating scroll cycle is exactly the
-  // kind of movement that setting exists to suppress, not just a slower
-  // version of it.
-  var workbenchEl = document.getElementById("workbench");
+  // ---------------------------------------------------------- spotlight
+  // Instead of moving the page to the table, the table itself briefly takes
+  // over the screen -- no scroll position to manage, and it works exactly
+  // the same regardless of how tall the page is or where the viewer had
+  // scrolled to. Skipped outright under reduced motion, same reasoning as
+  // the scroll cycle it replaced: a repeating full-screen swap is motion the
+  // viewer asked not to have, not motion to just play without a transition.
+  var siemColEl = document.querySelector(".siem-col");
+  var siemBackdrop = document.createElement("div");
+  siemBackdrop.className = "siem-backdrop";
+  siemBackdrop.addEventListener("click", restoreSiem);
+  document.body.appendChild(siemBackdrop);
 
-  function scrollToSiemRow(key){
+  function maximizeSiem(){
     if (reduceMotion) return;
-    var row = ensureSiemRow(key);
-    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    siemColEl.classList.add("maximized");
+    siemBackdrop.classList.add("show");
   }
 
-  function scrollToWorkbenchTop(){
-    if (reduceMotion) return;
-    workbenchEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  function restoreSiem(){
+    siemColEl.classList.remove("maximized");
+    siemBackdrop.classList.remove("show");
   }
 
   function closingLine(d){
@@ -719,12 +758,12 @@
     fillSiemRow(d);
     setCardState(card, "done");
 
-    // Down to see this one land, then back up to watch the next one leave
-    // the collector -- the same round trip, once per device, for as many
-    // devices as there are.
-    scrollToSiemRow(d.key);
-    await wait(1300);
-    scrollToWorkbenchTop();
+    // Take over the screen to show this one landing, then hand it back so
+    // the next device's collector cards are what the viewer sees -- the same
+    // round trip, once per device, for as many devices as there are.
+    maximizeSiem();
+    await wait(1700);
+    restoreSiem();
     await wait(500);
 
     playing = wasPlaying;
