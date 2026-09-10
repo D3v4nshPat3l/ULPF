@@ -1273,7 +1273,6 @@ pub fn longest_common_phrase(samples: &[String]) -> Option<String> {
     best
 }
 
-
 /// Derive the `contains_all` literals that will claim this source.
 ///
 /// Two rules, both learned from drafts that scored well and then matched
@@ -1656,8 +1655,8 @@ mod detector_fallback_tests {
 
     #[test]
     fn phrase_rescues_a_cluster_with_no_stable_token() {
-        let phrase = longest_common_phrase(&root_login_samples())
-            .expect("the samples share a phrase");
+        let phrase =
+            longest_common_phrase(&root_login_samples()).expect("the samples share a phrase");
         assert!(phrase.contains("ROOT LOGIN ON"), "got {phrase:?}");
         for sample in root_login_samples() {
             assert!(sample.contains(&phrase));
@@ -1672,8 +1671,7 @@ mod detector_fallback_tests {
         ];
         // "ROOT LOGIN ON" is in the first and not the second, so it cannot be
         // the discriminator for this cluster.
-        assert!(longest_common_phrase(&samples)
-            .is_none_or(|p| !p.contains("ROOT LOGIN")));
+        assert!(longest_common_phrase(&samples).is_none_or(|p| !p.contains("ROOT LOGIN")));
     }
 
     #[test]
@@ -1683,8 +1681,7 @@ mod detector_fallback_tests {
             "2026-03-16 02:25:58 alpha".to_string(),
             "2026-03-16 02:25:58 beta".to_string(),
         ];
-        assert!(longest_common_phrase(&samples)
-            .is_none_or(|p| !p.contains("2026")));
+        assert!(longest_common_phrase(&samples).is_none_or(|p| !p.contains("2026")));
     }
 
     /// The regression that mattered: a detector with no positive predicate is
@@ -1703,7 +1700,10 @@ mod detector_fallback_tests {
             // No shared phrase at all: every sample is different.
             vec!["alpha one".into(), "beta two".into(), "gamma three".into()],
             // Shared text that is only a timestamp.
-            vec!["2026-03-16 02:25:58 a".into(), "2026-03-16 02:25:58 b".into()],
+            vec![
+                "2026-03-16 02:25:58 a".into(),
+                "2026-03-16 02:25:58 b".into(),
+            ],
             vec!["single sample with nothing else".into()],
         ];
         for samples in cases {
@@ -1723,7 +1723,9 @@ mod detector_fallback_tests {
                 "a drafting path would emit an empty detector for {samples:?}"
             );
             assert!(
-                contains_all.iter().all(|literal| !literal.trim().is_empty()),
+                contains_all
+                    .iter()
+                    .all(|literal| !literal.trim().is_empty()),
                 "a blank literal is an empty detector wearing a hat: {contains_all:?}"
             );
         }
@@ -1750,7 +1752,11 @@ mod detector_fallback_tests {
             "expected a real discriminator, got {:?}",
             derived.literals
         );
-        assert_eq!(derived.claimed.len(), 2, "the two root logins, not the Apache line");
+        assert_eq!(
+            derived.claimed.len(),
+            2,
+            "the two root logins, not the Apache line"
+        );
         // The invariant that makes "does not claim its own fixture" impossible.
         for sample in &derived.claimed {
             assert!(
@@ -1760,7 +1766,10 @@ mod detector_fallback_tests {
             );
         }
         assert!(
-            !derived.claimed.iter().any(|s| s.contains("211.144.162.173")),
+            !derived
+                .claimed
+                .iter()
+                .any(|s| s.contains("211.144.162.173")),
             "the Apache line is a different source and must not be claimed"
         );
     }
