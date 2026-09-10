@@ -678,7 +678,19 @@ fn assemble_pack(
     // the model's word. A literal that does not occur in every sample cannot
     // identify the source, and a model that hallucinates one would produce a
     // pack that silently matches nothing.
-    let detect = derive_detectors(samples);
+    let mut detect = derive_detectors(samples);
+    // Same fallback as the heuristic path. derive_detectors judges tokens one
+    // at a time, so a source whose only fixed text is a phrase yields nothing
+    // and the assembled pack carried a detector with no positive predicate --
+    // which does not compile, and reached the operator as "identity.detect
+    // contains an empty detector" on a draft they could not edit their way out
+    // of. Both drafting routes have to be guarded: fixing only one leaves the
+    // other button producing the same broken pack.
+    if detect.is_empty() {
+        if let Some(phrase) = longest_common_phrase(samples) {
+            detect.push(phrase);
+        }
+    }
 
     // Which decoders a body needs is decided by looking at the bytes, not by
     // asking the model. A 1.5B model offered "cef" for a plain key=value body;
@@ -831,7 +843,15 @@ fn assemble_pack(
             version: None,
             log_format: Some(source_profile.wire_format.clone()),
             detect: vec![Detector {
-                contains_all: detect,
+                // A placeholder that matches nothing, rather than an empty
+                // detector that will not compile at all. The draft stays
+                // editable and its fixtures fail, so it cannot be approved
+                // until a real discriminator replaces this.
+                contains_all: if detect.is_empty() {
+                    vec![DETECTOR_PLACEHOLDER.to_string()]
+                } else {
+                    detect
+                },
                 contains_any: Vec::new(),
                 contains_none: Vec::new(),
                 starts_with: None,
@@ -1582,6 +1602,48 @@ mod detector_fallback_tests {
         ];
         assert!(longest_common_phrase(&samples)
             .is_none_or(|p| !p.contains("2026")));
+    }
+
+    /// The regression that mattered: a detector with no positive predicate is
+    /// rejected by the pack compiler, so a draft carrying one reaches the
+    /// operator as an error they cannot edit their way out of. Whatever
+    /// derive_detectors and the phrase fallback do, what a drafting path emits
+    /// must always be something the compiler accepts.
+    ///
+    /// This is asserted on the shape both paths build rather than on one of
+    /// them, because fixing only the heuristic route left the AI Copilot
+    /// button producing exactly the same broken pack.
+    #[test]
+    fn a_draft_always_has_a_usable_detector() {
+        let cases: Vec<Vec<String>> = vec![
+            root_login_samples(),
+            // No shared phrase at all: every sample is different.
+            vec!["alpha one".into(), "beta two".into(), "gamma three".into()],
+            // Shared text that is only a timestamp.
+            vec!["2026-03-16 02:25:58 a".into(), "2026-03-16 02:25:58 b".into()],
+            vec!["single sample with nothing else".into()],
+        ];
+        for samples in cases {
+            let mut detect = derive_detectors(&samples);
+            if detect.is_empty() {
+                if let Some(phrase) = longest_common_phrase(&samples) {
+                    detect.push(phrase);
+                }
+            }
+            let contains_all = if detect.is_empty() {
+                vec![DETECTOR_PLACEHOLDER.to_string()]
+            } else {
+                detect
+            };
+            assert!(
+                !contains_all.is_empty(),
+                "a drafting path would emit an empty detector for {samples:?}"
+            );
+            assert!(
+                contains_all.iter().all(|literal| !literal.trim().is_empty()),
+                "a blank literal is an empty detector wearing a hat: {contains_all:?}"
+            );
+        }
     }
 
     #[test]
