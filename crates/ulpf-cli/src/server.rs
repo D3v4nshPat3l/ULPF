@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use axum::extract::{DefaultBodyLimit, Path, Request, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, Request, State};
 use axum::http::{header, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
@@ -101,7 +101,9 @@ pub fn router(
         .route("/api/chat", post(chat))
         .route("/api/ingest", post(ingest))
         .route("/api/approve", post(approve))
+        .route("/api/validate-pack", post(validate_pack))
         .route("/api/raw/{locator}", get(raw))
+        .route("/api/raw-feed", get(raw_feed))
         .route("/api/verify", post(verify))
         .route("/api/tamper", post(tamper))
         .route("/api/clear", post(clear))
@@ -967,6 +969,83 @@ fn safe_pack_stem(id: &str) -> Result<String, ApiError> {
     Ok(stem)
 }
 
+/// Score an edited candidate pack without writing it anywhere.
+///
+/// Approval is the irreversible step: it writes into the live packs directory
+/// and the watcher activates the result against real traffic. An operator
+/// editing a generated draft needs to see what their edit did *before* taking
+/// that step, so this runs exactly the checks `approve` runs — parse, compile,
+/// score against the pack's own fixtures — and reports the outcome without
+/// touching the filesystem.
+///
+/// Every failure is returned as a normal 200 body rather than an error status.
+/// A pack that does not parse is the expected state halfway through an edit,
+/// not an exceptional one, and the editor needs the message rendered next to
+/// the YAML rather than thrown.
+async fn validate_pack(Json(body): Json<ApproveBody>) -> Json<Value> {
+    let pack: ulpf_pack::Pack = match serde_yaml::from_str(&body.yaml) {
+        Ok(pack) => pack,
+        Err(error) => {
+            return Json(json!({
+                "ok": false,
+                "stage": "parse",
+                "detail": format!("invalid YAML: {error}"),
+            }));
+        }
+    };
+
+    if let Err(error) = ulpf_pack::CompiledPack::compile(pack.clone()) {
+        return Json(json!({
+            "ok": false,
+            "stage": "compile",
+            "detail": format!("pack does not compile: {error}"),
+            "id": pack.identity.id,
+        }));
+    }
+
+    let report = ulpf_generator::scorer::Scorer::score(&pack);
+    let unknown = ulpf_generator::ocsf_paths::unknown_paths(&pack);
+
+    if report.total == 0 {
+        return Json(json!({
+            "ok": false,
+            "stage": "fixtures",
+            "detail": "pack has no fixtures, so it cannot be validated before activation",
+            "id": pack.identity.id,
+            "fixtures": 0,
+            "fixtures_passed": 0,
+            "field_accuracy": 0.0,
+            "unknown_ocsf_paths": unknown,
+        }));
+    }
+
+    let failures: Vec<String> = report
+        .failures
+        .iter()
+        .take(5)
+        .map(|f| format!("fixture {}: {} — {}", f.fixture, f.path, f.detail))
+        .collect();
+
+    Json(json!({
+        "ok": report.passed == report.total,
+        "stage": "fixtures",
+        "id": pack.identity.id,
+        "fixtures": report.total,
+        "fixtures_passed": report.passed,
+        "field_accuracy": report.field_accuracy(),
+        "unknown_ocsf_paths": unknown,
+        "failures": failures,
+        "detail": if report.passed == report.total {
+            format!("{}/{} fixtures pass. Ready to approve.", report.passed, report.total)
+        } else {
+            format!(
+                "{}/{} fixtures pass; approval is refused until all of them do.",
+                report.passed, report.total
+            )
+        },
+    }))
+}
+
 async fn approve(
     State(state): State<Shared>,
     Json(body): Json<ApproveBody>,
@@ -1175,6 +1254,120 @@ fn field_value_json(v: &ulpf_core::Value<'_>) -> Value {
 }
 
 /// Retrieve the original bytes behind a locator.
+#[derive(serde::Deserialize)]
+struct RawFeedQuery {
+    limit: Option<usize>,
+}
+
+/// The evidence feed: recent records with their original bytes read back out
+/// of the vault.
+///
+/// This deliberately does not echo the line the pipeline was handed. It takes
+/// each event's locator and performs the same retrieval an investigator would
+/// perform months later, so what the console shows is the vault's answer, not
+/// a copy the console kept. That is the whole point of requirement (a): the
+/// bytes are still there, and they are still reachable from the normalized
+/// event.
+///
+/// A record whose bytes cannot be retrieved reports the failure on that row
+/// rather than vanishing from the feed. A missing original is exactly the
+/// thing an operator needs to see.
+async fn raw_feed(State(state): State<Shared>, Query(query): Query<RawFeedQuery>) -> Json<Value> {
+    let limit = query.limit.unwrap_or(200).clamp(1, RECENT_CAPACITY);
+
+    // Copy what is needed out from under the lock before touching the vault.
+    // Retrieval is file I/O, and holding the state mutex across it would stall
+    // every arriving record for the length of the read.
+    let (rows, dir, vault_key) = {
+        let s = lock(&state);
+        let rows: Vec<Value> = s
+            .recent
+            .iter()
+            .rev()
+            .take(limit)
+            .map(|r| {
+                let get = |path: &str| r.event.get_path(path).cloned().unwrap_or(Value::Null);
+                json!({
+                    "uid": r.event.uid(),
+                    "locator": r.locator,
+                    "pack": r.pack,
+                    "disposition": r.disposition,
+                    "time": r.event.as_map().get("time"),
+                    "vendor": get("metadata.product.vendor_name"),
+                    "product": get("metadata.product.name"),
+                    "log_format": get("metadata.log_format"),
+                    "transport": get("unmapped.ulpf_receipt.transport"),
+                    "origin": get("unmapped.ulpf_receipt.origin"),
+                    // The fingerprint recorded when the bytes were vaulted, so
+                    // the retrieved bytes can be checked against it below.
+                    "recorded_hash": get("raw_data_hash.value"),
+                    "algorithm_id": get("raw_data_hash.algorithm_id"),
+                    // The normalized result travels with its own raw bytes, so
+                    // "show me what this became" needs no second lookup. Under
+                    // load the 500-event window turns over in well under a
+                    // second, and resolving the pair by uid at click time lost
+                    // the race often enough to be useless in a demonstration.
+                    "event": r.event.to_value(),
+                })
+            })
+            .collect();
+        (rows, s.vault_dir.clone(), s.vault_key)
+    };
+
+    let mut reader = match vault_key {
+        Some(key) => VaultReader::open_with_key(&dir, key),
+        None => VaultReader::open(&dir),
+    };
+
+    let records: Vec<Value> = rows
+        .into_iter()
+        .map(|mut row| {
+            let locator = row
+                .get("locator")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let retrieved = RawRef::from_locator(&locator)
+                .map_err(|e| e.to_string())
+                .and_then(|raw_ref| reader.get(raw_ref).map_err(|e| e.to_string()));
+            let map = row.as_object_mut().expect("row is a JSON object");
+            match retrieved {
+                Ok(bytes) => {
+                    // BLAKE3 is absent from the OCSF algorithm_id enum and is
+                    // declared as Other(99); anything else recorded here was
+                    // written as SHA-256.
+                    let algorithm = match map.get("algorithm_id").and_then(Value::as_u64) {
+                        Some(99) => ulpf_ocsf::types::HashAlgorithm::Blake3,
+                        Some(_) => ulpf_ocsf::types::HashAlgorithm::Sha256,
+                        None => ulpf_ocsf::types::HashAlgorithm::default(),
+                    };
+                    let recomputed = ulpf_ocsf::types::Fingerprint::over_raw(algorithm, &bytes);
+                    let matches = map
+                        .get("recorded_hash")
+                        .and_then(Value::as_str)
+                        .map(|recorded| recorded == recomputed.value);
+
+                    map.insert("bytes".into(), json!(bytes.len()));
+                    map.insert(
+                        "raw".into(),
+                        json!(String::from_utf8_lossy(&bytes).to_string()),
+                    );
+                    map.insert("recomputed_hash".into(), json!(recomputed.value));
+                    // `null` where the event recorded no raw hash to compare
+                    // against, which is not the same answer as `false`.
+                    map.insert("verified".into(), json!(matches));
+                }
+                Err(error) => {
+                    map.insert("error".into(), json!(error));
+                }
+            }
+            row
+        })
+        .collect();
+
+    Json(json!({ "records": records }))
+}
+
 async fn raw(
     State(state): State<Shared>,
     Path(locator): Path<String>,

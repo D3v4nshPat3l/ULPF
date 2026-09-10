@@ -527,6 +527,45 @@
     nav.rail.open{transform:none}
     .content{padding:16px 14px 48px}
   }
+  /* ------------------------------------------------------------- raw logs
+     The evidence view. A two-column split: the arriving records on the left,
+     the selected record's original bytes on the right. The list is its own
+     scroll container so that following a live stream never walks the page. */
+  .rawgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+  @media (max-width:1100px){.rawgrid{grid-template-columns:minmax(0,1fr)}}
+  .rawlist{max-height:min(64vh,680px);overflow:auto}
+  .rawrow{
+    display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);
+    background:none;padding:9px 14px;cursor:pointer;font:inherit;color:inherit
+  }
+  .rawrow:hover{background:var(--nav-hover-light,rgba(0,0,0,.035))}
+  .rawrow[aria-current="true"]{background:var(--sel,rgba(37,99,235,.09));box-shadow:inset 3px 0 0 var(--primary)}
+  .rawrow .rawtop{display:flex;gap:8px;align-items:baseline;font-size:11.5px;color:var(--text-3)}
+  .rawrow .rawtop b{color:var(--text-2);font-weight:600}
+  /* The log line itself: one line, clipped, never wrapped. A wrapped preview
+     makes rows different heights and the list impossible to scan. */
+  .rawrow .rawline{
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;
+    margin-top:3px;white-space:pre;overflow:hidden;text-overflow:ellipsis;color:var(--text-1)
+  }
+  .rawtext{white-space:pre-wrap;word-break:break-word;min-height:90px;margin:0}
+  .rawmeta{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 14px;margin:0;font-size:12.5px}
+  .rawmeta dt{color:var(--text-3)}
+  .rawmeta dd{margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;word-break:break-all}
+  .rawlive{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-2)}
+
+  /* --------------------------------------------------- candidate pack editor
+     The draft is a proposal, not a verdict, so it is a textarea rather than a
+     <pre>. It keeps the codebox skin so that editing does not feel like a
+     different surface from reading. */
+  .packedit{
+    width:100%;min-height:340px;resize:vertical;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.55;
+    white-space:pre;overflow:auto;tab-size:2
+  }
+  .packedit:focus{outline:2px solid var(--primary);outline-offset:-2px}
+  .editnote{font-size:12.5px;line-height:1.5}
+
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 
@@ -539,6 +578,10 @@
 
     <div class="navgroup">
       <h6>Monitoring</h6>
+      <button class="navitem" data-view="rawlogs">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h13l3 3v13H4z"/><path d="M7 9h8M7 13h10M7 17h6"/></svg>
+        Raw logs <span class="tally" id="tally-raw">0</span>
+      </button>
       <button class="navitem" data-view="livemap">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="6" r="2.4"/><circle cx="5" cy="18" r="2.4"/><circle cx="19" cy="12" r="3.2"/><path d="M7.2 7.1 15.9 10.6M7.2 16.9l8.7-3.5"/></svg>
         Live Map
@@ -597,6 +640,49 @@
     <div class="content">
 
       <!-- ============================================ OVERVIEW -->
+      <section class="view" id="view-rawlogs">
+        <div class="pagehead">
+          <div>
+            <h1>Raw logs</h1>
+            <p>What the devices actually wrote, byte for byte. Every line here was read back <b>out of the vault</b> by its locator &mdash; this is not a copy the console kept, it is the same retrieval an investigator would run months later. Select a record to see its original text and check it against the fingerprint taken at ingest.</p>
+          </div>
+          <div class="actions">
+            <button class="btn sm" type="button" id="btn-raw-refresh">Refresh</button>
+            <label class="rawlive"><input type="checkbox" id="raw-follow" checked> Follow live</label>
+          </div>
+        </div>
+
+        <div class="rawgrid">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Arriving records</h2>
+              <span class="sub">newest first</span>
+              <div class="right"><span class="pill neutral" id="raw-count">0 records</span></div>
+            </div>
+            <div class="panel-body" style="padding:0">
+              <div class="rawlist" id="raw-list">
+                <div class="empty" style="padding:22px">No records yet. Turn a source on in the <a href="/dev">traffic simulator</a>.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Original bytes</h2>
+              <span class="sub" id="raw-sub">select a record</span>
+              <div class="right"><span class="pill neutral" id="raw-verify-pill" hidden></span></div>
+            </div>
+            <div class="panel-body" style="display:flex;flex-direction:column;gap:12px">
+              <pre class="codebox rawtext" id="raw-detail">Select a record on the left to retrieve its original bytes from the vault.</pre>
+              <dl class="rawmeta" id="raw-meta" hidden></dl>
+              <div class="rowline">
+                <button class="btn primary sm" type="button" id="btn-raw-normalized" hidden>See the normalized OCSF event &rarr;</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="view" id="view-livemap">
         <div class="pagehead">
           <div>
@@ -826,6 +912,9 @@
               <span class="pill neutral" id="rev-fixtures">0/0 fixtures</span>
               <span class="pill neutral" id="rev-accuracy">0% fields</span>
               <span class="pill bad" id="rev-ocsf-warning" hidden></span>
+              <span class="pill warn" id="rev-edited" hidden>edited &middot; not yet revalidated</span>
+              <button class="btn sm" type="button" id="btn-revalidate" hidden>Validate</button>
+              <button class="btn sm" type="button" id="btn-revert" hidden>Revert to draft</button>
               <button class="btn primary sm" type="button" id="btn-approve" hidden>Approve and deploy</button>
             </div>
           </div>
@@ -834,7 +923,15 @@
             <div class="callout warn">
               Format and source-family scores are evidence-based hypotheses, not ground truth. Fixture scores use these same samples, so they show self-consistency &mdash; not that the draft generalizes. Validate identity, activity and field meaning on held-out records before approval.
             </div>
-            <pre class="codebox" id="rev-yaml"></pre>
+            <div class="editnote muted">
+              This draft is editable. Correct the identity, the detector, the field
+              mapping or the fixtures, then <b>Validate</b> to re-run the checks
+              against your edit. Approval writes the pack into the live directory
+              and the watcher activates it, so it is refused unless every fixture
+              passes.
+            </div>
+            <textarea class="codebox packedit" id="rev-yaml" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-label="Candidate Source Pack YAML"></textarea>
+            <div class="callout" id="rev-validation" hidden></div>
           </div>
         </div>
       </section>
@@ -1051,6 +1148,7 @@ function switchView(name) {
   // The flow diagram is laid out from its container's size, which is zero
   // while the view is hidden. Redraw once it is on screen. Guarded because
   // hash routing runs this before that section of the script is evaluated.
+  if (name === "rawlogs" && window.refreshRawFeed) window.refreshRawFeed();
   if (name === "livemap" && window.flowDraw) requestAnimationFrame(window.flowDraw);
   if (name === "analytics" && window.analyticsDraw) requestAnimationFrame(window.analyticsDraw);
 }
@@ -1201,6 +1299,141 @@ function renderEvents(rows) {
     body.append(tr);
   });
 }
+
+/* ------------------------------------------------------------- raw logs
+   The evidence view, and the first thing to show someone: what the device
+   actually wrote, before ULPF had an opinion about it.
+
+   Every line rendered here came back out of the vault via `/api/raw-feed`,
+   which resolves each event's locator against the append-only store. That is
+   deliberate. Echoing the bytes the pipeline was handed would prove nothing;
+   retrieving them by locator is the same operation an investigator performs
+   later, and it is what makes "nothing is discarded" checkable rather than
+   asserted.
+
+   The feed is only polled while this view is on screen. Retrieval is real file
+   I/O against the vault, and paying for it on every 2s tick behind a view
+   nobody is looking at would be a self-inflicted throughput cost. */
+let rawRecords = [];
+let rawSelected = null;   // locator of the selected record, not an index:
+                          // the list is a moving window and indices shift.
+
+function rawViewActive() {
+  const view = $("view-rawlogs");
+  return view && view.classList.contains("active");
+}
+
+function renderRawList() {
+  const list = $("raw-list");
+  $("raw-count").textContent = rawRecords.length
+    ? rawRecords.length.toLocaleString() + " records"
+    : "0 records";
+  $("tally-raw").textContent = compactCount(rawRecords.length);
+
+  if (!rawRecords.length) {
+    const empty = el("div", "empty", "No records yet. Turn a source on in the traffic simulator.");
+    empty.style.padding = "22px";
+    list.replaceChildren(empty);
+    return;
+  }
+
+  const rows = rawRecords.map((rec) => {
+    const row = el("button", "rawrow");
+    row.type = "button";
+    if (rec.locator === rawSelected) row.setAttribute("aria-current", "true");
+
+    const top = el("div", "rawtop");
+    top.append(el("b", null, [rec.vendor, rec.product].filter(Boolean).join(" ") || "unidentified"));
+    top.append(el("span", null, fmtTime(rec.time) || "—"));
+    if (rec.pack) top.append(el("span", null, rec.pack));
+    top.append(el("span", null, rec.bytes != null ? rec.bytes + " B" : ""));
+    row.append(top);
+
+    // `error` means the bytes could not be retrieved. Say so on the row rather
+    // than dropping it: a missing original is precisely what an operator needs
+    // to see, and a silently shorter list would hide it.
+    row.append(el("div", "rawline", rec.error ? "[unretrievable: " + rec.error + "]" : rec.raw));
+    row.addEventListener("click", () => selectRaw(rec.locator));
+    return row;
+  });
+  list.replaceChildren(...rows);
+}
+
+function selectRaw(locator) {
+  rawSelected = locator;
+  const rec = rawRecords.find((r) => r.locator === locator);
+  renderRawList();
+  if (!rec) return;
+
+  $("raw-sub").textContent = rec.pack ? "claimed by " + rec.pack : "no pack claimed this record";
+  $("raw-detail").textContent = rec.error
+    ? "The vault could not return this record: " + rec.error
+    : rec.raw;
+
+  // The whole point of the view: the bytes just retrieved still hash to the
+  // fingerprint taken at ingest. `verified` is null where the event recorded
+  // no raw hash to compare against, which is a different answer from false.
+  const pill = $("raw-verify-pill");
+  if (rec.verified === true) {
+    pill.hidden = false;
+    pill.className = "pill ok";
+    pill.replaceChildren(el("i"), document.createTextNode("matches ingest fingerprint"));
+  } else if (rec.verified === false) {
+    pill.hidden = false;
+    pill.className = "pill bad";
+    pill.replaceChildren(el("i"), document.createTextNode("FINGERPRINT MISMATCH"));
+  } else {
+    pill.hidden = true;
+  }
+
+  const meta = $("raw-meta");
+  meta.replaceChildren();
+  const pairs = [
+    ["Vault locator", rec.locator],
+    ["Bytes", rec.bytes != null ? rec.bytes.toLocaleString() : "—"],
+    ["Transport", rec.transport || "—"],
+    ["Origin", rec.origin || "—"],
+    ["Wire format", rec.log_format || "—"],
+    ["Hash at ingest", rec.recorded_hash || "—"],
+    ["Hash recomputed now", rec.recomputed_hash || "—"],
+  ];
+  pairs.forEach(([k, v]) => {
+    meta.append(el("dt", null, k));
+    meta.append(el("dd", null, v));
+  });
+  meta.hidden = false;
+
+  // Hand the operator the other half of the story. The events feed is the same
+  // 500-record window, so the matching normalized event is found by uid.
+  const jump = $("btn-raw-normalized");
+  jump.hidden = false;
+  // The record carries its own normalized event, so this always resolves --
+  // even for a record that has already aged out of the live events window.
+  jump.onclick = () => openDrawer(0, { event: rec.event, locator: rec.locator });
+}
+
+async function refreshRawFeed() {
+  try {
+    const data = await api("/api/raw-feed?limit=200");
+    rawRecords = data.records || [];
+  } catch (e) {
+    return;   // the shared refresh loop already surfaces connectivity
+  }
+  renderRawList();
+  // Keep the selection pinned across refreshes; only re-render the detail
+  // pane if the selected record is still in the window.
+  if (rawSelected && rawRecords.some((r) => r.locator === rawSelected)) {
+    selectRaw(rawSelected);
+  } else if ($("raw-follow").checked && rawRecords.length && !rawSelected) {
+    selectRaw(rawRecords[0].locator);
+  }
+}
+
+window.refreshRawFeed = refreshRawFeed;
+$("btn-raw-refresh").addEventListener("click", refreshRawFeed);
+$("raw-follow").addEventListener("change", () => {
+  if ($("raw-follow").checked) refreshRawFeed();
+});
 
 /* --------------------------------------------------------------- drawer */
 /* Enum captions below are taken from the OCSF 1.9.0 schema vendored in
@@ -1885,6 +2118,95 @@ function renderClusters(list, overflow) {
 }
 
 let draftYaml = null;
+/* The generator's untouched output, so "Revert" restores the draft rather than
+   the last thing that happened to validate. */
+let generatedYaml = null;
+let packEdited = false;
+
+/* Render a validation outcome under the editor. Parse and compile failures are
+   ordinary states halfway through an edit, so they are shown here rather than
+   thrown -- the operator needs the message next to the YAML that caused it. */
+function showValidation(result) {
+  const box = $("rev-validation");
+  box.className = "callout " + (result.ok ? "ok" : "bad");
+  box.replaceChildren();
+  box.append(el("div", null, result.detail || (result.ok ? "Valid." : "Not valid.")));
+
+  (result.failures || []).forEach((f) => {
+    const line = el("div", "mono", f);
+    line.style.fontSize = "12px";
+    line.style.marginTop = "4px";
+    box.append(line);
+  });
+
+  const unknown = result.unknown_ocsf_paths || [];
+  if (unknown.length) {
+    const note = el("div", null,
+      unknown.length + " attribute path" + (unknown.length > 1 ? "s are" : " is")
+      + " not in the vendored OCSF 1.9.0 schema: " + unknown.join(", ")
+      + ". These are written to `unmapped` rather than rejected.");
+    note.style.marginTop = "6px";
+    box.append(note);
+  }
+  box.hidden = false;
+}
+
+async function revalidatePack() {
+  const yaml = $("rev-yaml").value.trim();
+  if (!yaml) return;
+  const btn = $("btn-revalidate");
+  btn.disabled = true;
+  showValidation({ ok: true, detail: "Validating…" });
+  try {
+    const result = await postJson("/api/validate-pack", { yaml: yaml });
+    showValidation(result);
+    if (result.fixtures != null) {
+      $("rev-fixtures").textContent = result.fixtures_passed + "/" + result.fixtures + " fixtures";
+      $("rev-accuracy").textContent = Math.round((result.field_accuracy || 0) * 100) + "% fields";
+    }
+    // Validation happened, so the "not yet revalidated" warning is stale
+    // whatever the answer was.
+    $("rev-edited").hidden = true;
+  } catch (e) {
+    showValidation({ ok: false, detail: e.message });
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$("btn-revalidate").addEventListener("click", revalidatePack);
+
+$("btn-revert").addEventListener("click", () => {
+  if (generatedYaml == null) return;
+  $("rev-yaml").value = generatedYaml;
+  packEdited = false;
+  $("rev-edited").hidden = true;
+  $("rev-validation").hidden = true;
+});
+
+/* Editing invalidates the score in the header: those pills describe the draft
+   that was generated, not the text now on screen. Flag it rather than silently
+   letting a stale "2/2 fixtures" sit above modified YAML. */
+$("rev-yaml").addEventListener("input", () => {
+  packEdited = $("rev-yaml").value !== generatedYaml;
+  $("rev-edited").hidden = !packEdited;
+});
+
+/* Tab should indent inside the editor, not move focus out of it. Escape first
+   restores tab-out, so the editor never becomes a keyboard trap. */
+let packEditorTabTraps = true;
+$("rev-yaml").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { packEditorTabTraps = false; return; }
+  if (e.key !== "Tab" || !packEditorTabTraps) return;
+  e.preventDefault();
+  const box = e.target;
+  const at = box.selectionStart;
+  box.value = box.value.slice(0, at) + "  " + box.value.slice(box.selectionEnd);
+  box.selectionStart = box.selectionEnd = at + 2;
+  packEdited = box.value !== generatedYaml;
+  $("rev-edited").hidden = !packEdited;
+});
+$("rev-yaml").addEventListener("focus", () => { packEditorTabTraps = true; });
 async function generatePack(clusterId, mode, buttons) {
   buttons.forEach((b) => { b.disabled = true; });
   const pane = $("review-pane");
@@ -1892,10 +2214,15 @@ async function generatePack(clusterId, mode, buttons) {
   $("review-sub").textContent = mode === "heuristic"
     ? "Running the deterministic generator…"
     : "Asking the local model…";
-  $("rev-yaml").textContent = "";
+  $("rev-yaml").value = "";
   $("rev-profile").hidden = true;
   $("btn-approve").hidden = true;
+  $("btn-revalidate").hidden = true;
+  $("btn-revert").hidden = true;
+  $("rev-edited").hidden = true;
+  $("rev-validation").hidden = true;
   draftYaml = null;
+  generatedYaml = null;
 
   try {
     const data = await postJson("/api/generate", { cluster_id: clusterId, mode: mode });
@@ -1932,24 +2259,39 @@ async function generatePack(clusterId, mode, buttons) {
     } else {
       warnEl.hidden = true;
     }
-    $("rev-yaml").textContent = data.pack_yaml;
+    $("rev-yaml").value = data.pack_yaml;
+    // Keep the untouched draft so "Revert" means the generator's output, not
+    // whatever the last validation happened to accept.
+    generatedYaml = data.pack_yaml;
+    packEdited = false;
     $("btn-approve").hidden = false;
+    $("btn-revalidate").hidden = false;
+    $("btn-revert").hidden = false;
   } catch (e) {
     $("review-sub").textContent = "Could not draft a pack.";
-    $("rev-yaml").textContent = e.message;
+    $("rev-yaml").value = e.message;
   } finally {
     buttons.forEach((b) => { b.disabled = false; });
   }
 }
 
 $("btn-approve").addEventListener("click", async () => {
-  if (!draftYaml) return;
+  // Whatever is in the editor is what gets deployed, edited or not. The server
+  // re-parses, re-compiles and re-scores it before writing regardless, so the
+  // editor cannot talk it into activating something broken.
+  const yaml = $("rev-yaml").value.trim();
+  if (!yaml) return;
   const btn = $("btn-approve");
   btn.disabled = true;
   try {
-    const out = await postJson("/api/approve", { yaml: draftYaml });
-    $("review-sub").textContent = "Approved and written to " + out.file + ". The pack watcher will load it.";
+    const out = await postJson("/api/approve", { yaml: yaml });
+    $("review-sub").textContent = (packEdited ? "Operator-edited pack approved" : "Approved")
+      + " and written to " + out.file + ". The pack watcher will load it.";
     btn.hidden = true;
+    $("btn-revalidate").hidden = true;
+    $("btn-revert").hidden = true;
+    $("rev-edited").hidden = true;
+    showValidation({ ok: true, detail: out.fixtures_passed + "/" + out.fixtures + " fixtures passed. Pack is live." });
     refresh();
   } catch (e) {
     $("review-sub").textContent = "Not approved: " + e.message;
@@ -2211,6 +2553,9 @@ async function refresh() {
     $("st-chain").textContent = stats.chain_uid ? "chain " + stats.chain_uid : "no checkpoint yet";
 
     renderEvents(events.events || []);
+    // Vault retrieval is real file I/O; only pay for it while the operator is
+    // actually looking at the evidence view.
+    if (rawViewActive() && $("raw-follow").checked) refreshRawFeed();
     // The badge shows everything received, not the length of the live tail.
     // The tail is capped at RECENT_CAPACITY (500) server-side, so reading its
     // length pinned this badge at "500" forever the moment the 500th record
