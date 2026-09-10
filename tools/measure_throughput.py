@@ -28,6 +28,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 # The collector prints this to stderr every 1,000 events, as
@@ -98,6 +99,23 @@ def one_rate(
         if collector.poll() is not None:
             raise RuntimeError(f"collector exited early: {collector.stderr.read()[:400]}")
 
+        # Read the collector's progress line as it is produced, rather than
+        # once at the end. The count has to be watched, not sampled: the run
+        # is finished when the collector stops advancing, and there is no
+        # other signal for that.
+        latest = {"received": 0, "parsed": 0, "at": time.monotonic()}
+
+        def follow(stream) -> None:
+            for line in iter(stream.readline, ""):
+                match = PROGRESS.search(line)
+                if match:
+                    latest["received"] = int(match.group(1))
+                    latest["parsed"] = int(match.group(2))
+                    latest["at"] = time.monotonic()
+
+        reader = threading.Thread(target=follow, args=(collector.stderr,), daemon=True)
+        reader.start()
+
         started = time.monotonic()
         subprocess.run(
             [
@@ -113,20 +131,32 @@ def one_rate(
         )
         send_elapsed = time.monotonic() - started
 
-        # Let the collector drain what is already in the socket buffer before
-        # reading its counter. Without this the tail of every run reads as loss
-        # that the collector was about to process.
-        time.sleep(5)
+        # Drain. The socket buffer holds tens of thousands of datagrams at
+        # these sizes, so a fixed pause after the sender stops truncates the
+        # count and reports the buffer's capacity as though it were the
+        # collector's ceiling -- which is exactly what a fixed five-second
+        # wait did here: every rate above the ceiling returned an identical
+        # 70,000, the 8 MB buffer's worth, and the ladder looked like a wall.
+        #
+        # Wait until the counter has not moved for QUIET, or until the whole
+        # offered batch is accounted for.
+        QUIET = 8.0
+        deadline = time.monotonic() + seconds * 20 + 180
+        while time.monotonic() < deadline:
+            if latest["received"] >= count:
+                break
+            if time.monotonic() - latest["at"] > QUIET:
+                break
+            time.sleep(0.5)
+
         collector.terminate()
         try:
-            _, err = collector.communicate(timeout=30)
+            collector.communicate(timeout=30)
         except subprocess.TimeoutExpired:
             collector.kill()
-            _, err = collector.communicate()
+            collector.communicate()
 
-        received = parsed = 0
-        for match in PROGRESS.finditer(err):
-            received, parsed = int(match.group(1)), int(match.group(2))
+        received, parsed = latest["received"], latest["parsed"]
 
         return {
             "offered_eps": eps,
