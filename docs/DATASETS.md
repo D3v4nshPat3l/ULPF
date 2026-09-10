@@ -44,9 +44,9 @@ non-perimeter source move the headline number.
 | Web | `apache-access.log` | Honeynet SotM34 | 3,554 | 99.9719% |
 | Web | `Apache_2k.log` | Loghub | 2,000 | 100.0000% |
 | Auth | `OpenSSH_2k.log` | Loghub | 2,000 | 100.0000% |
-| Host | `linux-messages.log` | Honeynet SotM34 | 1,166 | 99.8285% |
+| Host | `linux-messages.log` | Honeynet SotM34 | 1,166 | 99.1424% |
 | Host | `Linux_2k.log` | Loghub | 2,000 | 99.9500% |
-| Mail | `sendmail.log` | Honeynet SotM34 | 1,172 | 100.0000% |
+| Mail | `sendmail.log` | Honeynet SotM34 | 1,172 | 99.3174% |
 | Proxy | `Proxifier_2k.log` | Loghub | 2,000 | 100.0000% |
 | **Total** | | | **11,094,677** | **re-measure pending** |
 
@@ -206,11 +206,12 @@ They are named rather than rounded away.
   detector to the shape of the line takes the corpus from 81.1000% to
   100.0000%. A design decision and an unnoticed bug read identically from the
   outside, which is why the shortfall survived this long.
-- **Loghub Linux, 1 record of 2,000** and **Honeynet syslog, 2 of 1,166** — a
-  long tail of daemon messages from programs with no pack. Each is still
-  vaulted, fingerprinted and emitted as a schema-valid record. (The 3.6% and
-  5.7% quoted here previously predated the syslog-tag detector and the
-  repeated-message pack, and were never re-measured after either landed.)
+- **Loghub Linux, 1 record of 2,000** and **Honeynet syslog, 10 of 1,166** — a
+  long tail of daemon messages from programs with no pack, including syslog's
+  own `last message repeated` notices. Each is still vaulted, fingerprinted and
+  emitted as a schema-valid record. (A pack for the repeated-message notice was
+  written and then withdrawn: it worked, but every cluster it absorbed was one
+  fewer example of the onboarding path the console exists to demonstrate.)
 - **Snort, 1 record of 69,039** — a genuinely corrupt line in the source data:
   `213.158.110.22.-> 11.11.79.73`, a stray dot where a space belongs.
 - **Apache access, 1 record of 3,554** — a truncated request line.
