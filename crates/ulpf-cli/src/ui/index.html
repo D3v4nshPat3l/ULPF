@@ -1438,7 +1438,16 @@ function renderEvents(rows) {
   latestEvents = rows;
   const body = $("events-body");
   body.replaceChildren();
-  $("ev-count").textContent = "most recent " + rows.length;
+  // Same shape as the raw feed: this is the collector's 500-event ring, so
+  // the count pins at 500 under sustained traffic. "Most recent" already says
+  // it is a window rather than a total; naming the total as well means the
+  // pill never has to be read against the tile above it to make sense.
+  $("ev-count").textContent = !rows.length
+    ? "no events yet"
+    : lastTotalReceived > rows.length
+      ? "most recent " + rows.length.toLocaleString()
+        + " of " + lastTotalReceived.toLocaleString()
+      : "most recent " + rows.length.toLocaleString();
   if (!rows.length) {
     const tr = el("tr");
     const td = el("td", "empty", "No events yet. Open the traffic simulator, or point a device at the syslog receiver.");
@@ -1480,6 +1489,7 @@ function renderEvents(rows) {
    nobody is looking at would be a self-inflicted throughput cost. */
 let rawRecords = [];
 let rawTotalReceived = 0;  // the real count behind the window, from the API
+let lastTotalReceived = 0; // total received, for windows that report a page
 let rawSelected = null;   // locator of the selected record, not an index:
                           // the list is a moving window and indices shift.
 
@@ -2794,7 +2804,8 @@ async function refresh() {
 
     window.__byPack = stats.by_pack || {};
     $("schema-ver").textContent = stats.schema_version || "1.9.0";
-    $("st-recv").textContent = Number(stats.received).toLocaleString();
+    lastTotalReceived = Number(stats.received) || 0;
+    $("st-recv").textContent = lastTotalReceived.toLocaleString();
     $("st-parsed").textContent = Number(stats.parsed).toLocaleString();
     $("st-cov").textContent = ((stats.coverage || 0) * 100).toFixed(4) + "% coverage";
     $("st-unid").textContent = Number(stats.unidentified).toLocaleString();
