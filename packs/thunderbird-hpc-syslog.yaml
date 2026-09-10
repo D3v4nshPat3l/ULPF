@@ -15,21 +15,31 @@ identity:
   log_format: loghub-syslog
   priority: 115
   detect:
-    # The Loghub prefix is `<label> <epoch> <yyyy.mm.dd> <host> `, and every
-    # line carries a `daemon[pid]:` tag after it. Keying on pam_unix alone
-    # claimed 36% of the corpus; gmetad and ntpd are the dominant daemons.
+    # The shape of the record, not the daemons and nodes we happened to see.
     #
-    # `(pam_unix)` on its own is NOT enough: ordinary Linux syslog contains it
-    # too, and an earlier version of this detector claimed 853 lines of the
-    # Honeynet and Loghub Linux corpora and then failed to extract them,
-    # dropping their coverage from 94% to 19%. Every detector below therefore
-    # also requires a Thunderbird host marker — `tbird-`, or the `host/host`
-    # duplication this corpus writes for compute, boot and display nodes.
+    # This used to key on `(pam_unix)` or `ntpd[` next to a list of node
+    # prefixes (`/cn`, `/bn`, `/dn`). Both lists were incomplete in the
+    # sampled corpus alone: crond, dhcpd, xinetd, snmpd, smartd and sshd2 are
+    # missing from the first, and the `/en`, `/an` and `/#` nodes from the
+    # second. Those 65 lines still counted as parsed only because the generic
+    # syslog pack claimed them on a bare substring — which stopped being true
+    # the moment that pack started matching the tag's shape properly, and took
+    # this corpus from 97.80% to 96.75% with it.
+    #
+    # `loghub_syslog_prefix` is the structural version: a ten-digit epoch and
+    # a dotted date, then an RFC 3164 record. It claims 99.55% of this corpus
+    # and nothing in the other 3.2 million lines of `realdata` — including
+    # BGL, which writes the same prefix but no syslog tag, and Squid, whose
+    # URLs are exactly why the node-prefix list could not simply be extended.
+    #
+    # The old caution still holds and is why the prefix is required rather
+    # than the tag alone: `(pam_unix)` by itself claimed 853 lines of the
+    # Honeynet and Loghub Linux corpora and failed to extract them, dropping
+    # those from 94% to 19%.
+    - loghub_syslog_prefix: true
+    # The header lines, which carry no tag at all: `- User ID: CentOS-4`,
+    # `Kernel 2.6.9`, and the rest of the boot banner.
     - contains_all: ["tbird-"]
-    - contains_all: ["(pam_unix)"]
-      contains_any: ["/cn", "/bn", "/dn", "tbird-"]
-    - contains_all: ["ntpd["]
-      contains_any: ["/cn", "/bn", "/dn"]
 
 extract:
   - decoder: regex

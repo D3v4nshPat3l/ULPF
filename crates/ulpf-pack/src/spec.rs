@@ -87,6 +87,22 @@ pub struct Detector {
     /// grow.
     #[serde(default)]
     pub syslog_tag: bool,
+    /// The line must be a Loghub-labelled record: `<label> <epoch>
+    /// <yyyy.mm.dd> <host>` followed by an RFC 3164 message.
+    ///
+    /// Both halves are required, because neither identifies the shape alone.
+    /// The prefix by itself is also what the BGL corpus writes; the syslog
+    /// half by itself is ordinary Linux syslog. Only the pair is specific.
+    ///
+    /// Here for the same reason as `syslog_tag`: `thunderbird-hpc-syslog`
+    /// keyed on the daemons somebody happened to notice -- `pam_unix`, `ntpd`
+    /// -- next to a list of node prefixes, and so missed `crond`, `dhcpd`,
+    /// `xinetd`, `snmpd`, `smartd`, `sshd2`, and the `/en`, `/an` and `/#`
+    /// nodes. Those lines survived only because a generic pack claimed them
+    /// on a substring, which stopped being true once that pack started
+    /// matching the tag's shape properly.
+    #[serde(default)]
+    pub loghub_syslog_prefix: bool,
 }
 
 impl Detector {
@@ -111,11 +127,15 @@ impl Detector {
         if self.syslog_tag && !has_syslog_tag(raw) {
             return false;
         }
+        if self.loghub_syslog_prefix && !has_loghub_syslog_prefix(raw) {
+            return false;
+        }
         // An empty detector must not claim everything.
         self.starts_with.is_some()
             || !self.contains_all.is_empty()
             || !self.contains_any.is_empty()
             || self.syslog_tag
+            || self.loghub_syslog_prefix
     }
 }
 
@@ -136,11 +156,22 @@ fn has_syslog_tag(raw: &str) -> bool {
         },
         None => rest,
     };
-    // Skip the RFC 3164 timestamp: "MMM d HH:MM:SS", 15 characters.
-    if rest.len() < 16 {
+    // RFC 3164 §4.1.3 caps the tag at 32 characters.
+    tag_follows_timestamp(rest, 32)
+}
+
+/// Whether a `MMM d HH:MM:SS <host> <tag>:` header starts `rest`.
+///
+/// Split out so `syslog_tag` and `loghub_syslog_prefix` cannot drift apart in
+/// what they consider a tag. They differ only in `max_name`, which is why that
+/// is the one parameter.
+fn tag_follows_timestamp(rest: &str, max_name: usize) -> bool {
+    // Skip the RFC 3164 timestamp: "MMM d HH:MM:SS", 15 characters. `get`
+    // rather than a slice, because a multibyte character straddling byte 15
+    // would panic on one.
+    let Some(rest) = rest.get(15..) else {
         return false;
-    }
-    let rest = &rest[15..];
+    };
     let mut parts = rest.split_whitespace();
     // Hostname, then the tag.
     let Some(_host) = parts.next() else {
@@ -163,12 +194,138 @@ fn has_syslog_tag(raw: &str) -> bool {
         None => name,
     };
     !name.is_empty()
-        && name.len() <= 32
+        && name.len() <= max_name
         && name
             .chars()
             // Parentheses because Linux PAM writes `su(pam_unix)[26013]:`,
             // which is the shape in the wild whatever the RFC says.
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | '(' | ')'))
+}
+
+/// Whether `raw` is a Loghub prefix wrapping an RFC 3164 record.
+///
+/// The Loghub corpora prefix every line with `<label> <epoch> <yyyy.mm.dd>
+/// <host>`; the Thunderbird corpus then writes an ordinary syslog record. The
+/// prefix is checked structurally -- a ten-digit epoch and a dotted date --
+/// rather than by listing the labels or hosts that happen to appear.
+///
+/// Measured over `realdata`: 99.55% of the Thunderbird corpus, and nothing at
+/// all in the other 3.2 million lines. That includes BGL, which writes the
+/// same prefix but no syslog tag after it, and the Squid corpus, whose URLs
+/// contain the `/cn` and `/en` node markers the old detector keyed on.
+///
+/// The tag may be longer here than RFC 3164 permits, because Ganglia's
+/// `gmetad` logs its absolute 45-character path as the tag, and that is 830 of
+/// the 2,000 sampled lines. Allowing it inside a prefix this specific costs
+/// nothing; allowing it in `syslog_tag`, which runs against every unclaimed
+/// line, would.
+fn has_loghub_syslog_prefix(raw: &str) -> bool {
+    let mut rest = raw.trim_start();
+    // <label> <epoch> <yyyy.mm.dd> <host>, then the syslog record.
+    let mut fields = [""; 4];
+    for slot in fields.iter_mut() {
+        let Some(end) = rest.find(char::is_whitespace) else {
+            return false;
+        };
+        *slot = &rest[..end];
+        rest = rest[end..].trim_start();
+    }
+    let [_label, epoch, date, _host] = fields;
+    if epoch.len() != 10 || !epoch.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    if !is_dotted_date(date) {
+        return false;
+    }
+    tag_follows_timestamp(rest, 128)
+}
+
+/// `yyyy.mm.dd`, the date format the Loghub label carries.
+fn is_dotted_date(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 10
+        && b[..4].iter().all(u8::is_ascii_digit)
+        && b[4] == b'.'
+        && b[5..7].iter().all(u8::is_ascii_digit)
+        && b[7] == b'.'
+        && b[8..].iter().all(u8::is_ascii_digit)
+}
+
+#[cfg(test)]
+mod loghub_prefix_tests {
+    use super::has_loghub_syslog_prefix;
+
+    #[test]
+    fn real_thunderbird_lines_are_claimed() {
+        // The daemons the old name-list detector missed.
+        assert!(has_loghub_syslog_prefix(
+            "- 1131566461 2005.11.09 dn228 Nov 9 12:01:01 dn228/dn228 crond[2916]: (root) CMD (run-parts /etc/cron.hourly)"
+        ));
+        assert!(has_loghub_syslog_prefix(
+            "- 1131566501 2005.11.09 aadmin1 Nov 9 12:01:41 src@aadmin1 dhcpd: DHCPDISCOVER from 00:11:43:e3:ba:c3 via eth1"
+        ));
+        assert!(has_loghub_syslog_prefix(
+            "- 1131566503 2005.11.09 aadmin1 Nov 9 12:01:43 src@aadmin1 xinetd[18274]: START: tftp pid=16563 from=10.100.4.251"
+        ));
+        // A PAM line, which the old detector did claim -- still claimed.
+        assert!(has_loghub_syslog_prefix(
+            "- 1131566461 2005.11.09 dn228 Nov 9 12:01:01 dn228/dn228 crond(pam_unix)[2915]: session closed for user root"
+        ));
+    }
+
+    #[test]
+    fn gmetad_logs_its_whole_path_as_the_tag() {
+        // 830 of 2,000 sampled lines. Over RFC 3164's 32-character limit, and
+        // the reason this predicate does not impose it.
+        assert!(has_loghub_syslog_prefix(
+            "- 1131566461 2005.11.09 tbird-admin1 Nov 9 12:01:01 local@tbird-admin1 /apps/x86_64/system/ganglia-3.0.1/sbin/gmetad[1682]: data_thread() got no answer from any [Thunderbird_B3] datasource"
+        ));
+    }
+
+    #[test]
+    fn the_bgl_corpus_shares_the_prefix_but_is_refused() {
+        // Same label/epoch/date/host prefix, no syslog tag after it. Claiming
+        // these would break the bgl-supercomputer-ras pack.
+        assert!(!has_loghub_syslog_prefix(
+            "- 1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005-06-03-15.42.50.363779 R02-M1-N0-C:J12-U11 RAS KERNEL INFO instruction cache parity error corrected"
+        ));
+    }
+
+    #[test]
+    fn ordinary_syslog_has_no_loghub_prefix() {
+        assert!(!has_loghub_syslog_prefix(
+            "Mar 13 04:10:10 combo su(pam_unix)[26013]: session opened for user news by (uid=0)"
+        ));
+    }
+
+    #[test]
+    fn a_squid_url_carrying_a_node_marker_is_refused() {
+        // `/en` and `/cn` appear in Squid URLs, which is what made the old
+        // node-prefix list unsafe to extend.
+        assert!(!has_loghub_syslog_prefix(
+            "1756636800.123 152 10.2.4.7 TCP_MISS/200 12345 GET http://example.com/en/index.html"
+        ));
+    }
+
+    #[test]
+    fn a_malformed_prefix_is_refused() {
+        // Epoch too short, date not dotted, and nothing at all.
+        assert!(!has_loghub_syslog_prefix(
+            "- 113156646 2005.11.09 dn228 Nov 9 12:01:01 dn228/dn228 crond[2916]: x"
+        ));
+        assert!(!has_loghub_syslog_prefix(
+            "- 1131566461 2005-11-09 dn228 Nov 9 12:01:01 dn228/dn228 crond[2916]: x"
+        ));
+        assert!(!has_loghub_syslog_prefix(""));
+        assert!(!has_loghub_syslog_prefix("- 1131566461"));
+    }
+
+    #[test]
+    fn a_multibyte_character_does_not_panic() {
+        assert!(!has_loghub_syslog_prefix(
+            "- 1131566461 2005.11.09 dn228 \u{e9}\u{e9}\u{e9}\u{e9}\u{e9}\u{e9}\u{e9}\u{e9}"
+        ));
+    }
 }
 
 #[cfg(test)]

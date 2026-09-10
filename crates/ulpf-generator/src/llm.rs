@@ -836,6 +836,7 @@ fn assemble_pack(
                 contains_none: Vec::new(),
                 starts_with: None,
                 syslog_tag: false,
+                loghub_syslog_prefix: false,
             }],
             // Well below every hand-written pack, so a candidate can never
             // shadow a reviewed one.

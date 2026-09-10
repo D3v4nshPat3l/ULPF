@@ -237,6 +237,7 @@ mod tests {
                     contains_none: Vec::new(),
                     starts_with: None,
                     syslog_tag: false,
+                    loghub_syslog_prefix: false,
                 }],
                 priority: 1000,
             },
