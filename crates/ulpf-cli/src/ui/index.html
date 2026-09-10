@@ -29,7 +29,31 @@
     --warning:#8A6100; --warning-soft:#FDF3DC;
     --danger:#BD271E; --danger-soft:#F8E7E6;
     --shadow:0 1px 3px rgba(29,30,36,.08);
-    --radius:4px;
+    --radius:3px;
+
+    /* Fonts. Requirement (j) forbids a web font, so these are the stacks that
+       are actually on the machine -- previously the CSS asked for Inter and
+       JetBrains Mono, neither of which could ever load, and the console
+       silently rendered in the fallbacks anyway. Naming what really renders
+       means the sizes below were tuned against the face the operator sees.
+
+       Segoe UI Variable Text is the Windows 11 UI face at text sizes; the rest
+       is the standard platform ladder. Cascadia ships with Windows Terminal,
+       Consolas with everything since Vista. */
+    --ui:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+    --mono:"Cascadia Mono",Consolas,ui-monospace,"SF Mono",Menlo,"DejaVu Sans Mono",monospace;
+
+    /* One scale, used everywhere, instead of nine sizes chosen per component.
+       Steps are close together on purpose: a console is read at a fixed
+       distance and large jumps waste vertical space that rows need. */
+    --t-micro:10px;   /* uppercase field labels */
+    --t-tiny:11.5px;  /* row captions, secondary notes */
+    --t-body:13px;    /* table cells, prose */
+    --t-lede:13.5px;  /* explanatory paragraphs */
+    --t-head:14px;    /* panel titles */
+    --t-page:20px;    /* view title */
+    --t-hero:34px;    /* the one number that leads a view */
+    --t-stat:22px;    /* supporting numbers beside it */
     /* Read back by the drawing code through getComputedStyle, so a chart and
        its legend can never disagree about a colour. */
     --chart-1:#3568B8; --chart-2:#168672; --chart-3:#8B65B1; --chart-4:#B67828;
@@ -105,10 +129,10 @@
   html,body{height:100%}
   body{
     margin:0;background:var(--page);color:var(--text);
-    font:400 14px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font:400 var(--t-body)/1.55 var(--ui);
     -webkit-font-smoothing:antialiased;
   }
-  .mono{font-family:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+  .mono{font-family:var(--mono)}
 
   /* ------------------------------------------------- navigation rail */
   .shell{display:flex;min-height:100vh}
@@ -137,7 +161,7 @@
   .rail button.navitem[aria-current="page"]{background:var(--nav-hover);color:var(--nav-active);border-left-color:var(--primary)}
   .rail button.navitem svg{flex:0 0 16px;opacity:.85}
   .navitem .tally{
-    margin-left:auto;font:500 11px/1 "JetBrains Mono",monospace;
+    margin-left:auto;font:500 11px/1 var(--mono);
     background:rgba(255,255,255,.09);color:#C6CCD8;padding:3px 6px;border-radius:9px;
   }
   .rail .foot{margin-top:auto;padding:14px 18px;border-top:1px solid rgba(255,255,255,.07);font-size:11px;color:#5F6675}
@@ -165,18 +189,32 @@
   .content{padding:22px 24px 56px;max-width:1500px;width:100%}
   .view{display:none}
   .view.active{display:block}
-  .pagehead{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:18px}
-  .pagehead h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-.2px}
-  .pagehead p{margin:3px 0 0;color:var(--text-2);font-size:13px;max-width:72ch}
+  /* The title carries the view; the sentence under it is support, not a
+     co-equal headline. A rule closes the head so the content below reads as a
+     separate register rather than more of the same column. */
+  .pagehead{
+    display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;
+    margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--border);
+  }
+  .pagehead h1{
+    margin:0;font-size:var(--t-page);font-weight:600;letter-spacing:-.3px;
+    line-height:1.2;
+  }
+  .pagehead p{margin:5px 0 0;color:var(--text-3);font-size:var(--t-tiny);max-width:76ch;line-height:1.55}
   .pagehead .actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
 
   /* ------------------------------------------------- panels & controls */
-  .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius)}
   .panel-head{
-    display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;gap:12px;padding:11px 16px;
+    border-bottom:1px solid var(--border);background:var(--sunken);
+    border-radius:calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
   }
-  .panel-head h2{margin:0;font-size:14px;font-weight:600}
-  .panel-head .sub{font-size:12px;color:var(--text-3)}
+  .panel-head h2{
+    margin:0;font-size:var(--t-micro);font-weight:600;letter-spacing:.11em;
+    text-transform:uppercase;color:var(--text-2);
+  }
+  .panel-head .sub{font-size:var(--t-tiny);color:var(--text-3)}
   .panel-head .right{margin-left:auto;display:flex;gap:8px;align-items:center}
   .panel-body{padding:16px}
 
@@ -218,7 +256,7 @@
   .lede-steps li::before{
     content:counter(lede);position:absolute;left:0;top:0;
     width:19px;height:19px;border-radius:50%;background:var(--primary);color:var(--on-accent);
-    font:650 11px/19px Inter,-apple-system,"Segoe UI",sans-serif;text-align:center;
+    font:650 11px/19px var(--ui);text-align:center;
   }
   .lede-steps b{display:block;color:var(--text);font-weight:650}
   @media (max-width:1080px){ .lede-steps{grid-template-columns:1fr} }
@@ -269,8 +307,8 @@
   #graph-svg{display:block;width:100%;height:clamp(380px,60vh,680px);background:
     radial-gradient(circle at 50% 48%,color-mix(in srgb,var(--node-device) 9%,transparent),transparent 28%),
     linear-gradient(var(--panel),var(--panel))}
-  #flow-svg text{font-family:Inter,-apple-system,"Segoe UI",Roboto,sans-serif}
-  #graph-svg text{font-family:Inter,-apple-system,"Segoe UI",Roboto,sans-serif;pointer-events:none}
+  #flow-svg text{font-family:var(--ui)}
+  #graph-svg text{font-family:var(--ui);pointer-events:none}
   /* Eased, so a pointer moving across the picture fades rather than strobes. */
   #flow-svg .ribbon,#flow-svg .flow-bar-group{transition:opacity .18s ease,fill-opacity .18s ease}
   #flow-svg .ocsf{font-size:10px;fill:var(--text-3)}
@@ -385,7 +423,7 @@
   .trendstats .v{font:650 24px/1.15 inherit;letter-spacing:-.4px;font-variant-numeric:tabular-nums;color:var(--primary)}
   .trendstats .k{font-size:11.5px;color:var(--text-2);margin-top:2px;font-weight:600}
   #trend-svg{display:block;width:100%;height:clamp(360px,56vh,620px)}
-  #trend-svg text{font-family:Inter,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:11px;fill:var(--text-3)}
+  #trend-svg text{font-family:var(--ui);font-size:11px;fill:var(--text-3)}
 
   @media (max-width:1080px){
     .globewrap{grid-template-columns:1fr}
@@ -394,10 +432,15 @@
   }
 
   /* ----------------------------------------------- source pulse workspace */
-  .analytics-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
-  .akpi{background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:14px 16px;box-shadow:var(--shadow)}
-  .akpi .k{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);font-weight:650}
-  .akpi .v{font-size:25px;line-height:1.2;font-weight:700;margin-top:5px;font-variant-numeric:tabular-nums}.akpi .n{font-size:11px;color:var(--text-3);margin-top:3px}
+  .analytics-kpis{
+    display:grid;grid-template-columns:minmax(208px,1.3fr) repeat(3,minmax(0,1fr));
+    gap:1px;margin-bottom:16px;
+  }
+  .akpi{background:var(--panel);box-shadow:0 0 0 1px var(--border);padding:14px 18px 15px}
+  .akpi .k{font-size:var(--t-micro);letter-spacing:.11em;text-transform:uppercase;color:var(--text-3);font-weight:600}
+  .akpi .v{font:600 var(--t-stat)/1.14 var(--mono);margin-top:8px;font-variant-numeric:tabular-nums;letter-spacing:-.4px}
+  .akpi:first-child .v{font-size:var(--t-hero);letter-spacing:-1px;margin-top:6px}
+  .akpi .n{font-size:var(--t-tiny);color:var(--text-3);margin-top:4px}
   .pulse-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-left:auto}
   .pulse-toolbar input{width:min(250px,42vw)}.pulse-toolbar select{min-width:145px}
   .pulse-summary{display:flex;align-items:center;gap:18px;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--sunken);color:var(--text-2);font-size:12px}
@@ -406,14 +449,14 @@
   .source-pulse{border:1px solid var(--border);border-radius:7px;padding:16px 17px 13px;background:var(--panel);min-height:275px;box-shadow:0 1px 2px rgba(29,30,36,.04);transition:border-color .15s,box-shadow .15s}
   .source-pulse:hover{border-color:var(--text-3);box-shadow:0 5px 18px rgba(35,48,70,.08)}
   .source-pulse-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}
-  .source-pulse-name{font-size:14px;font-weight:650;min-width:0}.source-pulse-name small{display:block;color:var(--text-3);font:400 10.5px/1.5 "JetBrains Mono",ui-monospace,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .source-pulse-name{font-size:14px;font-weight:650;min-width:0}.source-pulse-name small{display:block;color:var(--text-3);font:400 10.5px/1.5 var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .source-pulse-total{text-align:right;font-size:19px;font-weight:700;font-variant-numeric:tabular-nums}.source-pulse-total small{display:block;color:var(--text-3);font-size:10px;font-weight:500}
   .source-pulse-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:13px 0 4px}
   .source-pulse-metrics div{padding:7px 9px;border-radius:5px;background:var(--sunken)}.source-pulse-metrics b{display:block;font-size:13px;font-variant-numeric:tabular-nums}.source-pulse-metrics span{font-size:9.5px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em}
   .source-pulse-chart{position:relative}.source-pulse svg{display:block;width:100%;height:145px;overflow:visible}
   .source-pulse-foot{display:flex;justify-content:space-between;margin-top:3px;color:var(--text-3);font-size:10.5px}
   .pulse-empty{grid-column:1/-1;min-height:360px;display:grid;place-content:center;justify-items:center;text-align:center;color:var(--text-2)}.pulse-empty b{font-size:15px;color:var(--text)}
-  @media(max-width:1080px){.analytics-kpis{grid-template-columns:repeat(2,1fr)}.source-pulses{grid-template-columns:1fr}}
+  @media(max-width:1080px){.analytics-kpis{grid-template-columns:repeat(2,1fr)}.akpi:first-child .v{font-size:var(--t-stat);letter-spacing:-.4px;margin-top:8px}.source-pulses{grid-template-columns:1fr}}
   @media(max-width:650px){.analytics-kpis{grid-template-columns:1fr}.pulse-toolbar{width:100%}.pulse-toolbar input,.pulse-toolbar select{width:100%}.source-pulses{padding:12px}.source-pulse-metrics{grid-template-columns:1fr}.source-pulse{min-height:310px}}
 
   /* ---------------------------------------- the before/after strip */
@@ -429,7 +472,7 @@
   .roscard .step{padding:8px 12px 4px;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-3);font-weight:650}
   .roscard .rawline{
     margin:0 12px 10px;padding:9px 10px;background:var(--nav);color:var(--nav-text);border-radius:var(--radius);
-    font-family:"JetBrains Mono",ui-monospace,Consolas,monospace;font-size:10.5px;line-height:1.55;
+    font-family:var(--mono);font-size:10.5px;line-height:1.55;
     word-break:break-all;max-height:96px;overflow:hidden;
   }
   .rosarrow{display:grid;place-items:center;padding:0 0 6px;color:var(--node-meaning)}
@@ -437,7 +480,7 @@
   .roscard dt{color:var(--text-3);white-space:nowrap}
   .roscard dd{margin:0;font-weight:600;overflow-wrap:anywhere}
   .roscard dd:not(.mono){font-weight:500;color:var(--text-2)}
-  .roscard dd.mono{font-family:"JetBrains Mono",ui-monospace,Consolas,monospace;font-size:11.5px;font-weight:500}
+  .roscard dd.mono{font-family:var(--mono);font-size:11.5px;font-weight:500}
   .roscard .meaning{
     margin:auto 12px 12px;padding:7px 10px;background:var(--node-meaning-soft);
     color:var(--node-meaning);border-radius:var(--radius);font-weight:650;font-size:12.5px;text-align:center;
@@ -482,41 +525,76 @@
     background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
     color:var(--text);padding:7px 9px;font:400 13px/1.4 inherit;
   }
-  input.mono,textarea.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12.5px}
+  input.mono,textarea.mono{font-family:var(--mono);font-size:12.5px}
   label.field{display:flex;flex-direction:column;gap:5px;font:600 11px/1 inherit;color:var(--text-3);text-transform:uppercase;letter-spacing:.08em}
   label.field input,label.field select{text-transform:none;letter-spacing:0;font-weight:400}
 
   /* ------------------------------------------------- stat row */
-  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:12px;margin-bottom:16px}
-  .stat{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow)}
-  .stat .k{font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--text-3);font-weight:600}
-  .stat .v{font:600 26px/1.15 "JetBrains Mono",monospace;font-variant-numeric:tabular-nums;margin-top:7px;letter-spacing:-.5px}
-  .stat .n{font-size:11.5px;color:var(--text-3);margin-top:3px}
+  /* One instrument, ruled into cells -- not five cards in a row.
+
+     Five separately bordered, shadowed boxes gave the headline count and a
+     footnote identical weight, which is the giveaway of a dashboard laid out
+     by a grid rather than by what matters. Here the row is a single panel
+     divided by hairlines, and the first cell leads at --t-hero while the rest
+     sit at --t-stat. An operator's eye lands on the number that matters and
+     the others stay available without competing.
+
+     Each cell rules itself with a 1px box-shadow ring rather than the grid
+     painting a background behind 1px gaps. The background trick is tidier
+     until the row wraps: the container then shows through every unfilled
+     track as a block of rule colour. A ring belongs to the cell, so a short
+     final row simply ends. */
+  .stats{
+    display:grid;grid-template-columns:minmax(208px,1.3fr) repeat(auto-fit,minmax(142px,1fr));
+    gap:1px;margin-bottom:16px;
+  }
+  .stat{background:var(--panel);box-shadow:0 0 0 1px var(--border);padding:14px 18px 15px}
+  .stat .k{
+    font-size:var(--t-micro);letter-spacing:.11em;text-transform:uppercase;
+    color:var(--text-3);font-weight:600;
+  }
+  .stat .v{
+    font:600 var(--t-stat)/1.14 var(--mono);font-variant-numeric:tabular-nums;
+    margin-top:8px;letter-spacing:-.4px;
+  }
+  .stat:first-child .v{font-size:var(--t-hero);letter-spacing:-1px;margin-top:6px}
+  .stat .n{font-size:var(--t-tiny);color:var(--text-3);margin-top:4px}
   .stat.accent .v{color:var(--primary)}
   .stat.good .v{color:var(--success)}
   .stat.warn .v{color:var(--warning)}
+  @media (max-width:760px){
+    .stats{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+    .stat:first-child .v{font-size:var(--t-stat);letter-spacing:-.4px;margin-top:8px}
+  }
 
   /* ------------------------------------------------- tables */
   .tablewrap{overflow-x:auto}
-  table{border-collapse:collapse;width:100%;font-size:13px}
+  /* Row rules use --hairline, not --border. A full-strength rule under every
+     row is a lot of ink at console density and fights the header rule, which
+     is the one that has to hold the columns. Digits are tabular table-wide so
+     any column of numbers aligns without each cell opting in. */
+  table{
+    border-collapse:collapse;width:100%;font-size:var(--t-body);
+    font-variant-numeric:tabular-nums;
+  }
   thead th{
     position:sticky;top:0;background:var(--sunken);text-align:left;
-    font:600 10.5px/1 inherit;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);
+    font:600 var(--t-micro)/1 inherit;letter-spacing:.11em;text-transform:uppercase;color:var(--text-3);
     padding:9px 12px;border-bottom:1px solid var(--border);white-space:nowrap;z-index:1;
   }
-  tbody td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:middle;color:var(--text-2)}
+  tbody td{padding:9px 12px;border-bottom:1px solid var(--hairline);vertical-align:middle;color:var(--text-2)}
   tbody tr:last-child td{border-bottom:0}
   tbody tr.clickable{cursor:pointer}
   tbody tr.clickable:hover td{background:var(--sunken)}
-  td.mono,th.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;font-variant-numeric:tabular-nums}
-  td.num{text-align:right;font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+  td.mono,th.mono{font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums}
+  td.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
   th.num{text-align:right}
   .empty{padding:34px 16px;text-align:center;color:var(--text-3);font-size:13px}
 
   /* ------------------------------------------------- misc blocks */
   .codebox{
     background:var(--sunken);border:1px solid var(--border);border-radius:var(--radius);
-    padding:12px 14px;font:400 12px/1.65 "JetBrains Mono",ui-monospace,monospace;
+    padding:12px 14px;font:400 12px/1.65 var(--mono);
     color:var(--text-2);overflow:auto;max-height:340px;white-space:pre-wrap;word-break:break-word;margin:0;
   }
   .callout{border-left:3px solid var(--c);background:var(--cs);padding:11px 14px;border-radius:0 var(--radius) var(--radius) 0;font-size:13px;color:var(--text-2)}
@@ -547,7 +625,7 @@
      mono face so hashes and addresses stay scannable; labels do not. */
   .kv{display:grid;grid-template-columns:minmax(130px,auto) minmax(0,1fr);gap:6px 16px;align-items:baseline}
   .kv dt{font-size:12.5px;color:var(--text-3)}
-  .kv dd{margin:0;font-family:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;word-break:break-all}
+  .kv dd{margin:0;font-family:var(--mono);font-size:12.5px;word-break:break-all}
   .kv dd .muted{font-family:inherit}
   .kv dd em{font-style:normal;color:var(--text-3);font-family:inherit;font-size:12px}
 
@@ -581,7 +659,7 @@
   .explain p:last-child{margin-bottom:0}
   .explain b{color:var(--text);font-weight:600}
   .explain code{
-    font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;
+    font-family:var(--mono);font-size:12px;
     background:var(--sunken);padding:1px 5px;border-radius:3px
   }
 
