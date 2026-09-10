@@ -3,6 +3,9 @@
 A single-node Wazuh stack for the side-by-side demo: the `/dev` traffic
 simulator can point at **ULPF** or at **Wazuh**, and this is the Wazuh half.
 
+For a clean Windows installation beginning with WSL 2 and Docker Desktop, use
+[the complete ULPF-to-Wazuh setup guide](../../docs/WAZUH_INTEGRATION.md).
+
 Everything here is Wazuh 4.14.7 official images. The only changes from the
 upstream `single-node` sample are the two that make raw events visible in the
 dashboard — both are called out below, because both are easy to get wrong and

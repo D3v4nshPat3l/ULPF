@@ -140,6 +140,10 @@ whether or not the page is open. A corpus that is not on disk is reported
 `absent` and cannot be switched on — there is deliberately no fallback to
 invented data.
 
+Use the **ULPF** and **Wazuh** destination buttons to replay the same corpus
+into ULPF on UDP 5514 or a local Wazuh 4.x manager on UDP 514. The complete
+Windows and Docker procedure is in [WAZUH_INTEGRATION.md](docs/WAZUH_INTEGRATION.md).
+
 ### Unparsed clusters and the two generators
 
 ![Unparsed clusters](docs/screenshots/console-clusters.png)
@@ -747,6 +751,7 @@ traffic, let the console draft a candidate for you and edit from there —
 | [PACK_GENERATOR.md](docs/PACK_GENERATOR.md) | Clustering, generators, scoring |
 | [UNKNOWN_LOG_ONBOARDING.md](docs/UNKNOWN_LOG_ONBOARDING.md) | Evidence-based identification and Source Pack workflow for unseen logs |
 | [SINKS.md](docs/SINKS.md) | Parquet, OpenSearch, Splunk HEC |
+| [WAZUH_INTEGRATION.md](docs/WAZUH_INTEGRATION.md) | Windows setup for routing `/dev` corpora to Wazuh archives |
 | [TESTING.md](docs/TESTING.md) | Test strategy |
 | [PROBLEM-STATEMENT.md](docs/PROBLEM-STATEMENT.md) | PS 26156 read closely: what each clause demands, and how we resolved its ambiguities |
 
