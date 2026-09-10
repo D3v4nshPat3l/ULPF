@@ -63,6 +63,25 @@ impl Cluster {
 /// eyeball. Keeping every line would make the cluster map grow with traffic.
 const SAMPLES_PER_CLUSTER: usize = 30;
 
+/// Literal tokens a merge must leave behind, for a template that still has
+/// that many.
+///
+/// Without this, a template that has generalised far enough becomes an
+/// attractor: it matches on wildcards, wildcards match anything of the same
+/// token count, and the next unrelated source of that length is absorbed and
+/// dissolves whatever literals remained. A SCADA relay whose every record
+/// carries `HALYARD_RLY STATE` was reported at 0% literal for exactly this
+/// reason -- two constants present in all 659 samples, wildcarded by lines
+/// that had nothing to do with it, leaving an operator a template that
+/// identifies nothing and drafts no pack.
+///
+/// Two rather than a fraction, because the useful threshold is "does anything
+/// still name this source", not a proportion of line length. A proportional
+/// floor high enough to protect a ten-token line would also refuse legitimate
+/// merges on a twenty-token key=value device, where two shared literals out of
+/// twenty is a perfectly good template.
+const MIN_SURVIVING_LITERALS: usize = 2;
+
 pub struct Drain {
     /// Fraction of positions that must agree for a line to join a cluster.
     similarity: f64,
@@ -134,7 +153,25 @@ impl Drain {
                 continue;
             };
             let score = similarity(&tokens, &cluster.template);
-            if score >= self.similarity && best.as_ref().is_none_or(|(_, b)| score > *b) {
+            if score < self.similarity {
+                continue;
+            }
+            // Refuse a merge that would dissolve the template. Positions that
+            // are already wildcards stay wildcards; what matters is how many
+            // literal positions this line agrees with.
+            let literals = cluster.template.iter().filter(|t| *t != "<*>").count();
+            if literals >= MIN_SURVIVING_LITERALS {
+                let surviving = cluster
+                    .template
+                    .iter()
+                    .zip(tokens.iter())
+                    .filter(|(slot, token)| *slot != "<*>" && slot == token)
+                    .count();
+                if surviving < MIN_SURVIVING_LITERALS {
+                    continue;
+                }
+            }
+            if best.as_ref().is_none_or(|(_, b)| score > *b) {
                 best = Some((id.clone(), score));
             }
         }

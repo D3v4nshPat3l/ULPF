@@ -43,6 +43,7 @@ gets a template of pure wildcards that identifies nothing.
 """
 
 import argparse
+import hashlib
 import json
 import pathlib
 import random
@@ -217,6 +218,134 @@ def halyard_line(rng: random.Random, seq: int) -> str:
     )
 
 
+# Six more, so the queue looks like an estate rather than a demo. Each is a
+# shape a real product actually ships, and each carries a tag long enough or
+# punctuated enough for `is_stable_literal` to keep it.
+
+# Bracketed syslog tag with a pid, then key=value. The single most common
+# shape a Linux-adjacent appliance emits.
+ND_TAG, ND_MARKER = "nimbus-dnsfw", "querylog"
+ND_ACTIONS = ["allowed"] * 60 + ["blocked"] * 25 + ["sinkholed"] * 10 + ["throttled"] * 5
+ND_CATS = ["malware", "phishing", "adult", "ads", "uncategorised", "newly-seen"]
+ND_QNAMES = ["updates.example.net", "cdn.example.org", "login.example.com",
+             "telemetry.example.io", "mail.example.net"]
+
+
+def nimbus_line(rng: random.Random, seq: int) -> str:
+    action = rng.choice(ND_ACTIONS)
+    return (
+        f"{ND_TAG}[{rng.choice([412, 5510, 8807])}]: {ND_MARKER} "
+        f"action={action} qtype={rng.choice(['A', 'AAAA', 'TXT', 'MX'])} "
+        f"qname={rng.choice(ND_QNAMES)} category={rng.choice(ND_CATS)} "
+        f"client={rng.choice(INTERNAL)}{rng.choice([15, 88, 203])} "
+        f"rcode={rng.choice(['NOERROR', 'NXDOMAIN', 'REFUSED'])} "
+        f"elapsed_ms={rng.choice([1, 4, 19, 62])}"
+    )
+
+
+# Tab-delimited columns with a header vocabulary of its own. Zeek made this
+# shape familiar; the field set here is not Zeek's.
+TL_TAG = "TIDELOCK_AUDIT"
+TL_OPS = ["OPEN", "READ", "WRITE", "DELETE", "CHOWN"]
+TL_RESULT = ["OK"] * 70 + ["DENIED"] * 25 + ["QUOTA"] * 5
+TL_SHARES = ["/vol/finance", "/vol/hr", "/vol/eng", "/vol/backup"]
+
+
+def tidelock_line(rng: random.Random, seq: int) -> str:
+    cols = [
+        TL_TAG,
+        f"2026-05-{rng.randint(1, 28):02d}",
+        f"{rng.randint(0, 23):02d}:{rng.randint(0, 59):02d}:00",
+        rng.choice(TL_OPS),
+        rng.choice(TL_RESULT),
+        rng.choice(USERS),
+        rng.choice(TL_SHARES),
+        str(rng.choice([0, 4096, 262144])),
+        f"node{rng.randint(1, 3)}",
+    ]
+    return chr(9).join(cols)
+
+
+# Attribute-value pairs inside angle brackets. Appliances that grew out of an
+# XML config format often log like this.
+AX_TAG, AX_MARKER = "axiom-wafgw", "httpreq"
+AX_RULES = ["SQLI-001", "XSS-014", "RCE-002", "LFI-007", "SCAN-020"]
+AX_SEV = ["low"] * 45 + ["medium"] * 30 + ["high"] * 20 + ["critical"] * 5
+
+
+def axiom_line(rng: random.Random, seq: int) -> str:
+    return (
+        f"<{AX_MARKER} product={AX_TAG} "
+        f"rule={rng.choice(AX_RULES)} severity={rng.choice(AX_SEV)} "
+        f"action={rng.choice(['pass', 'block', 'challenge'])} "
+        f"src={rng.choice(EXTERNAL)}{rng.choice([9, 77, 145])} "
+        f"host=www.example.com method={rng.choice(['GET', 'POST'])} "
+        f"status={rng.choice([200, 403, 406, 503])} "
+        f"bytes={rng.choice([0, 512, 8192])} />"
+    )
+
+
+# Section markers in square brackets, then a sentence. Embedded and appliance
+# firmware writes like this, and it is the shape a key=value parser handles
+# worst.
+QS_TAG = "QUARRYSTONE"
+QS_LEVELS = ["INFO"] * 60 + ["WARN"] * 25 + ["ERROR"] * 15
+QS_SUBSYS = ["ups", "hvac", "door", "camera", "genset"]
+QS_MSGS = ["battery self test completed", "threshold exceeded",
+           "link renegotiated", "firmware image verified",
+           "sensor calibration drift detected"]
+
+
+def quarrystone_line(rng: random.Random, seq: int) -> str:
+    return (
+        f"[{QS_TAG}] [{rng.choice(QS_LEVELS)}] [{rng.choice(QS_SUBSYS)}] "
+        f"[unit-{rng.randint(1, 6):02d}] {rng.choice(QS_MSGS)} "
+        f"code={rng.choice(['E100', 'E204', 'W011', 'I000'])}"
+    )
+
+
+# Semicolon-separated key:value. Mainframe and telco gear that predates
+# key=value conventions still writes colons and semicolons.
+HB_TAG, HB_MARKER = "HOLLOWBRK", "TXNLOG"
+HB_STATES = ["settled"] * 55 + ["pending"] * 25 + ["reversed"] * 12 + ["declined"] * 8
+
+
+def hollowbrook_line(rng: random.Random, seq: int) -> str:
+    return (
+        f"{HB_TAG};{HB_MARKER};"
+        f"chan:{rng.choice(['atm', 'pos', 'web', 'branch'])};"
+        f"state:{rng.choice(HB_STATES)};"
+        f"amt:{rng.choice([500, 2500, 19999])};"
+        f"cur:{rng.choice(['INR', 'USD', 'EUR'])};"
+        f"term:{rng.choice(['T0091', 'T0450', 'T1120'])};"
+        f"resp:{rng.choice(['00', '05', '51', '91'])};"
+        f"node:hb-{rng.randint(1, 3):02d}"
+    )
+
+
+# JSON, but a different vocabulary from the gateway, so two JSON sources have
+# to be told apart by their keys rather than by their syntax.
+KA_MARKER = "k8s.audit"
+KA_VERBS = ["get"] * 45 + ["list"] * 20 + ["create"] * 15 + ["delete"] * 10 + ["patch"] * 10
+KA_RES = ["pods", "secrets", "configmaps", "deployments", "nodes"]
+KA_NS = ["kube-system", "prod", "staging", "observability"]
+
+
+def kestrel_line(rng: random.Random, seq: int) -> str:
+    payload = {
+        "kind": KA_MARKER,
+        "stage": "ResponseComplete",
+        "verb": rng.choice(KA_VERBS),
+        "resource": rng.choice(KA_RES),
+        "namespace": rng.choice(KA_NS),
+        "user": rng.choice(USERS),
+        "decision": rng.choice(["allow", "allow", "allow", "forbid"]),
+        "code": rng.choice([200, 201, 403, 404]),
+        "cluster": "kestrel-01",
+    }
+    return json.dumps(payload, separators=(", ", ": "))
+
+
 # name -> (filename, line builder, seed offset, label)
 #
 # Each device gets its own RNG stream so adding one never changes another's
@@ -227,36 +356,78 @@ DEVICES = {
     "vaultgate": ("meridian-vaultgate-synthetic.log", vaultgate_line, 1, "Meridian VaultGate"),
     "corvid-edge": ("corvid-edge-synthetic.log", corvid_line, 2, "Corvid Edge Gateway"),
     "halyard": ("halyard-relay-synthetic.log", halyard_line, 3, "Halyard SCADA Relay"),
+    "nimbus-dns": ("nimbus-dnsfw-synthetic.log", nimbus_line, 4, "Nimbus DNS Firewall"),
+    "tidelock": ("tidelock-audit-synthetic.log", tidelock_line, 5, "Tidelock File Audit"),
+    "axiom-waf": ("axiom-wafgw-synthetic.log", axiom_line, 6, "Axiom WAF Gateway"),
+    "quarrystone": ("quarrystone-bms-synthetic.log", quarrystone_line, 7, "Quarrystone BMS"),
+    "hollowbrook": ("hollowbrook-txn-synthetic.log", hollowbrook_line, 8, "Hollowbrook Switch"),
+    "kestrel-k8s": ("kestrel-k8s-audit-synthetic.log", kestrel_line, 9, "Kestrel Cluster Audit"),
 }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dir", default="realdata", help="where to write (default: realdata)")
-    parser.add_argument("--count", type=int, default=40000,
-                        help="records for the Aperture corpus (default: 40000)")
-    parser.add_argument("--extra-count", type=int, default=6000,
-                        help="records for each of the other devices (default: 6000)")
+    parser.add_argument("--count", type=int, default=50000,
+                        help="records per generated device (default: 50000)")
+    parser.add_argument(
+        "--extra-count", type=int, default=None,
+        help="deprecated compatibility override for non-Aperture devices",
+    )
     parser.add_argument("--only", choices=sorted(DEVICES),
                         help="generate one device instead of all of them")
     parser.add_argument("--seed", type=int, default=26156, help="RNG seed, so runs are reproducible")
     args = parser.parse_args()
 
+    if args.count < 1:
+        parser.error("--count must be greater than zero")
+    if args.extra_count is not None and args.extra_count < 1:
+        parser.error("--extra-count must be greater than zero")
+
     target = pathlib.Path(args.dir).resolve()
     target.mkdir(parents=True, exist_ok=True)
+
+    manifest = {
+        "classification": "synthetic",
+        "purpose": "unknown-source onboarding, parser development, and load testing",
+        "coverage_eligible": False,
+        "seed": args.seed,
+        "datasets": [],
+    }
 
     for name in ([args.only] if args.only else sorted(DEVICES)):
         filename, builder, offset, label = DEVICES[name]
         out = target / filename
-        count = args.count if offset == 0 else args.extra_count
+        count = (
+            args.extra_count
+            if offset != 0 and args.extra_count is not None
+            else args.count
+        )
         # A stream per device, so adding one never shifts another's output.
         rng = random.Random(args.seed + offset)
-        with out.open("w", encoding="utf-8", newline="\n") as handle:
+        temporary = out.with_suffix(out.suffix + ".tmp")
+        digest = hashlib.sha256()
+        with temporary.open("wb") as handle:
             for seq in range(1, count + 1):
-                handle.write(builder(rng, seq) + "\n")
+                encoded = (builder(rng, seq) + "\n").encode("utf-8")
+                handle.write(encoded)
+                digest.update(encoded)
+        temporary.replace(out)
         size = out.stat().st_size
+        manifest["datasets"].append({
+            "device_id": name,
+            "label": label,
+            "file": filename,
+            "records": count,
+            "bytes": size,
+            "sha256": digest.hexdigest(),
+            "seed": args.seed + offset,
+        })
         print(f"    -> {out.name}  {label}  ({count:,} records, {size / 1e6:.1f} MB)")
 
+    manifest_path = target / "synthetic-datasets.manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    print(f"    -> {manifest_path.name}  audit manifest")
     print("       SYNTHETIC. Labelled in the simulator; excluded from coverage.")
 
 

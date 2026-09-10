@@ -167,6 +167,58 @@ pub const SOURCES: &[Source] = &[
         file: "halyard-relay-synthetic.log",
         synthetic: true,
     },
+    // Six further shapes, so no two unknown devices in the queue are read
+    // the same way: a bracketed syslog tag, tab-delimited columns, angle
+    // brackets, bracketed sections, semicolon key:value, and a second JSON
+    // vocabulary that has to be told apart from the gateway by its keys.
+    Source {
+        id: "nimbus-synthetic",
+        label: "Nimbus DNS Firewall",
+        category: "DNS",
+        origin: "Reference corpus",
+        file: "nimbus-dnsfw-synthetic.log",
+        synthetic: true,
+    },
+    Source {
+        id: "tidelock-synthetic",
+        label: "Tidelock File Audit",
+        category: "Storage",
+        origin: "Reference corpus",
+        file: "tidelock-audit-synthetic.log",
+        synthetic: true,
+    },
+    Source {
+        id: "axiom-synthetic",
+        label: "Axiom WAF Gateway",
+        category: "WAF",
+        origin: "Reference corpus",
+        file: "axiom-wafgw-synthetic.log",
+        synthetic: true,
+    },
+    Source {
+        id: "quarrystone-synthetic",
+        label: "Quarrystone BMS",
+        category: "Building / OT",
+        origin: "Reference corpus",
+        file: "quarrystone-bms-synthetic.log",
+        synthetic: true,
+    },
+    Source {
+        id: "hollowbrook-synthetic",
+        label: "Hollowbrook Switch",
+        category: "Payments",
+        origin: "Reference corpus",
+        file: "hollowbrook-txn-synthetic.log",
+        synthetic: true,
+    },
+    Source {
+        id: "kestrel-synthetic",
+        label: "Kestrel Cluster Audit",
+        category: "Kubernetes",
+        origin: "Reference corpus",
+        file: "kestrel-k8s-audit-synthetic.log",
+        synthetic: true,
+    },
 ];
 
 struct Stream {

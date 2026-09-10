@@ -79,9 +79,15 @@ UNIVERSAL = [
 # figure below unfalsifiable, which is the opposite of the point.
 SYNTHETIC = {
     "apx-ngfw-synthetic.log",
+    "axiom-wafgw-synthetic.log",
     "corvid-edge-synthetic.log",
     "halyard-relay-synthetic.log",
+    "hollowbrook-txn-synthetic.log",
+    "kestrel-k8s-audit-synthetic.log",
     "meridian-vaultgate-synthetic.log",
+    "nimbus-dnsfw-synthetic.log",
+    "quarrystone-bms-synthetic.log",
+    "tidelock-audit-synthetic.log",
 }
 
 CORPORA = PERIMETER + UNIVERSAL
