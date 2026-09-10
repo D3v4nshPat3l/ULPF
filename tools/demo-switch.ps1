@@ -14,11 +14,16 @@
   add one for cross-origin fetches), so it passes the same guard cleanly
   as long as it talks to the exact host:port each simulator is bound to.
 
+.WHEN YOU NEED THIS AT ALL
+  Usually you do not. The single-laptop demonstration in docs/DEMO.md flips
+  the target with the Wazuh/ULPF switch on the simulator page itself, which
+  is same-origin and needs no script. This exists for the variant where two
+  simulator instances run at once -- one aimed at the SIEM, one at ULPF --
+  so both can be driven from outside the browser.
+
 .SETUP (once)
-  Fill in the four values below after starting both simulator instances
-  (see docs/demo-machine-a.md step 4, and the note in that file about
-  running a second instance for this switch). Both tokens are printed at
-  each instance's startup.
+  Fill in the four values below after starting both simulator instances.
+  Both tokens are printed at each instance's startup.
 
 .USAGE
   .\demo-switch.ps1 -ToUlpf     # same as double-clicking switch-to-ulpf.bat
