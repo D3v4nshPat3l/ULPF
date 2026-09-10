@@ -77,11 +77,17 @@ jobs:
     - name: Fetch corpora
       id: fetch
       continue-on-error: true
+      # `set +e` because GitHub runs step scripts under `bash -e`, which aborts
+      # on the first failing command -- so the retry written below never ran.
+      # The step still reports the second attempt's status, and the baseline
+      # check is gated on it.
       run: |
+        set +e
         python tools/fetch_datasets.py --dir realdata && exit 0
         echo "::warning::first fetch attempt failed, retrying in 20s"
         sleep 20
         python tools/fetch_datasets.py --dir realdata
+        exit $?
 
     - name: Build
       run: cargo build --release --locked
