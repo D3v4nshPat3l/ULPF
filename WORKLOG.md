@@ -40,6 +40,7 @@ cross-references, and content that assumes hardware we are not going to use.
 | E4 | Repo root carries `one.json` and `proof.json` — CLI output from a past run committed as if source | repo root | clutter |
 | E5 | Six documents and three scripts describe a three-laptop demonstration that will not be used | `docs/`, `tools/` | wrong target |
 | E6 | Two stale PDFs and two stale HTML guides carry headline numbers, are linked from nothing, and cannot be regenerated from the tree | `docs/` | contradiction risk |
+| E8 | An empty-detector draft could only be discovered by clicking Approve and deploy | console | UX defect |
 | E7 | Dataset fetcher is capped by a four-tier system, a 50 MB byte-range prefix on the Zeek corpus, and opt-in flags on the two largest corpora | `tools/fetch_datasets.py` | not wanted |
 
 ---
@@ -189,6 +190,70 @@ Perimeter corpora not yet on disk, so not measurable yet:
 The simulator page carries a **Wazuh / ULPF** target switch, which is part of
 the same demo-day comparison apparatus as `tools/demo-switch.ps1`. Deciding
 its fate belongs with the three-laptop cleanup, not before it.
+
+---
+
+## Console features added during the demo build-out
+
+Requested while the datasets were in transit, so they landed before the
+cleanup phases rather than after.
+
+### Raw logs tab
+An evidence view of its own. Every line is fetched back out of the vault by
+locator through a new `/api/raw-feed`, not echoed from the ingest path, so what
+the console shows is the vault's answer. Each row carries the fingerprint taken
+at ingest beside one recomputed from the bytes that just came back.
+
+Bug found while testing: resolving a raw record to its normalized event by
+`uid` at click time lost the race. At a few hundred EPS the 500-event window
+turns over in well under a second, so the record just selected was routinely
+gone. Each raw record now carries its normalized event.
+
+### Editable candidate packs
+The generated draft is now a textarea with **Validate**, **Revert to draft**
+and **Approve and deploy**. `/api/validate-pack` re-runs parse, compile and
+fixture scoring without writing anything. Approval sends the editor's contents
+and the server re-validates before writing, so the editor cannot talk it into
+activating a broken pack.
+
+### Defect E8 — empty detector surfaced only at deploy time
+Reported from the console: `Approve and deploy` failed with
+`pack does not compile: identity.detect contains an empty detector`.
+
+Not a bug in the check. `derive_detectors` returns nothing when no token is
+stable across the samples, and refusing to claim everything is correct. The
+defect was that the operator only discovered it after clicking the
+irreversible-looking button. The draft is now validated the moment it appears,
+so the blocking reason sits under the editor — and, now that the draft is
+editable, it is something the operator can actually fix.
+
+### Simulator: Start all, and a synthetic unknown device
+`Start all` throws every source that has a corpus on disk, at a per-stream
+rate. Sources with no corpus are skipped rather than reported started.
+
+Onboarding an unseen device could not be demonstrated at all, because every
+real corpus here is already claimed by a shipped pack. `tools/make_demo_source.py`
+generates a fictional appliance to fill that gap, labelled in five places: a
+SYNTHETIC badge on its row, an origin reading `not a capture`, RFC 5737
+addresses throughout, the script's own docstring, and an assertion in
+`measure_coverage.py` that fails if it ever enters the measured set.
+
+Measured on this machine, not asserted:
+
+| Check | Result |
+|---|---|
+| Claimed by an existing pack | no — `unidentified` across all 35 |
+| Detector the generator derived | `sessionlog`, `apx-ngfw`, `verdict=` |
+| Draft score | 3/3 fixtures, 100% field accuracy, 0 unknown OCSF paths |
+| Deployed pack over the full corpus | **40,000 / 40,000 records**, 20,814 events/sec |
+| OCSF produced | Network Activity 4001, both endpoints, protocol, device hostname |
+| Unmapped fields | `verdict`, `sent`, `rcvd`, `dur`, `rule`, `szone`, `dzone`, `app`, `sev`, `sid` all preserved |
+
+The generated pack is deliberately **not committed**: shipping it would leave
+the demonstration with nothing to onboard.
+
+`realdata/` is gitignored, so on any other machine the synthetic source reads
+`absent` until `python tools/make_demo_source.py` is run.
 
 ---
 
