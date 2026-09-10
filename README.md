@@ -498,13 +498,14 @@ a *different* 307,524-record capture (SotM30) and never tuned on SotM34.
 
 | Offered rate | Sent | Received | Loss |
 |---:|---:|---:|---:|
-| 4,000 EPS | 40,000 | 40,000 | 0% |
-| 10,000 EPS | 100,000 | 100,000 | 0% |
-| 12,000 EPS | 120,000 | 118,000 | 1.7% |
-| 15,000 EPS | 150,000 | 125,000 | 16.7% |
+| 4,000 EPS | 60,000 | 60,000 | 0% |
+| 8,000 EPS | 120,000 | 120,000 | 0% |
+| 12,000 EPS | 180,000 | 171,000 | 5.0% |
+| 16,000 EPS | 240,000 | 195,000 | 18.8% |
+| 25,000 EPS | 375,000 | 203,000 | 45.9% |
 
-**10,000 EPS sustained, lossless, per collector**, with every accepted record
-durable before it is emitted. That is 864 million events/day.
+**8,000 EPS sustained, lossless, per collector**, with every accepted record
+durable before it is emitted. That projects to 691 million events/day.
 
 One billion per day needs 11,574 EPS, so a single node on this hardware does
 not reach it — it needs two collectors. Chains are per-collector and verify
@@ -585,7 +586,7 @@ Ordered by what would most change the system's standing, not by ease.
 
 ### 1. Second collector and horizontal scale
 
-One node sustains 10,000 EPS; the 1B/day target needs 11,574. Chains are
+One node sustains 8,000 EPS; the 1B/day target needs 11,574. Chains are
 already per-collector and verify independently, so what is missing is the
 deployment story: a documented two-node configuration and a verifier that
 consumes several chains at once.
@@ -639,9 +640,9 @@ Stated plainly, because a reviewer will find them anyway.
   which pack produced a row, but a pack edited without a version bump looks
   identical to its predecessor, so a training set is reproducible only as far
   as the pack files are unchanged.
-- **One collector does not reach 1B/day.** 10,000 EPS lossless is 86% of the
+- **One collector does not reach 1B/day.** 8,000 EPS lossless is 69% of the
   target. Claiming otherwise would require the 12,000 EPS figure, which drops
-  1.7% of records.
+  5.0% of records.
 - **Coverage is 99.8834%, not 100%.** The remainder is enumerated in
   `docs/DATASETS.md`. Unparsed records are still vaulted, fingerprinted and
   emitted.

@@ -112,7 +112,7 @@ is a two-stage build onto distroless, read-only root, all capabilities dropped.
 
 ## Limits
 
-- **One collector sustains 10,000 EPS lossless.** Reaching billions/day is a
+- **One collector sustains 8,000 EPS lossless.** Reaching billions/day is a
   sharded deployment: chains are per-collector and verify independently.
 - **The console requires a bearer token by default** (`crate::auth`), on
   every `/api/*` route, plus an Origin/Host guard for browser-specific

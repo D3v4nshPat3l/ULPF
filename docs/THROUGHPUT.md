@@ -53,14 +53,20 @@ emitted. It is not a count of datagrams that touched the NIC.
 
 ## Results
 
+Measured on this machine with `python tools/measure_throughput.py`, fifteen
+seconds of traffic per rate into a fresh vault and a fresh attestation chain.
+
 | Offered rate | Sent | Received | Loss | Coverage |
 |---:|---:|---:|---:|---:|
-| 4,000 EPS | 40,000 | 40,000 | 0% | 100.0000% |
-| 10,000 EPS | 100,000 | 100,000 | 0% | 100.0000% |
-| 12,000 EPS | 120,000 | 118,000 | 1.7% | 100.0000% |
-| 15,000 EPS | 150,000 | 125,000 | 16.7% | 100.0000% |
+| 4,000 EPS | 60,000 | 60,000 | 0% | 100.0000% |
+| 8,000 EPS | 120,000 | 120,000 | 0% | 100.0000% |
+| 12,000 EPS | 180,000 | 171,000 | 5.0% | 100.0000% |
+| 16,000 EPS | 240,000 | 195,000 | 18.8% | 100.0000% |
+| 20,000 EPS | 300,000 | 188,000 | 37.3% | 100.0000% |
+| 25,000 EPS | 375,000 | 203,000 | 45.9% | 100.0000% |
+| 30,000 EPS | 450,000 | 239,000 | 46.9% | 100.0000% |
 
-**The sustained lossless ceiling is 10,000 EPS per collector**, single node,
+**The sustained lossless ceiling is 8,000 EPS per collector**, single node,
 with every accepted record durable before it is emitted.
 
 Coverage stays at 100% throughout: what is lost is lost in the kernel before
@@ -68,26 +74,26 @@ ULPF sees it, so nothing is half-processed and no record is silently
 misparsed. The distinction matters — a drop is a missing event, not a wrong
 one.
 
-## Against the 1B/day target
+### A measurement bug worth recording
 
-One billion events per day is 11,574 EPS sustained. A single collector on this
-hardware does not reach it: 10,000 EPS is 864 million/day, about 86% of the
-target. Reaching 1B/day needs two collectors, which the architecture already
-allows — chains are per-collector and verify independently, so a second node is
-a deployment decision, not a code change.
+An earlier version of this table reported an identical 70,000 received at
+every rate from 8,000 EPS upward. That is not how loss behaves, and it was not
+the collector's ceiling: it is what an 8 MB receive buffer holds in ~120-byte
+records. The harness terminated the collector five seconds after the sender
+stopped, so the buffer never finished draining, and the buffer's capacity was
+being read back as a throughput limit.
 
-Stating this as "meets 1B/day" would require the 12,000 EPS row, and that row
-drops 1.7% of records. For a log collector that is not a rounding error; it is
-the failure mode the whole design exists to prevent.
+The harness now follows the collector's counter as it advances and stops when
+it stops moving. The figures above are from after that fix. It is recorded
+here because the failure mode is not obvious — a flat number across rates
+reads like a hard limit rather than like a bug in how it was taken.
 
-## Two limits found by measuring
+## Two limits found by measuring## Two limits found by measuring
 
 **The socket receive buffer.** The OS default is about 64 KB, which for
-~150-byte syslog records is roughly 400 datagrams. At 15,000 EPS that lost 37%
-of records, and UDP tells the sender nothing — the collector just reports a
+~150-byte syslog records is roughly 400 datagrams. UDP tells the sender nothing when this happens — the collector just reports a
 lower number with no indication why. `ulpf listen` now requests an 8 MB receive
-buffer and prints what the kernel actually granted. The same run then lost
-16.7% instead of 37%.
+buffer and prints what the kernel actually granted.
 
 **Per-datagram checkpointing.** Signing and fsyncing a checkpoint after every
 event cost an Ed25519 signature plus a synchronous write per record, and
@@ -97,7 +103,7 @@ costs nothing in tamper evidence: the per-event hash chain is what detects
 modification, and a checkpoint only bounds how far back a verifier must walk to
 reach a signed anchor.
 
-Together these took the collector from 102 EPS to 10,000 EPS lossless.
+Together these took the collector from 102 EPS to the figures above.
 
 ## Reproducing
 

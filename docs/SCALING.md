@@ -1,6 +1,6 @@
 # Scaling past one collector
 
-One ULPF collector sustains **10,000 EPS lossless** ([THROUGHPUT.md](THROUGHPUT.md)).
+One ULPF collector sustains **8,000 EPS lossless** ([THROUGHPUT.md](THROUGHPUT.md)).
 The problem statement asks for a framework suitable for "billions of events per
 day", which is 11,574 EPS sustained, and a 50,000 EPS target needs five times
 what one node does.
@@ -19,7 +19,7 @@ The pipeline is single-writer by construction, and deliberately so:
 Those are the properties requirements (a) and (d) are built on. Parallelising
 inside a collector would mean either several chains behind one process — which
 is sharding with extra steps — or locking around the chain, which serialises
-the work again. The measured limits are the socket receive path (~10,000 EPS
+the work again. The measured limits are the socket receive path (~8,000 EPS
 lossless) and the per-event pipeline (~15,000 EPS from file). Neither is
 five-times away from the target.
 
@@ -114,9 +114,9 @@ single failure can put in doubt.
 
 | Shards | Sustained lossless | Events/day |
 |---:|---:|---:|
-| 1 | 10,000 EPS | 864 million |
-| 2 | 20,000 EPS | 1.73 billion |
-| 5 | 50,000 EPS | 4.32 billion |
+| 1 | 8,000 EPS | 691 million |
+| 2 | 16,000 EPS | 1.38 billion |
+| 5 | 40,000 EPS | 3.46 billion |
 
 These are the measured single-node figure multiplied by shard count. **They are
 arithmetic, not a measurement**, and are stated as such: shards share no lock,
@@ -136,7 +136,7 @@ offered 60,000 records of the Honeynet SotM34 iptables capture at 12,000 EPS:
 
 Two caveats, because this number is easy to over-read. It was taken on
 different hardware from [THROUGHPUT.md](THROUGHPUT.md), so it must not be
-compared with the 10,000 EPS figure there or blended into it. And both shards
+compared with the 8,000 EPS figure there or blended into it. And both shards
 shared one host's kernel and disk; the interference a real two-host deployment
 avoids is therefore *not* what this measures. What it does establish is that
 two independent chains absorb their traffic concurrently without loss and
