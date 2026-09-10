@@ -33,3 +33,6 @@ __pycache__/
 # Manim virtual environment and rendered video output.
 .venv-manim/
 media/
+
+# Collector output when the console is run in the background during development.
+/serve.log
