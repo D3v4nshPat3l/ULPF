@@ -49,6 +49,32 @@ Each line is an HEC event envelope with `source: ulpf` and
 `sourcetype: ocsf`. Use the HEC endpoint's newline/batched-event mode or a
 trusted proxy that converts the batch to the deployment's preferred format.
 
+## UDP forward
+
+Pass `--forward-udp 127.0.0.1:514`. Each normalized event is emitted as one
+UDP datagram of compact OCSF JSON.
+
+This exists for the side-by-side demonstration: the same captured traffic is
+sent to an existing SIEM raw, then through ULPF and on to that same SIEM as
+OCSF, so both forms land in one index and the difference is visible in one
+view rather than described in prose. Syslog rather than the SIEM's indexer API
+because every SIEM in this class already listens on 514 and needs no
+credential, no index template and no TLS to accept a line.
+
+Unlike the HTTP sinks, delivery is best-effort, which is the honest property of
+UDP rather than something papered over:
+
+| Counter | Meaning |
+|---|---|
+| `sent` | Datagrams handed to the socket |
+| `failed` | Sends the OS refused |
+| `oversized` | Events above 65,000 bytes, skipped rather than truncated |
+
+All three are reported at shutdown. A failure here never fails the run, because
+durability lives in the vault and the attestation chain, not in a fan-out
+sink. Do not use this as a system of record; use it to put ULPF's output in
+front of something that already exists.
+
 ## Delivery and recovery
 
 Remote requests are bounded by `--sink-batch-size` (default 250). A response

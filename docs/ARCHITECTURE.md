@@ -53,7 +53,10 @@ A pack is one YAML file: identity detectors, an ordered decoder chain, OCSF
 field mappings, enum translations, provenance, and golden fixtures. Packs
 compile once at load; the hot path performs no network or model call per event.
 A filesystem watcher recompiles the library on change, so onboarding a device is
-dropping in a file — no restart, no rebuild. A pack that fails to compile is
+dropping in a file — no restart, no rebuild. The watcher coalesces a burst of
+events and reloads once the directory has been quiet for 400 ms, because a
+file being written produces several events and reloading on the first of them
+reads a pack that is still half-written. A pack that fails to compile is
 logged and skipped while the previous library stays in service.
 
 Validation rejects unknown fields, empty detectors, missing base mappings,
@@ -98,8 +101,11 @@ current signed root, and fail if the log was rewritten rather than extended.
 
 ## Outputs and deployment
 
-NDJSON by default; Parquet, a fixed-contract feature table, OpenSearch Bulk and
-Splunk HEC as fan-out (g, h). The console and its assets are compiled into the
+NDJSON by default; Parquet, a fixed-contract feature table, OpenSearch Bulk,
+Splunk HEC and a UDP forward sink as fan-out (g, h). The forward sink exists
+for the side-by-side demonstration: it emits each normalized event as one OCSF
+datagram to a SIEM's syslog port, so the same traffic can be sent to that
+receiver raw and then through ULPF, landing in one index for comparison. The console and its assets are compiled into the
 binary, so there is no runtime network dependency of any kind — requirement (j),
 proved in CI by running every build and test step `--offline`. Requirement (k)
 is a two-stage build onto distroless, read-only root, all capabilities dropped.
