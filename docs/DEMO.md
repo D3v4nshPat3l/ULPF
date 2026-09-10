@@ -10,6 +10,63 @@ than asserted.
 
 ---
 
+## Quickstart — launch everything
+
+Four terminals, in this order. Full explanation of each step is below; this
+block is the one to copy on demo day.
+
+**Terminal 1 — the SIEM** (first run only: generate certificates)
+
+```bash
+cd deploy/wazuh
+docker compose -f generate-indexer-certs.yml run --rm generator
+docker compose up -d
+docker compose ps                 # wait until all three read "running"
+```
+
+**Terminal 2 — ULPF, with the forward leg to the SIEM turned on**
+
+```bash
+cargo build --release --locked
+./target/release/ulpf serve \
+  --packs packs \
+  --vault data/vault \
+  --integrity-dir data/integrity \
+  --datasets realdata \
+  --forward-udp 127.0.0.1:514 \
+  --no-auth
+```
+
+**Terminal 3 — confirm both are up**
+
+```bash
+curl -s http://127.0.0.1:8787/readyz
+docker exec single-node-wazuh.manager-1 sh -c 'ls -l /var/ossec/logs/archives/archives.json'
+```
+
+**Browser — the two pages you drive the demo from**
+
+| | |
+|---|---|
+| ULPF simulator (the one-click switch) | <http://127.0.0.1:8787/dev> |
+| ULPF console | <http://127.0.0.1:8787> |
+| Wazuh dashboard | <https://localhost> — `admin` / `SecretPassword` |
+
+**In Wazuh, once:** ☰ → *Dashboards Management* → *Index patterns* → *Create
+index pattern* → name `wazuh-archives-*`, time field `timestamp` → Create.
+Then ☰ → *Discover*, select `wazuh-archives-*`, time picker *Last 15 minutes*,
+and add `full_log` as a column.
+
+Without that index pattern the dashboard shows nothing and it looks like no
+data arrived when it did. This is the single most common way this
+demonstration appears broken.
+
+Then drive it: **Wazuh** button in `/dev` → look at `full_log` → **ULPF**
+button → look at `full_log` again. That is the whole comparison, and it is
+section 2 below.
+
+---
+
 ## 0. Prerequisites
 
 | | |
