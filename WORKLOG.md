@@ -65,7 +65,10 @@ reported as **not measured**, never estimated.
 Deep read of the tree, baseline measured, defects enumerated, budget set.
 Deliverable: this file. Push.
 
-### Phase 1 — Dataset fetcher: remove every guardrail  ·  status: pending
+### Phase 1 — Dataset fetcher: remove every guardrail  ·  status: **deferred**
+Datasets are arriving by hand from another device, so there is nothing to
+download. The guardrail removal still stands as a code change and is folded
+into a later phase.
 - Delete the four-tier system; the script fetches **everything** by default.
 - Replace the Zeek 50 MB byte-range prefix with the full corpus fetch.
 - Remove the "large tier only" gate on Blue Coat and the `--full-zeek` opt-in.
@@ -127,8 +130,75 @@ log into `CHANGELOG.md`, delete this file, push.
 
 ---
 
+## Demo launch — 2026-09-10
+
+Datasets are being transferred from another device rather than downloaded, so
+Phase 1 (removing the fetcher guardrails) is deferred and the fetcher was not
+run. Only its **local** `combine()` step was used, which builds the
+per-category corpora out of the already-transferred `SotM34/` tree and touches
+no network.
+
+Combined from `realdata/SotM34/`, line counts matching the published table
+exactly — an independent cross-check that the transferred capture is intact:
+
+| Built file | Lines | Published |
+|---|---:|---:|
+| `iptables.log` | 179,752 | 179,752 |
+| `snort.log` | 69,039 | 69,039 |
+| `apache-access.log` | 3,554 | 3,554 |
+| `sendmail.log` | 1,172 | 1,172 |
+| `linux-messages.log` | 1,166 | 1,166 |
+
+### Running demo
+
+```
+ulpf serve --packs packs --vault data/vault --integrity-dir data/integrity --datasets realdata
+```
+
+- Operator console: <http://127.0.0.1:8787>
+- Traffic simulator: <http://127.0.0.1:8787/dev>
+- UDP syslog intake: `0.0.0.0:5514`
+- Console token: `data/integrity/console.token`
+
+Verified live, on this machine:
+
+| Check | Result |
+|---|---|
+| `/readyz` | `ready: true`, **35 packs**, vault writable, chain signed |
+| Simulator corpora | **10 of 10 on disk**, none `absent` |
+| Six sources at 800 EPS | 4,800 EPS combined, ~208,678 EPS actual replay |
+| Live coverage | 110,001 received · 109,844 normalized · **99.8573%** |
+| Vaulted | 15.8 MB, append-only, written before parsing |
+| Chain | signed, sequence 110,001 |
+| `POST /api/verify` | `ok: true`, 500 events re-hashed, checkpoint signature valid |
+| `POST /api/tamper` then verify | `ok: false` — `fingerprint mismatch: event content has been altered` |
+
+### Confirmed defects
+
+- **E1 confirmed.** `/readyz` returns `"packs_loaded":35`; the README's sample
+  response says `34`.
+
+### Still awaiting transfer
+
+Perimeter corpora not yet on disk, so not measurable yet:
+`squid-access.log`, `bluecoat-proxy.log`, `zeek-conn.log`. No full-size
+(`*.full.log`) corpora have arrived.
+
+### Noted for Phase 2
+
+The simulator page carries a **Wazuh / ULPF** target switch, which is part of
+the same demo-day comparison apparatus as `tools/demo-switch.ps1`. Deciding
+its fate belongs with the three-laptop cleanup, not before it.
+
+---
+
 ## Change log
 
 ### Phase 0
 - Cloned the repository and measured the baseline above.
+- No source changes.
+
+### Demo launch
+- Built the per-category corpora locally from the transferred `SotM34/` tree.
+- Launched the collector and verified the whole demo path end to end.
 - No source changes.
