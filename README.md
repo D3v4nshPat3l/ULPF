@@ -256,10 +256,18 @@ available, and vendoring them would silently relicense third-party data.
 python tools/fetch_datasets.py
 ```
 
-This downloads and prepares the corpora into `realdata` — Honeynet Project
-Scan of the Month 30/34, the Honeynet Dragon capture, and four Loghub
-production samples. See [docs/DATASETS.md](docs/DATASETS.md) for full
-provenance.
+This fetches **every** corpus the coverage table is measured on, into
+`realdata`: the Honeynet Project captures (Scan of the Month 30 and 34, the
+Dragon NIDS capture, Squid, Blue Coat), the MACCDC 2012 Zeek capture, and all
+nineteen corpora in the official Loghub deposit. Roughly 6 GB of archives
+expanding to roughly 65 GB on disk, so check the volume has room first.
+
+There is deliberately no size gate. An earlier version defaulted to a ~200 MB
+subset, which meant this command produced a corpus set the published table
+could not be measured on. Completed files are skipped and partial transfers
+resume, so an interrupted fetch restarts by running the same command again.
+
+See [docs/DATASETS.md](docs/DATASETS.md) for full provenance.
 
 ### 4. Optional — the local model
 
@@ -535,9 +543,11 @@ crates/
   ulpf-cli         binary: run, serve, listen, replay, draft, test, verify, raw
 packs/             35 Source Packs
 schema/ocsf/       vendored OCSF 1.9.0
-tools/             corpus fetch and coverage measurement scripts
-deploy/            container compose files: the collector, and an OpenSearch receiver
-docs/              architecture, datasets, throughput, deployment, testing, roadmap
+tools/             corpus fetch, coverage and throughput measurement, schema audit
+deploy/            compose files: the collector, a sharded three-collector
+                   deployment, an OpenSearch receiver, and a single-node Wazuh
+                   stack for the side-by-side demonstration
+docs/              the demonstration, architecture, datasets, throughput, testing
 ```
 
 ---
