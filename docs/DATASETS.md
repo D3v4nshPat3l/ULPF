@@ -38,24 +38,35 @@ non-perimeter source move the headline number.
 | Firewall | `iptables.log` | Honeynet SotM34 | 179,752 | 100.0000% |
 | IDS | `snort.log` | Honeynet SotM34 | 69,039 | 99.9986% |
 | IDS | `dragon-nids.log` | Honeynet Dragon | 42,899 | 100.0000% |
+| Web | `apache-access.log` | Honeynet SotM34 | 3,554 | 99.9719% |
+| Web | `Apache.full.log` | Loghub, full corpus | 56,482 | 92.0718% |
+| Auth | `OpenSSH.full.log` | Loghub, full corpus | 655,147 | 100.0000% |
+| Host | `linux-messages.log` | Honeynet SotM34 | 1,166 | 99.1424% |
+| Host | `Linux.full.log` | Loghub, full corpus | 25,567 | 99.8905% |
+| Mail | `sendmail.log` | Honeynet SotM34 | 1,172 | 99.3174% |
+| Proxy | `Proxifier.full.log` | Loghub, full corpus | 21,329 | 79.6756% |
 | Proxy | `squid-access.log` | Honeynet | 533,197 | 99.9771% |
 | Proxy | `bluecoat-proxy.log` | Honeynet, full capture | 8,130,590 | 99.8033% |
-| Network | `zeek-conn.log` | SecRepo (MACCDC 2012) | 2,125,308 | 99.9861% |
-| Web | `apache-access.log` | Honeynet SotM34 | 3,554 | 99.9719% |
-| Web | `Apache_2k.log` | Loghub | 2,000 | 100.0000% |
-| Auth | `OpenSSH_2k.log` | Loghub | 2,000 | 100.0000% |
-| Host | `linux-messages.log` | Honeynet SotM34 | 1,166 | 99.1424% |
-| Host | `Linux_2k.log` | Loghub | 2,000 | 99.9500% |
-| Mail | `sendmail.log` | Honeynet SotM34 | 1,172 | 99.3174% |
-| Proxy | `Proxifier_2k.log` | Loghub | 2,000 | 100.0000% |
-| **Total** | | | **11,094,677** | **re-measure pending** |
+| Network | `zeek-conn-full.log` | SecRepo (MACCDC 2012), full | 22,694,356 | 99.9435% |
+| **Total** | | | **32,414,250** | **99.8834%** |
 
-The per-corpus figures above are each measured. The aggregate is not restated
-here because the Proxifier fix changed one of its inputs and the full sweep has
-not been re-run since — Blue Coat alone exceeds the 30-minute cap. It was
-99.8485% before that fix and can only have risen; quoting a number we have not
-measured, in a table whose whole purpose is that every number was measured,
-would be the wrong trade.
+Every figure above, including the aggregate, comes from one run of
+`python tools/measure_coverage.py --set perimeter` on the corpora as fetched.
+
+**Four rows changed corpus, not just number.** Apache, OpenSSH, Linux and
+Proxifier were previously measured on Loghub's 2,000-line excerpts because
+`tools/fetch_datasets.py` never declared their full corpora — they were in the
+same Zenodo deposit the whole time. Zeek moved from a 50 MB byte-range prefix
+to the complete 22.7-million-record capture. The perimeter set went from
+11,094,677 records to 32,414,250 as a result.
+
+Measuring in full moved individual figures both ways, and it is worth being
+explicit that some fell. `Apache_2k.log` scored a clean 100.0000%; the full
+corpus scores 92.0718%, because 4,478 of its 56,481 lines are a bare
+`script not found or unable to stat` with no timestamp, no severity and no
+client. That is an artifact of the corpus rather than a defect in the pack,
+and ULPF declines to invent fields a record does not carry — those lines are
+still vaulted, fingerprinted and searchable as Base Event.
 
 `zeek-conn.log` is counted in the total above — it has been fetched and
 measured, unlike Blue Coat, which has not (see note). Both are `OPTIONAL_CORPORA`

@@ -16,7 +16,8 @@ runtime: no CDN, no web font, no telemetry, no model API.
 ![The operator console normalizing seven live corpora](docs/screenshots/console-overview.png)
 
 Every number in that screenshot came from replaying real public capture data —
-Honeynet Project and Loghub — over UDP into the collector. Nothing on this page
+Honeynet Project, Loghub and the MACCDC 2012 capture — over UDP into the
+collector. Nothing on this page
 is a mock-up, and **no coverage or throughput figure anywhere in this project
 comes from synthesised data**.
 
@@ -453,44 +454,42 @@ and no `curl`.
 
 ## Measured results
 
-### Coverage — 11,094,677 real perimeter records
+### Coverage — 32,414,250 real perimeter records
 
-Reproducible with `python tools/measure_coverage.py`. Every figure comes from
-unmodified public capture data; nothing here is synthesised.
+Reproducible with `python tools/measure_coverage.py --set perimeter`. Every
+figure comes from unmodified public capture data; nothing here is synthesised.
 
 | Category | Source | Origin | Records | Coverage |
 |---|---|---|---:|---:|
 | Firewall | `iptables.log` | Honeynet SotM34 | 179,752 | 100.0000% |
 | IDS | `snort.log` | Honeynet SotM34 | 69,039 | 99.9986% |
 | IDS | `dragon-nids.log` | Honeynet Dragon | 42,899 | 100.0000% |
-| Proxy | `bluecoat-proxy.log` | Honeynet, full capture | 8,130,590 | 99.8033% |
-| Network | `zeek-conn.log` | secrepo MACCDC 2012, prefix | 2,125,308 | 99.9861% |
-| Proxy | `squid-access.log` | Honeynet | 533,197 | 99.9771% |
 | Web | `apache-access.log` | Honeynet SotM34 | 3,554 | 99.9719% |
-| Web | `Apache_2k.log` | Loghub | 2,000 | 100.0000% |
-| Auth | `OpenSSH_2k.log` | Loghub | 2,000 | 100.0000% |
+| Web | `Apache.full.log` | Loghub, full corpus | 56,482 | 92.0718% |
+| Auth | `OpenSSH.full.log` | Loghub, full corpus | 655,147 | 100.0000% |
 | Host | `linux-messages.log` | Honeynet SotM34 | 1,166 | 99.1424% |
-| Host | `Linux_2k.log` | Loghub | 2,000 | 99.9500% |
+| Host | `Linux.full.log` | Loghub, full corpus | 25,567 | 99.8905% |
 | Mail | `sendmail.log` | Honeynet SotM34 | 1,172 | 99.3174% |
-| Proxy | `Proxifier_2k.log` | Loghub | 2,000 | 81.1000% |
-| **Total** | | | **11,094,677** | **99.8485%** |
+| Proxy | `Proxifier.full.log` | Loghub, full corpus | 21,329 | 79.6756% |
+| Proxy | `squid-access.log` | Honeynet | 533,197 | 99.9771% |
+| Proxy | `bluecoat-proxy.log` | Honeynet, full capture | 8,130,590 | 99.8033% |
+| Network | `zeek-conn-full.log` | secrepo MACCDC 2012, full | 22,694,356 | 99.9435% |
+| **Total** | | | **32,414,250** | **99.8834%** |
 
-The Blue Coat ProxySG capture is now in the table. It used to sit outside it,
-measured only as a 398,380-record prefix, because the full 8.1 million records
-had never been run end to end. They have been now, so the headline is the
-whole capture rather than a prefix, and the total is a measurement rather than
-an extrapolation.
+**Four of these rows used to be 2,000-line samples.** Apache, OpenSSH, Linux
+and Proxifier were scored on Loghub's excerpts while the complete corpora sat
+unfetched in the same Zenodo deposit — the fetcher never declared them. They
+are now measured in full, which is 328 times more OpenSSH records than the
+figure this table used to carry. Zeek moved the same way: from a 50 MB
+byte-range prefix to the whole 22.7-million-record capture.
 
-Adding 8.1 million records at 99.8033% moves the aggregate down from the
-99.9679% that the smaller set scored. That is the honest direction: the
-previous figure was the average of a set that excluded the largest and hardest
-corpus in it.
-
-Twelve further corpora outside the problem statement's perimeter scope — HDFS,
-Hadoop, Spark, ZooKeeper, Blue Gene/L, Thunderbird, HPC, OpenStack, Windows,
-macOS, Android, HealthApp — are measured separately and reported in
-[docs/DATASETS.md](docs/DATASETS.md). Combined across all 25 corpora:
-**11,118,677 records at 99.8366%**.
+Measuring the full corpora moved individual numbers in both directions, and
+the honest direction is that some went down. Apache error fell from a clean
+100% on 2,000 lines to 92.0718% on 56,482, because 4,478 of those lines are a
+bare `script not found or unable to stat` carrying no timestamp, no severity
+and no client — an artifact of the corpus, and ULPF will not invent fields a
+record does not state. Proxifier fell for the reason it always had: its
+non-connection lines have no pack.
 
 The iptables figure is genuine cross-validation: that pack was written against
 a *different* 307,524-record capture (SotM30) and never tuned on SotM34.
@@ -575,7 +574,7 @@ review-and-approve gate; provenance recorded on generated packs.
 vault, assistant, deep-linkable views, and a simulator that drives ten real
 corpora.
 
-**Evidence.** 11,094,677 real perimeter records at 99.8485% coverage; throughput measured
+**Evidence.** 32,414,250 real perimeter records at 99.8834% coverage; throughput measured
 and published with its losses; scripts to reproduce both.
 
 ---
@@ -643,7 +642,7 @@ Stated plainly, because a reviewer will find them anyway.
 - **One collector does not reach 1B/day.** 10,000 EPS lossless is 86% of the
   target. Claiming otherwise would require the 12,000 EPS figure, which drops
   1.7% of records.
-- **Coverage is 99.8485%, not 100%.** The remainder is enumerated in
+- **Coverage is 99.8834%, not 100%.** The remainder is enumerated in
   `docs/DATASETS.md`. Unparsed records are still vaulted, fingerprinted and
   emitted.
 - **Three of the 35 packs have no real-corpus evidence.** Generic CEF,

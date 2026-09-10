@@ -195,6 +195,17 @@ def main() -> None:
     )
     parser.add_argument("--baseline", default="tools/coverage_baseline.json")
     parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help=(
+            "skip a corpus by file or stem, for example --exclude Thunderbird. "
+            "A skipped corpus is reported as excluded, never as absent, so a "
+            "partial table cannot be mistaken for a complete one"
+        ),
+    )
+    parser.add_argument(
         "--work-dir",
         default=None,
         help=(
@@ -236,7 +247,11 @@ def main() -> None:
     measured = {}
 
     selected = {"all": CORPORA, "perimeter": PERIMETER, "universal": UNIVERSAL}[args.set]
+    excluded = []
     for category, candidates, label in selected:
+        if any(x.lower() in name.lower() for name in candidates for x in args.exclude):
+            excluded.append(candidates[0])
+            continue
         corpus = next((data / name for name in candidates if (data / name).exists()), None)
         if corpus is None:
             missing.append(candidates[0])
@@ -288,7 +303,7 @@ def main() -> None:
         write_baseline(pathlib.Path(args.baseline), measured, total_pct)
         return
 
-    if args.check and args.set != "all":
+    if args.check and (args.set != "all" or args.exclude):
         print("--check compares against a full-set baseline; drop --set", file=sys.stderr)
         raise SystemExit(1)
 
