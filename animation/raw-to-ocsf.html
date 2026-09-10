@@ -208,17 +208,6 @@
   }
   .badge::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--good);}
 
-  .flyer{
-    position:fixed;
-    font-family:"JetBrains Mono",monospace;
-    font-size:13px;
-    font-weight:500;
-    white-space:nowrap;
-    pointer-events:none;
-    z-index:50;
-    will-change:transform,opacity;
-  }
-
   .rows{padding:8px 4px;min-height:5.5em;transition:opacity .22s ease;}
   .row{
     display:grid;
@@ -551,7 +540,6 @@
 
   function cardFor(key){ return rawStack.querySelector('.raw-card[data-device="' + key + '"]'); }
   function frag(cardEl, key){ return cardEl.querySelector('.frag[data-key="' + key + '"]'); }
-  function valSourceEl(cardEl, key){ var f = frag(cardEl, key); return f ? f.querySelector(".val") : null; }
 
   function setCardState(cardEl, state){
     cardEl.classList.remove("waiting", "active", "done");
@@ -581,33 +569,23 @@
     rowsEl.style.opacity = "1";
   }
 
-  function flyValue(cardEl, key){
-    var source = valSourceEl(cardEl, key), target = valEl(key);
-    if (!source || !target || reduceMotion) return Promise.resolve();
+  // ------------------------------------------------------- auto-scroll
+  // The workbench can run taller than one screen once three raw cards, a
+  // parsed panel and a growing table are all on the page at once. Skipped
+  // outright under reduced motion -- a repeating scroll cycle is exactly the
+  // kind of movement that setting exists to suppress, not just a slower
+  // version of it.
+  var workbenchEl = document.getElementById("workbench");
 
-    var s = source.getBoundingClientRect();
-    var d = target.getBoundingClientRect();
+  function scrollToSiemRow(key){
+    if (reduceMotion) return;
+    var row = ensureSiemRow(key);
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 
-    var clone = document.createElement("span");
-    clone.className = "flyer";
-    clone.textContent = source.textContent;
-    clone.style.left = s.left + "px";
-    clone.style.top = s.top + "px";
-    document.body.appendChild(clone);
-
-    var dx = d.left - s.left;
-    var dy = d.top - s.top;
-    var lift = -22;
-
-    var anim = clone.animate(
-      [
-        { transform: "translate(0px,0px) scale(1)", color: "#ffb454", offset: 0 },
-        { transform: "translate(" + dx * 0.5 + "px," + (dy * 0.5 + lift) + "px) scale(1.05)", color: "#dcc3fb", offset: 0.55 },
-        { transform: "translate(" + dx + "px," + dy + "px) scale(0.9)", color: "#a78bfa", opacity: 0.15, offset: 1 },
-      ],
-      { duration: 640, easing: "cubic-bezier(.33,.05,.25,1)", fill: "forwards" }
-    );
-    return anim.finished.then(function(){ clone.remove(); }).catch(function(){ clone.remove(); });
+  function scrollToWorkbenchTop(){
+    if (reduceMotion) return;
+    workbenchEl.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function closingLine(d){
@@ -693,8 +671,12 @@
       return;
     }
 
-    async function flyAndReveal(f){
-      await flyValue(card, f.key);
+    // No travelling clone -- the source fragment lights up, holds for a
+    // beat so the eye actually registers which text it is, then the same
+    // value pops straight into its row. Simpler, and reads just as clearly
+    // as motion did for "this text is where that value came from".
+    async function revealField(f){
+      await wait(340);
       var row = rowEl(f.key);
       if (row) row.classList.add("pulse");
       var v = valEl(f.key);
@@ -711,7 +693,7 @@
       if (el) el.classList.add("active");
     });
     await wait(220);
-    await Promise.all(d.fields.map(flyAndReveal));
+    await Promise.all(d.fields.map(revealField));
 
     await wait(200);
     var triggerFrag = frag(card, "activity") || frag(card, "action") || null;
@@ -736,6 +718,14 @@
     await wait(250);
     fillSiemRow(d);
     setCardState(card, "done");
+
+    // Down to see this one land, then back up to watch the next one leave
+    // the collector -- the same round trip, once per device, for as many
+    // devices as there are.
+    scrollToSiemRow(d.key);
+    await wait(1300);
+    scrollToWorkbenchTop();
+    await wait(500);
 
     playing = wasPlaying;
   }
