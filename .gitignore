@@ -23,6 +23,10 @@ Thumbs.db
 __pycache__/
 *.pyc
 
+# Holds real console tokens for the demo-day traffic switch (see
+# demo-switch.ps1) -- a credential, never committed.
+/tools/demo-switch.local.ps1
+
 # Documentation evidence is intentionally versioned.
 !/docs/screenshots/*.png
 

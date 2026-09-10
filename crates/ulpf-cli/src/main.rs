@@ -52,6 +52,7 @@ struct RunOptions {
     opensearch_index: String,
     splunk_hec: Option<String>,
     splunk_token_env: String,
+    forward_udp: Option<String>,
     sink_batch_size: usize,
     encrypt_key: bool,
     encrypt_vault: bool,
@@ -141,6 +142,13 @@ enum Command {
         /// Environment variable containing the Splunk HEC token.
         #[arg(long, default_value = "ULPF_SPLUNK_HEC_TOKEN")]
         splunk_token_env: String,
+        /// Forward each normalized event to `host:port` as one UDP datagram.
+        ///
+        /// For standing ULPF in front of a SIEM that already listens on
+        /// syslog: the same traffic can be sent to that receiver raw, then
+        /// through ULPF, so both forms land in one view for comparison.
+        #[arg(long, value_name = "HOST:PORT")]
+        forward_udp: Option<String>,
         /// Maximum events held by each remote sink before a request is sent.
         #[arg(long, default_value_t = 250)]
         sink_batch_size: usize,
@@ -336,6 +344,13 @@ enum Command {
         /// Environment variable containing the Splunk HEC token.
         #[arg(long, default_value = "ULPF_SPLUNK_HEC_TOKEN")]
         splunk_token_env: String,
+        /// Forward each normalized event to `host:port` as one UDP datagram.
+        ///
+        /// For standing ULPF in front of a SIEM that already listens on
+        /// syslog: the same traffic can be sent to that receiver raw, then
+        /// through ULPF, so both forms land in one view for comparison.
+        #[arg(long, value_name = "HOST:PORT")]
+        forward_udp: Option<String>,
         /// Write a self-contained Parquet archive of whole OCSF documents.
         #[arg(long)]
         parquet: Option<PathBuf>,
@@ -481,6 +496,7 @@ fn main() -> anyhow::Result<()> {
             opensearch_index,
             splunk_hec,
             splunk_token_env,
+            forward_udp,
             sink_batch_size,
             encrypt_key,
             encrypt_vault,
@@ -500,6 +516,7 @@ fn main() -> anyhow::Result<()> {
             opensearch_index,
             splunk_hec,
             splunk_token_env,
+            forward_udp,
             sink_batch_size,
             encrypt_key,
             encrypt_vault,
@@ -573,6 +590,7 @@ fn main() -> anyhow::Result<()> {
             opensearch_index,
             splunk_hec,
             splunk_token_env,
+            forward_udp,
             parquet,
             features,
             sink_batch_size,
@@ -596,6 +614,7 @@ fn main() -> anyhow::Result<()> {
             opensearch_index,
             splunk_hec,
             splunk_token_env,
+            forward_udp,
             parquet,
             features,
             sink_batch_size,
@@ -755,6 +774,7 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
         opensearch_index,
         splunk_hec,
         splunk_token_env,
+        forward_udp,
         sink_batch_size,
         encrypt_key,
         encrypt_vault,
@@ -801,6 +821,7 @@ fn cmd_run(options: RunOptions) -> anyhow::Result<()> {
         opensearch_index: &opensearch_index,
         splunk_hec: splunk_hec.as_deref(),
         splunk_token_env: &splunk_token_env,
+        forward_udp: forward_udp.as_deref(),
         batch_size: sink_batch_size,
     })?;
     if !sinks.is_empty() {
@@ -981,6 +1002,7 @@ pub struct ServeConfig {
     pub opensearch_index: String,
     pub splunk_hec: Option<String>,
     pub splunk_token_env: String,
+    pub forward_udp: Option<String>,
     pub parquet: Option<PathBuf>,
     pub features: Option<PathBuf>,
     pub sink_batch_size: usize,
@@ -1044,6 +1066,7 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         opensearch_index,
         splunk_hec,
         splunk_token_env,
+        forward_udp,
         parquet,
         features,
         sink_batch_size,
@@ -1060,6 +1083,7 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
     let opensearch_index = opensearch_index.as_str();
     let splunk_hec = splunk_hec.as_deref();
     let splunk_token_env = splunk_token_env.as_str();
+    let forward_udp = forward_udp.as_deref();
     let parquet = parquet.as_deref();
     let features = features.as_deref();
     let (library, errors) = PackLibrary::load_dir(&packs_dir)
@@ -1152,6 +1176,7 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
             opensearch_index,
             splunk_hec,
             splunk_token_env,
+            forward_udp,
             batch_size: sink_batch_size,
         },
     )?)));

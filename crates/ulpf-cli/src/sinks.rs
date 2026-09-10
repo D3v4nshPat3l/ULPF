@@ -21,6 +21,91 @@ pub struct SinkSet {
     features: Option<crate::features::FeatureSink>,
     opensearch: Option<OpenSearchSink>,
     splunk: Option<SplunkHecSink>,
+    forward: Option<ForwardUdpSink>,
+}
+
+/// Emit each normalized event as one UDP datagram.
+///
+/// This exists for the demonstration the project is judged on: the same
+/// traffic sent first to an existing SIEM raw, then through ULPF and on to
+/// that same SIEM as OCSF, so the two land side by side in one view.
+///
+/// UDP syslog rather than the SIEM's HTTP API on purpose. Every SIEM in this
+/// class already listens on 514 and needs no credential, no index template
+/// and no TLS to accept a line, whereas its indexer API is HTTPS with
+/// authentication and a schema opinion. The point being demonstrated is what
+/// ULPF *produces*, not how many ways it can be authenticated into a
+/// receiver.
+///
+/// The datagram is the event's compact JSON. Anything that accepts a syslog
+/// line will store it whole, which is exactly what makes the comparison
+/// legible: the raw record and its OCSF form differ only in content.
+///
+/// Delivery is best-effort, which is the honest property of UDP and is
+/// documented rather than papered over. A send failure is counted and
+/// reported once at shutdown; it never fails the run, because the vault and
+/// the attestation chain are where durability actually lives.
+pub struct ForwardUdpSink {
+    socket: std::net::UdpSocket,
+    target: String,
+    sent: u64,
+    failed: u64,
+    /// Datagrams dropped for exceeding the practical UDP payload limit.
+    oversized: u64,
+}
+
+/// Largest datagram worth attempting. IPv4 caps a UDP payload at 65,507
+/// bytes; staying under it means a large event is reported rather than
+/// failing the send with a confusing OS error.
+const MAX_DATAGRAM: usize = 65_000;
+
+impl ForwardUdpSink {
+    pub fn new(target: &str) -> anyhow::Result<Self> {
+        let resolved = target
+            .to_socket_addrs()
+            .with_context(|| format!("resolving forward target {target}"))?
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("forward target {target} resolved to no address"))?;
+        let socket = std::net::UdpSocket::bind("0.0.0.0:0")
+            .context("binding a local socket for the forward sink")?;
+        socket
+            .connect(resolved)
+            .with_context(|| format!("connecting the forward sink to {resolved}"))?;
+        Ok(Self {
+            socket,
+            target: target.to_string(),
+            sent: 0,
+            failed: 0,
+            oversized: 0,
+        })
+    }
+
+    fn write(&mut self, event: &OcsfEvent) -> anyhow::Result<()> {
+        let payload = event.to_json();
+        if payload.len() > MAX_DATAGRAM {
+            self.oversized += 1;
+            return Ok(());
+        }
+        match self.socket.send(payload.as_bytes()) {
+            Ok(_) => self.sent += 1,
+            Err(_) => self.failed += 1,
+        }
+        Ok(())
+    }
+
+    fn report(&self) {
+        if self.failed > 0 || self.oversized > 0 {
+            tracing::warn!(
+                target = %self.target,
+                sent = self.sent,
+                failed = self.failed,
+                oversized = self.oversized,
+                "forward sink finished with undelivered events"
+            );
+        } else {
+            tracing::info!(target = %self.target, sent = self.sent, "forward sink finished");
+        }
+    }
 }
 
 /// Where normalized events should go, besides the NDJSON stream.
@@ -39,6 +124,8 @@ pub struct SinkConfig<'a> {
     pub opensearch_index: &'a str,
     pub splunk_hec: Option<&'a str>,
     pub splunk_token_env: &'a str,
+    /// `host:port` to forward each normalized event to as one UDP datagram.
+    pub forward_udp: Option<&'a str>,
     pub batch_size: usize,
 }
 
@@ -119,6 +206,7 @@ impl SinkSet {
                 .splunk_hec
                 .map(|url| SplunkHecSink::new(url, config.splunk_token_env, batch_size))
                 .transpose()?,
+            forward: config.forward_udp.map(ForwardUdpSink::new).transpose()?,
         })
     }
 
@@ -127,6 +215,7 @@ impl SinkSet {
             && self.features.is_none()
             && self.opensearch.is_none()
             && self.splunk.is_none()
+            && self.forward.is_none()
     }
 
     pub fn write(&mut self, event: &OcsfEvent) -> anyhow::Result<()> {
@@ -140,6 +229,13 @@ impl SinkSet {
             sink.write(event)?;
         }
         if let Some(sink) = &mut self.splunk {
+            sink.write(event)?;
+        }
+        // Last, and deliberately not batched: the forward sink exists so a
+        // second system sees each event as it is produced, and holding events
+        // back to fill a batch would show a stalled feed during a live
+        // demonstration.
+        if let Some(sink) = &mut self.forward {
             sink.write(event)?;
         }
         Ok(())
@@ -168,6 +264,9 @@ impl SinkSet {
         }
         if let Some(sink) = self.features.take() {
             sink.finish()?;
+        }
+        if let Some(sink) = self.forward.take() {
+            sink.report();
         }
         Ok(())
     }

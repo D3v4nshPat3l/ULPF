@@ -177,6 +177,10 @@
       <span class="sub">each row names its own corpus, replayed on a loop</span>
       <div class="right">
         <span class="pill neutral" id="conn"><i></i> connecting</span>
+        <div style="display:flex; border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; margin-right:8px">
+          <button class="btn" style="border:none; border-radius:0; border-right:1px solid var(--border)" id="btn-target-wazuh">Wazuh</button>
+          <button class="btn" style="border:none; border-radius:0" id="btn-target-ulpf">ULPF</button>
+        </div>
         <button class="btn primary sm" type="button" id="btn-start-all" style="margin-right:8px">Start all</button>
         <button class="btn danger sm" type="button" id="btn-stop-all">Stop all</button>
       </div>
@@ -377,7 +381,19 @@ function render(data) {
     : "logs per second into the collector";
   $("s-sent").textContent = Number(data.total_sent || 0).toLocaleString();
   $("s-target").textContent = data.target || "—";
-
+  
+  if (data.target === "127.0.0.1:514") {
+    $("btn-target-wazuh").style.background = "var(--primary-soft)";
+    $("btn-target-wazuh").style.color = "var(--primary)";
+    $("btn-target-ulpf").style.background = "var(--panel)";
+    $("btn-target-ulpf").style.color = "var(--text)";
+  } else if (data.target === "127.0.0.1:5514") {
+    $("btn-target-ulpf").style.background = "var(--primary-soft)";
+    $("btn-target-ulpf").style.color = "var(--primary)";
+    $("btn-target-wazuh").style.background = "var(--panel)";
+    $("btn-target-wazuh").style.color = "var(--text)";
+  }
+  
   $("s-dir").textContent = data.data_dir || "—";
   $("s-present").textContent = present + " of " + sources.length + " corpora on disk";
 
@@ -439,6 +455,27 @@ $("btn-stop-all").addEventListener("click", async () => {
   finally { btn.disabled = false; refresh(); }
 });
 
+async function setTarget(tgt) {
+  $("btn-target-wazuh").disabled = true;
+  $("btn-target-ulpf").disabled = true;
+  try {
+    await api("/api/sim/target", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target: tgt }),
+    });
+    clearBanner();
+  } catch (e) {
+    banner("bad", "Failed to switch target: " + e.message);
+  } finally {
+    $("btn-target-wazuh").disabled = false;
+    $("btn-target-ulpf").disabled = false;
+    refresh();
+  }
+}
+
+$("btn-target-wazuh").addEventListener("click", () => setTarget("127.0.0.1:514"));
+$("btn-target-ulpf").addEventListener("click", () => setTarget("127.0.0.1:5514"));
 
 refresh();
 setInterval(refresh, 2000);
