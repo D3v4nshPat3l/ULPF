@@ -741,6 +741,8 @@ traffic, let the console draft a candidate for you and edit from there —
 | Document | Contents |
 |---|---|
 | [DEMO.md](docs/DEMO.md) | The single-laptop demonstration, start to finish |
+| [DEMO-VIDEO-SCRIPT.md](docs/DEMO-VIDEO-SCRIPT.md) | Shot list and narration for the two-minute video |
+| [SLIDE-CONTENT.md](docs/SLIDE-CONTENT.md) | Content for the five-slide technical presentation |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Crate boundaries and data flow |
 | [DATASETS.md](docs/DATASETS.md) | Corpus provenance, coverage, named misses |
 | [THROUGHPUT.md](docs/THROUGHPUT.md) | Measured EPS, method, the limits found |
