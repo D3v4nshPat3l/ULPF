@@ -561,6 +561,15 @@ def main() -> None:
         help="skip all full Loghub/Zenodo archives while keeping other tier data",
     )
     parser.add_argument(
+        "--no-bluecoat",
+        action="store_true",
+        help=(
+            "skip the ~2.6 GB Blue Coat ProxySG capture. It is not in "
+            "tools/coverage_baseline.json, so the regression check does not "
+            "need it, and it is the largest single download that check pulls"
+        ),
+    )
+    parser.add_argument(
         "--no-full-zeek",
         action="store_true",
         help=(
@@ -582,7 +591,8 @@ def main() -> None:
         honeynet_dragon(target)
         honeynet_proxy(target)
         combine(target)
-        honeynet_bluecoat(target)
+        if not args.no_bluecoat:
+            honeynet_bluecoat(target)
         secrepo_maccdc_zeek_conn(target)
         if not args.no_full_zeek:
             secrepo_maccdc_zeek_conn_full(target)

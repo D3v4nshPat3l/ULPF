@@ -81,12 +81,30 @@ jobs:
       # on the first failing command -- so the retry written below never ran.
       # The step still reports the second attempt's status, and the baseline
       # check is gated on it.
+      #
+      # The flags matter as much as the retry. The fetcher's default is now
+      # every corpus -- its own header says ~6 GB of archives expanding to
+      # ~65 GB -- and a GitHub runner has about 14 GB free, so the default
+      # filled the disk and the runner was lost. That surfaces as a *cancelled*
+      # step rather than a failed one, which continue-on-error does not cover,
+      # so every later step was skipped and the job went red with no usable
+      # message. It is why this job failed on commit after commit while saying
+      # nothing about coverage.
+      #
+      # None of the skipped archives are in tools/coverage_baseline.json. The
+      # check needs 23 corpora, all of them the bounded samples and the
+      # Honeynet perimeter set, roughly 150 MB. -u so the script's progress is
+      # unbuffered and a future failure is legible in the log rather than
+      # arriving as sixty seconds of silence.
       run: |
         set +e
-        python tools/fetch_datasets.py --dir realdata && exit 0
+        fetch() {
+          python -u tools/fetch_datasets.py --dir realdata             --skip-loghub-full --no-full-zeek --no-bluecoat
+        }
+        fetch && exit 0
         echo "::warning::first fetch attempt failed, retrying in 20s"
         sleep 20
-        python tools/fetch_datasets.py --dir realdata
+        fetch
         exit $?
 
     - name: Build
