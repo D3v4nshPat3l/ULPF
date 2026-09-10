@@ -154,8 +154,26 @@ def fetch_to_file(urls: list[str], destination: pathlib.Path) -> None:
                     status = getattr(response, "status", response.getcode())
                     append = existing > 0 and status == 206
                     mode = "ab" if append else "wb"
+                    # What the server says the body is, so a connection that
+                    # closes early can be recognised as the truncation it is.
+                    declared = response.headers.get("Content-Length")
+                    expected = int(declared) + (existing if append else 0) if declared else None
                     with partial.open(mode) as output:
                         shutil.copyfileobj(response, output, length=1024 * 1024)
+
+                # A dropped connection reads as a clean end of stream, so
+                # without this check a half-transferred archive is renamed to
+                # its final name and only fails later, at extraction -- where
+                # it looks like a corrupt upstream file rather than a short
+                # read. Two corpora were lost exactly this way when the network
+                # changed mid-fetch. Leaving it as .part means the next attempt
+                # resumes it instead of starting over.
+                got = partial.stat().st_size
+                if expected is not None and got < expected:
+                    raise OSError(
+                        f"truncated: {got:,} of {expected:,} bytes "
+                        f"({got / expected * 100:.1f}%); will resume"
+                    )
                 partial.replace(destination)
                 print(
                     f"    -> downloaded {destination.name}  "
@@ -473,6 +491,13 @@ def loghub_full(
         except Exception as error:  # noqa: BLE001 - continue with other corpora
             failures.append(archive_name)
             print(f"    {archive_name} unavailable for now: {error}")
+            # Discard an archive that would not open. Keeping it meant the
+            # next run found the file present, skipped the download, and
+            # failed on the same unreadable bytes forever -- so a corpus lost
+            # to one truncated transfer could never recover on its own.
+            if archive_path.exists():
+                archive_path.unlink(missing_ok=True)
+                print(f"    discarded {archive_name} so a rerun fetches it again")
             print("    continuing with the remaining corpora")
 
     return failures
