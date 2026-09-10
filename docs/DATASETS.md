@@ -143,6 +143,47 @@ the vendor manual, and the corpus's own `#Fields:` header showed the manual
 was wrong in two places, so the documentation-derived pattern matched none of
 the 8.1 million records.
 
+## Held on disk, not yet run end to end
+
+Fetching every corpus is not the same as having measured every corpus, and
+this section exists so the difference is stated rather than left for a reader
+to discover.
+
+`tools/fetch_datasets.py` retrieves all nineteen archives in the Loghub
+deposit. Five of them are far larger than anything in the coverage tables
+above, and they have **not** been run through the pipeline. They are on disk,
+they are real, and they are available to anyone who wants to reproduce a run
+over them — but no figure in this project is measured on them.
+
+| Corpus | What it is | Records | On disk | Estimated run |
+|---|---|---:|---:|---:|
+| Thunderbird | HPC cluster syslog | 211,212,192 | 31.8 GB | ~4.4 h |
+| Windows | Windows CBS servicing | 114,608,388 | 28.0 GB | ~2.4 h |
+| Spark | Spark executor | 33,236,604 | 2.9 GB | ~0.7 h |
+| HDFS v1 | HDFS DataNode | 11,175,629 | 1.6 GB | ~0.2 h |
+| Blue Gene/L | Supercomputer RAS | 4,747,963 | 0.7 GB | ~0.1 h |
+| **Total** | | **374,980,776** | **65.1 GB** | **~7.8 h** |
+
+Record counts are the figures the Loghub deposit publishes for each corpus.
+
+**The estimated run column is arithmetic, not a measurement.** It is the
+record count divided by 13,290 events/sec, which is the rate measured on this
+machine over the Blue Coat capture — 8,130,590 real records, the largest
+corpus that *has* been run end to end. It is offered so a reader can see what
+reproducing these would cost, and for no other purpose. It is not a coverage
+claim, and no coverage number anywhere in this project is derived from it.
+
+Running any of them is one command:
+
+```bash
+python tools/measure_coverage.py --set universal
+```
+
+Two notes on doing that. The scratch space each run needs is a fraction of the
+corpus but still gigabytes at this scale, so `--work-dir` should point at a
+volume with room. And the per-corpus timeout defaults to ten hours precisely
+because Thunderbird needs most of an afternoon.
+
 ## What the remaining misses are
 
 They are named rather than rounded away.
