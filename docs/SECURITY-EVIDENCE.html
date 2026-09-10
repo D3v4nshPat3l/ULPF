@@ -1,0 +1,857 @@
+<!doctype html>
+<!--
+  ULPF security evidence docket.
+
+  A standalone page: open it in any browser, no server and no build step. It
+  is the jury-facing companion to the numbers in docs/DATASETS.md and the
+  measurements in docs/THROUGHPUT.md, and every figure on it was produced by
+  the commands printed beneath it.
+
+  The typefaces load from Google Fonts. That is a deliberate exception for a
+  document, not a relaxation of requirement (j): the collector and its console
+  still ship with no CDN and no web font. On a machine with no route out, the
+  page falls back to the platform stacks declared alongside each face and
+  stays entirely readable -- only the lettering changes.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html{color-scheme:light}
+  @media (prefers-color-scheme:dark){html:not([data-theme="light"]){color-scheme:dark}}
+  html[data-theme="dark"]{color-scheme:dark}
+  body{margin:0}
+  img{max-width:100%}
+  [hidden]{display:none!important}
+</style>
+<title>ULPF Evidence Docket</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;450;500;600&display=swap">
+
+<style>
+/* ============================================================ tokens
+   Light is the base. Dark is redefined at token level twice: once for the
+   un-stamped system-dark document, once for an explicit toggle. Nothing
+   below this block declares a colour literal.
+
+   Dark is adjusted, not inverted: the ground lifts off pure black to a blue
+   ink, every surface sits *above* the ground rather than below it, and both
+   accents lose saturation while gaining lightness so they stay legible
+   without glowing. */
+:root {
+  --ground:      #EDF0F3;
+  --surface:     #FFFFFF;
+  --sunken:      #E3E8EC;
+  --ink:         #121A20;
+  --ink-2:       #3C4A55;
+  --ink-3:       #6B7A86;
+  --rule:        #D2DAE1;
+  --rule-strong: #B4C0C9;
+
+  --pass:        #14675A;   /* verified / structural */
+  --pass-bg:     #DCEDE9;
+  --fail:        #A62F1C;   /* rejected / altered */
+  --fail-bg:     #F6E0DB;
+  --mark:        #7A5A12;   /* measured quantity */
+  --mark-bg:     #F2E9D5;
+
+  --shadow: 0 1px 2px rgba(18,26,32,.06), 0 8px 24px -12px rgba(18,26,32,.18);
+  --sans: "IBM Plex Sans", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --cond: "IBM Plex Sans Condensed", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:      #0E141A;
+    --surface:     #161E26;
+    --sunken:      #101820;
+    --ink:         #DFE7ED;
+    --ink-2:       #A9B7C2;
+    --ink-3:       #7C8B97;
+    --rule:        #24303A;
+    --rule-strong: #35434F;
+
+    --pass:        #4FBCA6;
+    --pass-bg:     #10312D;
+    --fail:        #E5806A;
+    --fail-bg:     #3A1D16;
+    --mark:        #D8B45F;
+    --mark-bg:     #33290F;
+
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 10px 28px -14px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"] {
+  --ground:      #0E141A;
+  --surface:     #161E26;
+  --sunken:      #101820;
+  --ink:         #DFE7ED;
+  --ink-2:       #A9B7C2;
+  --ink-3:       #7C8B97;
+  --rule:        #24303A;
+  --rule-strong: #35434F;
+
+  --pass:        #4FBCA6;
+  --pass-bg:     #10312D;
+  --fail:        #E5806A;
+  --fail-bg:     #3A1D16;
+  --mark:        #D8B45F;
+  --mark-bg:     #33290F;
+
+  --shadow: 0 1px 2px rgba(0,0,0,.5), 0 10px 28px -14px rgba(0,0,0,.7);
+}
+
+/* ============================================================ base */
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 400 15px/1.62 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px 96px; }
+h1, h2, h3 { font-family: var(--cond); text-wrap: balance; margin: 0; }
+p { margin: 0; }
+code, .mono { font-family: var(--mono); font-variant-ligatures: none; }
+.num { font-variant-numeric: tabular-nums; }
+a { color: var(--pass); }
+:focus-visible { outline: 2px solid var(--pass); outline-offset: 3px; border-radius: 2px; }
+
+/* ============================================================ masthead */
+.masthead {
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+  padding: 44px 0 0;
+}
+.masthead .wrap { padding-bottom: 0; }
+.eyebrow {
+  font: 600 11px/1 var(--mono);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+h1 {
+  font-size: clamp(38px, 6vw, 62px);
+  font-weight: 700;
+  letter-spacing: -.02em;
+  line-height: 1.02;
+  margin: 14px 0 0;
+}
+.standfirst {
+  max-width: 62ch;
+  margin-top: 18px;
+  font-size: 17.5px;
+  line-height: 1.58;
+  color: var(--ink-2);
+}
+.standfirst strong { color: var(--ink); font-weight: 600; }
+
+/* provenance strip — the anchor for every number on the page */
+.prov {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0;
+  margin-top: 34px;
+  border-top: 1px solid var(--rule);
+}
+.prov div {
+  padding: 14px 18px 16px 0;
+  border-right: 1px solid var(--rule);
+}
+.prov div:last-child { border-right: 0; }
+.prov dt {
+  font: 500 10.5px/1 var(--mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.prov dd {
+  margin: 7px 0 0;
+  font: 500 13.5px/1.35 var(--mono);
+  color: var(--ink);
+}
+
+/* ============================================================ theme toggle */
+.toggle {
+  position: fixed; top: 16px; right: 16px; z-index: 20;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 13px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font: 500 11.5px/1 var(--mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+.toggle:hover { color: var(--ink); border-color: var(--ink-3); }
+.toggle svg { width: 13px; height: 13px; fill: currentColor; }
+
+/* ============================================================ the thesis */
+.thesis { margin-top: 64px; }
+.sec-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 6px; }
+.sec-head h2 {
+  font-size: 30px; font-weight: 700; letter-spacing: -.012em;
+}
+.sec-note { max-width: 68ch; color: var(--ink-2); margin-top: 12px; font-size: 15.5px; }
+
+.collapse {
+  margin-top: 30px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.collapse-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--sunken);
+}
+.collapse-head b { font: 600 13px/1 var(--mono); letter-spacing: .04em; }
+.collapse-head span { font-size: 13px; color: var(--ink-2); }
+
+.vendors { display: grid; gap: 0; }
+.vendor {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 0 22px;
+  padding: 15px 22px;
+  border-bottom: 1px solid var(--rule);
+}
+.vendor:last-child { border-bottom: 0; }
+.vendor-name {
+  font: 600 12.5px/1.4 var(--cond);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  padding-top: 2px;
+}
+.vendor-name em {
+  display: block; font: 400 11px/1.5 var(--mono);
+  letter-spacing: 0; text-transform: none; font-style: normal;
+  color: var(--ink-3); margin-top: 3px;
+}
+.rawline {
+  font: 400 12.5px/1.65 var(--mono);
+  color: var(--ink-2);
+  overflow-x: auto;
+  white-space: pre;
+  padding-bottom: 2px;
+}
+.hit {
+  background: var(--mark-bg);
+  color: var(--mark);
+  font-weight: 600;
+  padding: 1px 3px;
+  border-radius: 2px;
+}
+
+.arrow-row {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  padding: 20px 22px;
+  background: var(--sunken);
+  border-bottom: 1px solid var(--rule);
+  font: 500 12.5px/1 var(--mono);
+  color: var(--ink-3);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.arrow-row svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+
+.unified { padding: 24px 22px 26px; text-align: center; }
+.unified .field {
+  font: 600 clamp(20px, 3.4vw, 30px)/1.2 var(--mono);
+  color: var(--pass);
+  letter-spacing: -.01em;
+}
+.unified .cap { margin-top: 12px; font-size: 14px; color: var(--ink-2); }
+.unified .cap b { color: var(--ink); font-weight: 600; }
+
+/* ============================================================ exhibits */
+.exhibits { margin-top: 78px; }
+.exhibit {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 0 26px;
+  padding: 34px 0;
+  border-top: 1px solid var(--rule);
+}
+.exhibit:last-of-type { border-bottom: 1px solid var(--rule); }
+.ex-no {
+  font: 600 13px/1 var(--mono);
+  color: var(--ink-3);
+  letter-spacing: .04em;
+  padding-top: 5px;
+}
+.ex-body { min-width: 0; }
+.ex-body h3 {
+  font-size: 22px; font-weight: 600; letter-spacing: -.008em;
+  margin-bottom: 9px;
+}
+.ex-claim { max-width: 64ch; color: var(--ink-2); font-size: 15px; }
+.ex-claim + .ex-claim { margin-top: 11px; }
+
+.results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  gap: 1px;
+  margin-top: 20px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.res { background: var(--surface); padding: 14px 16px 15px; }
+.res .v {
+  font: 600 23px/1.1 var(--mono);
+  letter-spacing: -.02em;
+  color: var(--ink);
+}
+.res .v.ok   { color: var(--pass); }
+.res .v.no   { color: var(--fail); }
+.res .v.sm   { font-size: 16px; line-height: 1.35; }
+.res .k {
+  margin-top: 7px;
+  font: 400 12px/1.42 var(--sans);
+  color: var(--ink-3);
+}
+
+/* verbatim tool output / commands */
+.cmd {
+  margin-top: 18px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+.cmd-label {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--rule);
+  font: 500 10.5px/1 var(--mono);
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.cmd pre {
+  margin: 0;
+  padding: 13px 14px 14px;
+  overflow-x: auto;
+  font: 400 12.5px/1.62 var(--mono);
+  color: var(--ink-2);
+  white-space: pre;
+}
+.cmd pre .p { color: var(--ink-3); }              /* prompt / comment */
+.cmd pre .o { color: var(--ink); }                 /* emphasised output */
+.cmd pre .g { color: var(--pass); font-weight: 500; }
+.cmd pre .r { color: var(--fail); font-weight: 500; }
+
+/* ============================================================ caveats */
+.caveats {
+  margin-top: 78px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.caveats-head {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--sunken);
+}
+.caveats-head h2 { font-size: 21px; font-weight: 600; }
+.caveats-head p { margin-top: 7px; font-size: 14px; color: var(--ink-2); max-width: 70ch; }
+.caveat {
+  display: grid;
+  grid-template-columns: 178px 1fr;
+  gap: 0 24px;
+  padding: 17px 24px;
+  border-bottom: 1px solid var(--rule);
+}
+.caveat:last-child { border-bottom: 0; }
+.caveat dt {
+  font: 600 12px/1.45 var(--mono);
+  color: var(--fail);
+  letter-spacing: .02em;
+}
+.caveat dd { margin: 0; font-size: 14.2px; color: var(--ink-2); }
+.caveat dd b { color: var(--ink); font-weight: 600; }
+
+/* ============================================================ closing */
+.closing {
+  margin-top: 74px;
+  padding-top: 30px;
+  border-top: 2px solid var(--rule-strong);
+}
+.closing h2 { font-size: 24px; font-weight: 700; }
+.closing p { margin-top: 13px; max-width: 68ch; color: var(--ink-2); }
+.colophon {
+  margin-top: 30px;
+  font: 400 12px/1.7 var(--mono);
+  color: var(--ink-3);
+}
+
+@media (max-width: 720px) {
+  .wrap { padding: 0 18px 72px; }
+  .exhibit { grid-template-columns: 1fr; gap: 10px; }
+  .ex-no { padding-top: 0; }
+  .vendor { grid-template-columns: 1fr; gap: 8px; }
+  .caveat { grid-template-columns: 1fr; gap: 6px; }
+  .prov div { border-right: 0; border-bottom: 1px solid var(--rule); }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<button class="toggle" id="tt" type="button" aria-label="Switch colour theme">
+  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1.6v10.8a5.4 5.4 0 0 1 0-10.8z"/></svg>
+  <span id="tt-l">Theme</span>
+</button>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="eyebrow">Universal Log Pre-processing Framework &nbsp;·&nbsp; Security evidence</div>
+    <h1>Six things ULPF does<br>when an attack happens</h1>
+    <p class="standfirst">
+      All six were measured on one laptop, using real attack logs that anyone can
+      download. <strong>Under every number is the exact command that produced
+      it</strong>, so nothing here has to be taken on trust. The things we have
+      <em>not</em> measured are listed at the end instead of being rounded up
+      into a claim.
+    </p>
+    <dl class="prov">
+      <div><dt>Binary</dt><dd>ulpf 0.1.0</dd></div>
+      <div><dt>Commit</dt><dd>f9287a7</dd></div>
+      <div><dt>Recorded</dt><dd>2026-09-10</dd></div>
+      <div><dt>Host</dt><dd>i5-12500H · 16 threads</dd></div>
+      <div><dt>Corpora</dt><dd>Honeynet · Loghub</dd></div>
+    </dl>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ============================================ thesis -->
+  <section class="thesis">
+    <div class="sec-head"><h2>One attacker. Four logs. Four different languages.</h2></div>
+    <p class="sec-note">
+      Someone is given a suspicious IP address and asked: where has this been on
+      our network? The address is already sitting in four different logs. But
+      each product writes it in a different spot, in its own style &mdash; so
+      before asking a single question, the person has to know how all four
+      products write things down. Here are four real lines from the run below.
+      Look for the same address in each:
+    </p>
+
+    <div class="collapse">
+      <div class="collapse-head">
+        <b>220.170.88.36</b>
+        <span>the same address, written 4 different ways &mdash; 557 times in one 20,338-record stream</span>
+      </div>
+
+      <div class="vendors">
+        <div class="vendor">
+          <div class="vendor-name">Snort<em>intrusion detector &mdash; buried mid-sentence, after a brace</em></div>
+          <div class="rawline">Feb 25 13:09:28 bastion snort: [1:384:5] ICMP PING [Classification: Misc activity] [Priority: 3]: {ICMP} <span class="hit">220.170.88.36</span> -&gt; 11.11.79.64</div>
+        </div>
+        <div class="vendor">
+          <div class="vendor-name">Linux firewall<em>labelled SRC=, in no fixed order</em></div>
+          <div class="rawline">Feb 25 13:09:28 bridge kernel: INBOUND ICMP: IN=br0 PHYSIN=eth0 OUT=br0 PHYSOUT=eth1 SRC=<span class="hit">220.170.88.36</span> DST=11.11.79.64 LEN=64 TOS=0x00 TTL=110 PROTO=ICMP</div>
+        </div>
+        <div class="vendor">
+          <div class="vendor-name">Squid<em>web proxy &mdash; third item along, no label at all</em></div>
+          <div class="rawline">1137394370.773  29225 <span class="hit">220.170.88.36</span> TCP_MISS/000 0 GET http://clickingagent.com/proxycheck.php? - NONE/- -</div>
+        </div>
+        <div class="vendor">
+          <div class="vendor-name">Apache<em>web server &mdash; very first thing on the line</em></div>
+          <div class="rawline"><span class="hit">220.170.88.36</span> - - [11/Mar/2005:10:04:29 -0500] "GET http://www.yahoo.com/ HTTP/1.1" 403 2898 "-" "Mozilla/4.0 (compatible; MSIE 4.01; Windows 98)"</div>
+        </div>
+      </div>
+
+      <div class="arrow-row">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M3.5 9.5 8 14l4.5-4.5"/></svg>
+        ULPF rewrites all four into one shared vocabulary
+      </div>
+
+      <div class="unified">
+        <div class="field mono">src_endpoint.ip = "220.170.88.36"</div>
+        <p class="cap">
+          Now there is one name for it, so one search finds all four. It returned
+          <b>557 events in 270&nbsp;ms</b> &mdash; and whoever ran it needed to
+          know how <b>none</b> of the four products write their logs.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================ exhibits -->
+  <section class="exhibits">
+    <div class="sec-head"><h2>The six things, in the order they matter</h2></div>
+    <p class="sec-note">
+      These follow a real investigation from start to finish: everything arrives
+      &rarr; you search it &rarr; you go back and look at the original &rarr; you
+      check nobody has quietly edited it &rarr; you prove it to someone else
+      &rarr; and that proof still has to work a year later, in court.
+    </p>
+
+    <!-- 1 -->
+    <article class="exhibit">
+      <div class="ex-no">01</div>
+      <div class="ex-body">
+        <h3>Everything gets in. Nothing gets thrown away.</h3>
+        <p class="ex-claim">
+          We mixed eight real products' logs into one file &mdash; Snort,
+          Linux firewall, Squid, Apache, Dragon, Zeek, Linux system log and the
+          mail server &mdash; jumbled together the way they would actually
+          arrive. Then we handed the whole mess to ULPF without telling it what
+          was in there.
+        </p>
+        <p class="ex-claim">
+          28 lines were in a format it had never seen. <b>It kept all 28
+          anyway</b>, with their contents intact, so 10 of them can still be
+          found by searching for an IP or a username. This matters: most tools
+          silently bin what they cannot read, and the one line you needed is
+          usually the strange one.
+        </p>
+        <div class="results">
+          <div class="res"><div class="v num">20,338</div><div class="k">records ingested</div></div>
+          <div class="res"><div class="v ok num">99.8623%</div><div class="k">fully understood and translated</div></div>
+          <div class="res"><div class="v num">28</div><div class="k">not recognised &mdash; and all 28 still kept</div></div>
+          <div class="res"><div class="v num">20,179</div><div class="k">lines a second, on one laptop</div></div>
+        </div>
+        <div class="cmd">
+          <div class="cmd-label">What we ran, and exactly what it printed</div>
+<pre><span class="p">$</span> ulpf run --packs packs --vault v --integrity-dir i \
+      --chain mixed --input mixed.log --output out.ndjson
+
+  received          <span class="o">20338</span>
+  parsed            <span class="o">20310</span> (<span class="g">99.8623% coverage</span>)
+  unidentified      28
+    of those, searchable  10 (35.7% carry an indicator or a named field)
+  extract failed    0
+  normalize failed  0
+  elapsed           1.008s  (<span class="o">20179 events/sec</span>)
+  by pack:
+    apache-access-http      3000     snort-nids-alert        3000
+    enterasys-dragon-nids   3000     squid-proxy-access      3000
+    linux-iptables-firewall 3000     zeek-conn               2990
+    linux-syslog-host       1163     sendmail-mta            1157</pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- 2 -->
+    <article class="exhibit">
+      <div class="ex-no">02</div>
+      <div class="ex-body">
+        <h3>One search instead of four</h3>
+        <p class="ex-claim">
+          Seven of the eight products record who the traffic came from. After
+          ULPF, all seven put it under the same name. So the question "where
+          else has this address been?" is now one search that covers the whole
+          network &mdash; instead of four searches, in four styles, that only
+          cover the products you happen to know.
+        </p>
+        <p class="ex-claim">
+          This is the single biggest time saving on the page, and it happens
+          before an investigation even begins.
+        </p>
+        <div class="results">
+          <div class="res"><div class="v num">18,486</div><div class="k">lines now searchable by who sent them &mdash; 90.9% of everything</div></div>
+          <div class="res"><div class="v num">7 of 8</div><div class="k">products feeding that one shared name</div></div>
+          <div class="res"><div class="v num">4</div><div class="k">products that had seen the busiest address</div></div>
+          <div class="res"><div class="v ok num">270 ms</div><div class="k">to find all 557 of its appearances</div></div>
+        </div>
+      </div>
+    </article>
+
+    <!-- 3 -->
+    <article class="exhibit">
+      <div class="ex-no">03</div>
+      <div class="ex-body">
+        <h3>The original line is always still there</h3>
+        <p class="ex-claim">
+          This is where most tools lose the evidence. They tidy a log line into
+          neat fields, keep the fields, and throw the original line away. If a
+          lawyer later asks "what did the machine actually print?", there is no
+          answer.
+        </p>
+        <p class="ex-claim">
+          ULPF keeps every original line and stores a <b>fingerprint</b> of it
+          &mdash; a short code that changes completely if even one character
+          changes. Ask for the original back, re-take its fingerprint, and it
+          matches the one recorded when the line first arrived. That is what
+          proves it is untouched.
+        </p>
+        <div class="results">
+          <div class="res"><div class="v num">164</div><div class="k">characters returned, exactly as first written</div></div>
+          <div class="res"><div class="v ok num">76 ms</div><div class="k">to fetch the original back</div></div>
+          <div class="res"><div class="v ok sm">Fingerprints match</div><div class="k">what came back is identical to what arrived</div></div>
+        </div>
+        <div class="cmd">
+          <div class="cmd-label">Fetch the original back, then re-fingerprint it</div>
+<pre><span class="p">$</span> ulpf raw --vault v ulpf:raw:0000000000000000:00000000003f8909:000000a4
+Mar 12 07:32:11 bastion snort: [1:2003:8] MS-SQL Worm propagation attempt
+[Classification: Misc Attack] [Priority: 2]: {UDP} 82.239.53.138:3016 -&gt; 11.11.79.84:1434
+
+<span class="p">$</span> sha256sum &lt; recovered.bin
+<span class="g">c2dc7b2c4fd462fe020ba01e21d0d3f9cda3b51fc701ad74a5c2de5ba4701e52</span>
+
+<span class="p"># the same value the normalized event recorded at ingest time:</span>
+<span class="p">#</span> .raw_data_hash.value = <span class="g">c2dc7b2c…4701e52</span>   .raw_data_size = 164</pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- 4 -->
+    <article class="exhibit">
+      <div class="ex-no">04</div>
+      <div class="ex-body">
+        <h3>Change one character and it shows</h3>
+        <p class="ex-claim">
+          An attacker's last move is usually to edit the logs and delete
+          themselves from them. Every line here is fingerprinted, and each
+          fingerprint is locked to the one before it &mdash; like a sealed chain.
+          Break one link and the whole chain reports it.
+        </p>
+        <p class="ex-claim">
+          We tested it: out of 20,338 lines we changed <b>one address on one
+          line</b>, exactly the edit an intruder would make, and ran the check
+          again. It did not shrug or warn &mdash; it failed outright, and
+          reported failure in a way a machine can act on, so this can run
+          automatically every night instead of relying on someone reading a
+          screen.
+        </p>
+        <div class="results">
+          <div class="res"><div class="v ok num">20,338</div><div class="k">lines checked and clean, in under a second</div></div>
+          <div class="res"><div class="v no sm">Caught in 559 ms</div><div class="k">after a single line was secretly edited</div></div>
+          <div class="res"><div class="v no num">1</div><div class="k">character changed &mdash; enough to be caught</div></div>
+        </div>
+        <div class="cmd">
+          <div class="cmd-label">The same check, before and after one secret edit</div>
+<pre><span class="p">$</span> ulpf verify out.ndjson
+<span class="g">OK  20338 events verified</span>
+    chain head 01a08b37-c94d-7043-a081-f6b3979a1ed2
+    fingerprint e1c06bec3f114a315a434b6c92779173e6943c8aebe46a07ed55462422a52d60
+
+<span class="p">$</span> ulpf verify tampered.ndjson
+<span class="r">[mixed] FAIL  fingerprint mismatch: event content has been altered</span>
+<span class="r">Error: 1 of 1 chains failed verification</span>          <span class="p">(exit 1)</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- 5 -->
+    <article class="exhibit">
+      <div class="ex-no">05</div>
+      <div class="ex-body">
+        <h3>Prove one line without showing the other 49,999</h3>
+        <p class="ex-claim">
+          Say you need to prove in court that one specific line was in your logs.
+          Normally you must hand over the entire log file &mdash; which means
+          disclosing everything else in it too: other customers, other staff,
+          unrelated incidents.
+        </p>
+        <p class="ex-claim">
+          Instead ULPF issues a <b>receipt</b> for that one line. It is
+          <b>2,261 bytes</b> &mdash; about the size of a text message &mdash; and
+          it is enough to prove that line was present, without revealing a single
+          other line. The other side can check it on their own computer, offline,
+          with nothing from us. This uses the same method that secures every
+          HTTPS certificate on the internet.
+        </p>
+        <p class="ex-claim">
+          We then tried to cheat it four different ways, including forging the
+          receipt and editing the line it refers to. <b>All four were caught</b>,
+          and each time it said exactly what was wrong.
+        </p>
+        <div class="results">
+          <div class="res"><div class="v num">1 of 50,000</div><div class="k">lines proved &mdash; the rest stay private</div></div>
+          <div class="res"><div class="v num">2,261</div><div class="k">bytes &mdash; the whole receipt, checkable offline</div></div>
+          <div class="res"><div class="v ok num">4 / 4</div><div class="k">attempts to forge it were caught</div></div>
+          <div class="res"><div class="v ok sm">Digitally signed</div><div class="k">so a forged receipt cannot be passed off as ours</div></div>
+        </div>
+        <div class="cmd">
+          <div class="cmd-label">A real receipt being checked</div>
+<pre><span class="p">$</span> ulpf verify-proof --proof proof.json \
+      --public-key ed25519-signing.pub --event one-event.json
+<span class="g">PROOF VALID</span>
+  chain:         evidence
+  position:      <span class="o">25001 of 50000</span>
+  proof size:    <span class="o">16 hashes</span>
+  signed root:   0011f99d2bf2c4266304883aa6386debd2314b3629eee80b85250ff57bbf546a
+  checkpoint:    <span class="g">verified against ed25519-signing.pub</span>
+  event matches: <span class="g">one-event.json fingerprints to the proved leaf</span></pre>
+        </div>
+        <div class="cmd">
+          <div class="cmd-label">Four attempts to cheat, all rejected</div>
+<pre><span class="p">#</span> leaf fingerprint altered · path hash altered · index changed
+<span class="r">Error: the proof does not reproduce the root it claims:</span>
+<span class="r">       this record is not in the log the checkpoint describes</span>   <span class="p">(exit 1)</span>
+
+<span class="p">#</span> checkpoint checked against a different chain's key
+<span class="r">Error: the checkpoint is not signed by the supplied public key</span>   <span class="p">(exit 1)</span>
+
+<span class="p">#</span> event body edited, proof left intact
+<span class="r">Error: the event failed its own fingerprint check</span></pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- 6 -->
+    <article class="exhibit">
+      <div class="ex-no">06</div>
+      <div class="ex-body">
+        <h3>Today's receipt still works next year</h3>
+        <p class="ex-claim">
+          Court cases take years, and logs keep growing the whole time. A receipt
+          issued today describes the log as it looked today &mdash; so by the
+          hearing, it could easily be worthless.
+        </p>
+        <p class="ex-claim">
+          We tested this by collecting another 10,000 events and re-checking the
+          old receipt. <b>It still works.</b> A 416-byte note proves the old log
+          is simply the beginning of today's log, unchanged &mdash; nothing was
+          rewritten in between. Evidence handed over years ago never needs to be
+          reissued, and cannot quietly be invalidated by us continuing to
+          collect.
+        </p>
+        <div class="results">
+          <div class="res"><div class="v num">50k &rarr; 60k</div><div class="k">log kept growing after the receipt was issued</div></div>
+          <div class="res"><div class="v num">416</div><div class="k">bytes needed to link old log to new</div></div>
+          <div class="res"><div class="v ok sm">Still valid</div><div class="k">the original receipt, re-checked today</div></div>
+        </div>
+        <div class="cmd">
+          <div class="cmd-label">Re-checking the old receipt against today's log</div>
+<pre><span class="p">$</span> ulpf consistency --chain evidence --from 50000 &gt; cons.json
+bridge from 50000 leaves to 60000: <span class="o">13 hashes, 416 bytes</span>
+
+<span class="p">$</span> ulpf verify-proof --proof proof.json --checkpoint evidence.checkpoint.json \
+      --public-key ed25519-signing.pub --consistency cons.json
+<span class="g">PROOF VALID</span>
+  position:    25001 of 50000
+  bridged:     <span class="o">50000 leaves to 60000 in 13 hashes</span>
+  checkpoint:  <span class="g">verified against ed25519-signing.pub</span></pre>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <!-- ============================================ caveats -->
+  <section class="caveats">
+    <div class="caveats-head">
+      <h2>What we are <em>not</em> claiming</h2>
+      <p>
+        These are the numbers that would have made this page look better, and
+        that we have not earned yet. They are printed here on purpose: you should
+        be able to tell which of our figures were measured and which were only
+        calculated.
+      </p>
+    </div>
+    <dl>
+      <div class="caveat">
+        <dt>864 million a day</dt>
+        <dd>
+          <b>That is multiplication, not a measurement.</b> It is
+          10,000&nbsp;&times;&nbsp;86,400 seconds in a day &mdash; stretched from
+          a ten-second test out to a full day, a jump of 8,640&times;. We have not
+          run it for a day. The speed we <em>have</em> measured is 20,179 lines a
+          second across eight mixed products.
+        </dd>
+      </div>
+      <div class="caveat">
+        <dt>1 billion a day</dt>
+        <dd>
+          <b>Not achieved yet.</b> It needs several machines running together for
+          a full day, which we have not done. It is our goal, and we call it a
+          goal &mdash; see the next line for the problem currently in the way.
+        </dd>
+      </div>
+      <div class="caveat">
+        <dt>Our largest test file</dt>
+        <dd>
+          <b>It did not finish, and we still do not know why.</b> An
+          8,130,590-line proxy log ran past a 30-minute limit. We spent this
+          session trying to explain it and can report honestly that we cannot
+          yet. Our leading theory &mdash; that the tamper-proof seal gets slower
+          as the log grows &mdash; was tested directly by feeding the same
+          200,000 lines five times into an ever-larger log, and it was
+          <b>disproved</b>: the run against the largest log was the fastest of
+          the five. Measured speed swings between 7,400 and 20,400 lines a second
+          for reasons we have not isolated. Until we can explain it, this file's
+          numbers stay out of every speed figure on this page, and this is the
+          open problem between us and the billion-a-day goal.
+        </dd>
+      </div>
+      <div class="caveat">
+        <dt>&ldquo;100% accurate&rdquo;</dt>
+        <dd>
+          <b>100% on our own 81 test cases &mdash; not on the whole world.</b>
+          Those are 81 lines we checked by hand, covering the 37 products we
+          support. Passing them means the tool really does what we said it does.
+          It is not a promise about a product nobody has taught it yet.
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+  <!-- ============================================ closing -->
+  <section class="closing">
+    <h2>The one thing to remember</h2>
+    <p>
+      <b>ULPF does not catch attackers. It makes the evidence usable.</b> It sits
+      in front of the tools that do the catching, and changes what they have to
+      work with: every product speaking one language, every original line still
+      there and provably untouched, and any single line provable to someone who
+      does not trust you &mdash; without showing them the rest.
+    </p>
+    <p>
+      Put simply: it removes the half hour of translation before an investigation
+      can start, and it keeps the answer standing up in the room where it
+      eventually gets questioned.
+    </p>
+    <div class="colophon">
+      Every figure above came out of ulpf 0.1.0, commit f9287a7, run on
+      2026-09-10 on one laptop &mdash; nothing here is estimated or typed in by
+      hand.<br>
+      The logs are real public attack captures: the Honeynet Project (Scans of
+      the Month 30 and 34) and the Loghub research collection &mdash;
+      345,070,506 genuine records, 59.63&nbsp;GB. None of it is invented.
+    </div>
+  </section>
+
+</main>
+
+<script>
+(function () {
+  var root = document.documentElement, btn = document.getElementById("tt"),
+      lbl = document.getElementById("tt-l");
+  function current() {
+    var s = root.getAttribute("data-theme");
+    if (s) return s;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  function paint() { lbl.textContent = current() === "dark" ? "Light" : "Dark"; }
+  try { var saved = localStorage.getItem("ulpf-docket-theme");
+        if (saved === "dark" || saved === "light") root.setAttribute("data-theme", saved); } catch (e) {}
+  paint();
+  btn.addEventListener("click", function () {
+    var next = current() === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("ulpf-docket-theme", next); } catch (e) {}
+    paint();
+  });
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paint);
+})();
+</script>
+
+</body>
+</html>

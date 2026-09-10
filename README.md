@@ -752,6 +752,7 @@ traffic, let the console draft a candidate for you and edit from there —
 | [UNKNOWN_LOG_ONBOARDING.md](docs/UNKNOWN_LOG_ONBOARDING.md) | Evidence-based identification and Source Pack workflow for unseen logs |
 | [SINKS.md](docs/SINKS.md) | Parquet, OpenSearch, Splunk HEC |
 | [WAZUH_INTEGRATION.md](docs/WAZUH_INTEGRATION.md) | Windows setup for routing `/dev` corpora to Wazuh archives |
+| [SECURITY-EVIDENCE.html](docs/SECURITY-EVIDENCE.html) | The security case, as a standalone page: six measured properties with the command that produced each |
 | [TESTING.md](docs/TESTING.md) | Test strategy |
 | [PROBLEM-STATEMENT.md](docs/PROBLEM-STATEMENT.md) | PS 26156 read closely: what each clause demands, and how we resolved its ambiguities |
 
