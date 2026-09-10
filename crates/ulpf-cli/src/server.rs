@@ -110,6 +110,7 @@ pub fn router(
         .route("/api/sim/sources", get(sim_sources))
         .route("/api/sim/target", post(sim_target))
         .route("/api/sim/toggle", post(sim_toggle))
+        .route("/api/sim/start-all", post(sim_start_all))
         .route("/api/sim/stop-all", post(sim_stop_all))
         .route("/api/proof", post(make_proof))
         .route("/api/verify-proof", post(check_proof))
@@ -772,6 +773,31 @@ async fn sim_target(
         "running": s.simulator.running_count(),
         "sources": s.simulator.status(),
     })))
+}
+
+#[derive(serde::Deserialize)]
+struct SimStartAllBody {
+    eps: Option<u64>,
+}
+
+/// Start every source that has a corpus on disk.
+///
+/// One button instead of ten switches. The per-source rate is what each stream
+/// is started at, not a budget divided between them, so ten sources at 500 EPS
+/// offer 5,000 EPS in total — the same arithmetic as turning them on by hand.
+async fn sim_start_all(
+    State(state): State<Shared>,
+    Json(body): Json<SimStartAllBody>,
+) -> Json<Value> {
+    let eps = body.eps.unwrap_or(500).clamp(1, 50_000);
+    let mut s = lock(&state);
+    let started = s.simulator.start_all(eps);
+    Json(json!({
+        "ok": true,
+        "started": started,
+        "eps": eps,
+        "sources": s.simulator.status(),
+    }))
 }
 
 async fn sim_stop_all(State(state): State<Shared>) -> Json<Value> {

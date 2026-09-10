@@ -78,7 +78,16 @@ UNIVERSAL = [
     ("mobile", "HealthApp_2k.log", "HealthApp (Loghub)"),
 ]
 
+# `tools/make_demo_source.py` writes a synthetic corpus into the same directory
+# so the onboarding workflow can be demonstrated on an unseen device. It is
+# named here only to be excluded: measuring invented data would make every
+# figure below unfalsifiable, which is the opposite of the point.
+SYNTHETIC = {"apx-ngfw-synthetic.log"}
+
 CORPORA = PERIMETER + UNIVERSAL
+assert not (SYNTHETIC & {source for _, source, _ in CORPORA}), (
+    "a synthetic corpus must never appear in the measured set"
+)
 
 # Files whose label belongs to the headline figure.
 PERIMETER_FILES = {source for _, source, _ in PERIMETER}

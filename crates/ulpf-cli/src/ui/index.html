@@ -2267,6 +2267,12 @@ async function generatePack(clusterId, mode, buttons) {
     $("btn-approve").hidden = false;
     $("btn-revalidate").hidden = false;
     $("btn-revert").hidden = false;
+    // Score the draft immediately. A draft the generator could not give a
+    // detector cannot be approved at all, and finding that out by clicking
+    // "Approve and deploy" and reading a compile error is a bad way to learn
+    // it. Validating on arrival puts the blocking reason under the editor,
+    // next to the YAML the operator has to fix.
+    revalidatePack();
   } catch (e) {
     $("review-sub").textContent = "Could not draft a pack.";
     $("rev-yaml").value = e.message;
