@@ -43,18 +43,19 @@ pub fn draft_pack(cluster_id: &str, raw_log: &str) -> anyhow::Result<DraftResult
     // list (`srcip`, `dstport`) regardless of the input, so a device using
     // `src_addr` got a pack that matched nothing and scored 0.
     let decoders = crate::llm::infer_decoders(&samples);
-    // A draft whose detector has no positive predicate does not compile at
-    // all: the console reported "identity.detect contains an empty detector"
-    // and offered the operator a pack they could not approve or usefully edit.
-    // derive_detectors judges tokens individually, so a source whose only
-    // fixed text is a phrase yields nothing; fall back to the longest phrase
-    // every sample shares before giving up.
-    let mut detect = crate::llm::derive_detectors(&samples);
-    if detect.is_empty() {
-        if let Some(phrase) = crate::llm::longest_common_phrase(&samples) {
-            detect.push(phrase);
-        }
-    }
+    // What identifies this cluster, and which of its samples that actually
+    // covers. See derive_detector_for: a cluster is not always one source, and
+    // drafting for the dominant format beats refusing to draft.
+    let derived = crate::llm::derive_detector_for(&samples);
+    let detect = derived.literals.clone();
+    // Fixtures come from the claimed subset, so a generated pack always claims
+    // its own fixtures. Drawing them from the whole cluster is what produced
+    // "0/3 fixtures pass -- pack does not claim its own fixture".
+    let fixture_pool: Vec<String> = if derived.claimed.is_empty() {
+        samples.clone()
+    } else {
+        derived.claimed.clone()
+    };
     let available = crate::llm::available_field_names(&samples);
     let field_map = crate::llm::infer_field_map(&available);
 
@@ -132,18 +133,8 @@ pub fn draft_pack(cluster_id: &str, raw_log: &str) -> anyhow::Result<DraftResult
         log_format: Some(source_profile.wire_format.clone()),
         // Detectors derived from the samples. An empty list claims nothing, so
         // the drafted pack would have loaded and then matched no traffic.
-        // Still empty means the samples share no stable text at all. The draft
-        // is emitted anyway, because an operator who can see and edit it is
-        // better served than one handed a compile error, but it carries a
-        // placeholder that matches nothing rather than a detector that claims
-        // everything. Its fixtures fail by construction, so approval is
-        // refused until a real discriminator replaces it.
         detect: vec![ulpf_pack::spec::Detector {
-            contains_all: if detect.is_empty() {
-                vec![crate::llm::DETECTOR_PLACEHOLDER.to_string()]
-            } else {
-                detect
-            },
+            contains_all: detect,
             contains_any: Vec::new(),
             contains_none: Vec::new(),
             starts_with: None,
@@ -177,7 +168,7 @@ pub fn draft_pack(cluster_id: &str, raw_log: &str) -> anyhow::Result<DraftResult
         // event, so the candidate always scored zero.
         // The three most *different* samples, not the first three. A pack
         // drafted from three near-identical adjacent lines learns one shape.
-        fixtures: crate::sampler::diverse_samples(&samples, 3)
+        fixtures: crate::sampler::diverse_samples(&fixture_pool, 3)
             .iter()
             .map(|raw| ulpf_pack::Fixture {
                 raw: raw.clone(),

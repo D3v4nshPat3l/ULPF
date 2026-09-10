@@ -678,19 +678,16 @@ fn assemble_pack(
     // the model's word. A literal that does not occur in every sample cannot
     // identify the source, and a model that hallucinates one would produce a
     // pack that silently matches nothing.
-    let mut detect = derive_detectors(samples);
-    // Same fallback as the heuristic path. derive_detectors judges tokens one
-    // at a time, so a source whose only fixed text is a phrase yields nothing
-    // and the assembled pack carried a detector with no positive predicate --
-    // which does not compile, and reached the operator as "identity.detect
-    // contains an empty detector" on a draft they could not edit their way out
-    // of. Both drafting routes have to be guarded: fixing only one leaves the
-    // other button producing the same broken pack.
-    if detect.is_empty() {
-        if let Some(phrase) = longest_common_phrase(samples) {
-            detect.push(phrase);
-        }
-    }
+    let derived = derive_detector_for(samples);
+    let detect = derived.literals.clone();
+    // Fixtures come from what the detector claims, not from the cluster. A
+    // fixture the pack cannot claim fails by construction and blocks approval
+    // on a draft that is otherwise correct for its own format.
+    let fixture_pool: &[String] = if derived.claimed.is_empty() {
+        samples
+    } else {
+        &derived.claimed
+    };
 
     // Which decoders a body needs is decided by looking at the bytes, not by
     // asking the model. A 1.5B model offered "cef" for a plain key=value body;
@@ -791,7 +788,7 @@ fn assemble_pack(
 
     // Fixtures come from the real samples, so the scorer grades the candidate
     // against the traffic it was drafted from.
-    let fixtures: Vec<Fixture> = crate::sampler::diverse_samples(samples, 3)
+    let fixtures: Vec<Fixture> = crate::sampler::diverse_samples(fixture_pool, 3)
         .into_iter()
         .map(|raw| Fixture {
             raw,
@@ -843,15 +840,7 @@ fn assemble_pack(
             version: None,
             log_format: Some(source_profile.wire_format.clone()),
             detect: vec![Detector {
-                // A placeholder that matches nothing, rather than an empty
-                // detector that will not compile at all. The draft stays
-                // editable and its fixtures fail, so it cannot be approved
-                // until a real discriminator replaces this.
-                contains_all: if detect.is_empty() {
-                    vec![DETECTOR_PLACEHOLDER.to_string()]
-                } else {
-                    detect
-                },
+                contains_all: detect,
                 contains_any: Vec::new(),
                 contains_none: Vec::new(),
                 starts_with: None,
@@ -1137,6 +1126,100 @@ fn slug(raw: &str) -> String {
     }
     out.trim_matches('-').to_string()
 }
+/// A detector for a cluster, and the samples it actually claims.
+///
+/// The two travel together because a generated pack's fixtures are drawn from
+/// its samples, and a fixture the detector does not claim fails by
+/// construction. That is what produced "0/3 fixtures pass — pack does not
+/// claim its own fixture" on a draft nobody could approve.
+pub struct DerivedDetector {
+    pub literals: Vec<String>,
+    /// The samples `literals` match. Empty only when nothing was derivable.
+    pub claimed: Vec<String>,
+}
+
+/// Work out what identifies a cluster, in falling order of confidence.
+///
+/// Clusters are not always one source. A drain template can merge records that
+/// share a shape but not an origin, and the case that exposed this held two
+/// Linux root logins and one malformed Apache request. Nothing is common to
+/// all three, because they are not the same thing.
+///
+/// So: a token every sample carries, else a phrase every sample carries, else
+/// the strongest literal a majority carry -- drafting for the dominant format
+/// and reporting the rest as unclaimed, which is more useful than refusing to
+/// draft at all. Only when even a majority share nothing does the placeholder
+/// appear.
+pub fn derive_detector_for(samples: &[String]) -> DerivedDetector {
+    let all = |literals: Vec<String>| DerivedDetector {
+        literals,
+        claimed: samples.to_vec(),
+    };
+
+    let tokens = derive_detectors(samples);
+    if !tokens.is_empty() {
+        return all(tokens);
+    }
+    if let Some(phrase) = longest_common_phrase(samples) {
+        return all(vec![phrase]);
+    }
+
+    // Candidates come from pairs, not from single samples. A lone sample
+    // yields nothing here: is_stable_literal wants punctuation or eight
+    // characters, so `combo`, `ROOT` and `LOGIN` are each rejected on their
+    // own even though `ROOT LOGIN ON` identifies the source exactly. Two
+    // samples that agree, on the other hand, produce a phrase directly.
+    //
+    // Bounded at eight samples because this is quadratic in the pair count and
+    // a cluster's shape is settled long before the ninth record.
+    const PAIR_LIMIT: usize = 8;
+    let head = &samples[..samples.len().min(PAIR_LIMIT)];
+    let mut best: Option<(usize, String)> = None;
+    for (i, a) in head.iter().enumerate() {
+        for b in head.iter().skip(i + 1) {
+            let Some(candidate) = longest_common_phrase(&[a.clone(), b.clone()]) else {
+                continue;
+            };
+            let hits = samples.iter().filter(|s| s.contains(&candidate)).count();
+            let better = best
+                .as_ref()
+                .is_none_or(|(n, l)| hits > *n || (hits == *n && candidate.len() > l.len()));
+            if better {
+                best = Some((hits, candidate));
+            }
+        }
+    }
+
+    // A strict majority, and never a single sample: one record agreeing with
+    // itself is not evidence of a format.
+    if let Some((hits, literal)) = best {
+        if hits >= 2 && hits * 2 > samples.len() {
+            let claimed: Vec<String> = samples
+                .iter()
+                .filter(|s| s.contains(&literal))
+                .cloned()
+                .collect();
+            // Within the agreeing subset a phrase may be available even though
+            // it was not across the whole cluster, and it identifies the source
+            // more tightly than the single token that found the subset.
+            let literals = match longest_common_phrase(&claimed) {
+                Some(phrase) if phrase.len() > literal.len() => vec![phrase],
+                _ => vec![literal],
+            };
+            let claimed = claimed
+                .into_iter()
+                .filter(|s| literals.iter().all(|l| s.contains(l)))
+                .collect();
+            return DerivedDetector { literals, claimed };
+        }
+    }
+
+    DerivedDetector {
+        literals: vec![DETECTOR_PLACEHOLDER.to_string()],
+        claimed: Vec::new(),
+    }
+}
+
 /// Stands in for a detector the generator could not derive. It is deliberately
 /// text no log line will contain, so a draft carrying it loads without claiming
 /// traffic, and deliberately readable, so the operator editing the draft can
@@ -1644,6 +1727,63 @@ mod detector_fallback_tests {
                 "a blank literal is an empty detector wearing a hat: {contains_all:?}"
             );
         }
+    }
+
+    /// The cluster from the console that drafted a pack claiming none of its
+    /// own fixtures: two Linux root logins and one malformed Apache request,
+    /// merged by shape. Nothing is common to all three because they are not
+    /// the same source, so the draft must cover the majority format and report
+    /// the rest as unclaimed -- and its fixtures must come from what it claims.
+    #[test]
+    fn a_mixed_cluster_drafts_for_its_majority() {
+        let samples = vec![
+            "Feb 24 09:02:33 combo  -- root[2107]: ROOT LOGIN ON tty1".to_string(),
+            "211.144.162.173 - - [05/Feb/2005:08:16:59 -0500] \"GET /\" 501 1002 \"-\" \"-\""
+                .to_string(),
+            "Jul  7 08:06:15 combo  -- root[2421]: ROOT LOGIN ON tty2".to_string(),
+        ];
+        let derived = derive_detector_for(&samples);
+
+        assert!(
+            !derived.literals.is_empty()
+                && derived.literals.iter().all(|l| l != DETECTOR_PLACEHOLDER),
+            "expected a real discriminator, got {:?}",
+            derived.literals
+        );
+        assert_eq!(derived.claimed.len(), 2, "the two root logins, not the Apache line");
+        // The invariant that makes "does not claim its own fixture" impossible.
+        for sample in &derived.claimed {
+            assert!(
+                derived.literals.iter().all(|l| sample.contains(l)),
+                "{sample:?} is claimed but does not contain {:?}",
+                derived.literals
+            );
+        }
+        assert!(
+            !derived.claimed.iter().any(|s| s.contains("211.144.162.173")),
+            "the Apache line is a different source and must not be claimed"
+        );
+    }
+
+    #[test]
+    fn a_single_agreeing_sample_is_not_a_majority() {
+        // Three unrelated lines: no two agree, so there is no format to draft
+        // for and the placeholder is the honest answer.
+        let samples = vec![
+            "alpha one".to_string(),
+            "beta two".to_string(),
+            "gamma three".to_string(),
+        ];
+        let derived = derive_detector_for(&samples);
+        assert_eq!(derived.literals, vec![DETECTOR_PLACEHOLDER.to_string()]);
+        assert!(derived.claimed.is_empty());
+    }
+
+    #[test]
+    fn a_clean_cluster_still_claims_everything() {
+        let derived = derive_detector_for(&root_login_samples());
+        assert_eq!(derived.claimed.len(), 3);
+        assert!(derived.literals.iter().all(|l| l != DETECTOR_PLACEHOLDER));
     }
 
     #[test]
