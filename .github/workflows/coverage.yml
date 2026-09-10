@@ -26,6 +26,12 @@ on:
       - "crates/ulpf-decode/**"
       - "tools/measure_coverage.py"
       - "tools/coverage_baseline.json"
+      # This job's own machinery. Without these it could not test a change to
+      # itself: three fixes to the fetch step landed without ever running,
+      # because a commit touching only the workflow and the fetcher matched
+      # none of the paths above.
+      - "tools/fetch_datasets.py"
+      - ".github/workflows/coverage.yml"
 
 env:
   CARGO_TERM_COLOR: always
