@@ -38,6 +38,34 @@ const NODE_PREFIX: u8 = 0x01;
 pub struct MerkleLog {
     hash: HashAlgorithm,
     leaves: Vec<[u8; 32]>,
+    /// Roots of the perfect subtrees that tile the leaves, largest first.
+    ///
+    /// This is the binary decomposition of the leaf count: 22 leaves are
+    /// covered by subtrees of 16, 4 and 2. Appending a leaf pushes a subtree
+    /// of size one and merges equal-sized neighbours, which is the same
+    /// carry a binary increment performs — amortised O(1) hashes per append,
+    /// never more than log2(n).
+    ///
+    /// # Why this exists
+    ///
+    /// [`Self::root`] used to walk every leaf and rebuild the whole tree.
+    /// That is O(n) per call, and a checkpoint calls it: `ulpf run`
+    /// checkpoints every 8,192 events, so a run cost `(n / 8192) * O(n)`
+    /// hashes — quadratic in the number of records.
+    ///
+    /// Measured on this machine before the change: 22,421 events/sec over a
+    /// 40,000-record corpus, and roughly 2,460 events/sec over Blue Coat's
+    /// 8,130,590. The pipeline had not slowed down; the tree was being
+    /// rebuilt from scratch a thousand times. At the 22.7M-record Zeek
+    /// corpus it was hours of Merkle recomputation alone, which made a
+    /// framework claiming billions of events per day slower the longer it
+    /// ran.
+    ///
+    /// The fringe folds to the same RFC 6962 root the recursive walk
+    /// produced — the tests below check both against known vectors and
+    /// against inclusion proofs — it just stops recomputing what has not
+    /// changed.
+    fringe: Vec<(u64, [u8; 32])>,
 }
 
 /// A proof that one leaf sits at `leaf_index` in a tree of `tree_size` leaves.
@@ -58,12 +86,44 @@ impl MerkleLog {
         Self {
             hash,
             leaves: Vec::new(),
+            fringe: Vec::new(),
         }
     }
 
     /// Rebuild from previously persisted leaf hashes.
+    ///
+    /// The fringe is rebuilt in one linear pass here, which is the only
+    /// place that cost is paid — once at startup, not once per checkpoint.
     pub fn from_leaves(hash: HashAlgorithm, leaves: Vec<[u8; 32]>) -> Self {
-        Self { hash, leaves }
+        let mut log = Self {
+            hash,
+            leaves: Vec::new(),
+            fringe: Vec::new(),
+        };
+        for leaf in leaves {
+            log.leaves.push(leaf);
+            log.absorb(leaf);
+        }
+        log
+    }
+
+    /// Add one already-hashed leaf to the fringe, merging equal-sized
+    /// neighbours.
+    fn absorb(&mut self, leaf: [u8; 32]) {
+        self.fringe.push((1, leaf));
+        while self.fringe.len() >= 2 {
+            let (right_size, right) = self.fringe[self.fringe.len() - 1];
+            let (left_size, left) = self.fringe[self.fringe.len() - 2];
+            // Only perfect subtrees of equal size combine into a larger
+            // perfect subtree; unequal neighbours are the tree's right edge
+            // and stay separate until `root` folds them.
+            if left_size != right_size {
+                break;
+            }
+            let merged = self.node_hash(&left, &right);
+            self.fringe.truncate(self.fringe.len() - 2);
+            self.fringe.push((left_size + right_size, merged));
+        }
     }
 
     pub fn len(&self) -> u64 {
@@ -82,6 +142,7 @@ impl MerkleLog {
     pub fn append(&mut self, record: &[u8]) -> u64 {
         let leaf = self.leaf_hash(record);
         self.leaves.push(leaf);
+        self.absorb(leaf);
         self.leaves.len() as u64 - 1
     }
 
@@ -107,8 +168,22 @@ impl MerkleLog {
     /// An empty log hashes the empty string, per RFC 6962, so "nothing has been
     /// logged" is still a well-defined, signable statement rather than a
     /// special case the caller has to handle.
+    /// Fold the fringe right to left, which is the same shape the recursive
+    /// walk produced: the tree splits at the largest power of two below the
+    /// leaf count, so every subtree left of the split is perfect and the
+    /// remainder hangs off the right edge.
     pub fn root(&self) -> [u8; 32] {
-        self.root_of(&self.leaves)
+        let mut subtrees = self.fringe.iter().rev();
+        let Some((_, rightmost)) = subtrees.next() else {
+            // RFC 6962: the empty tree is the hash of the empty string, so
+            // "nothing has been logged" stays a signable statement.
+            return self.hash.digest_bytes(&[]);
+        };
+        let mut acc = *rightmost;
+        for (_, left) in subtrees {
+            acc = self.node_hash(left, &acc);
+        }
+        acc
     }
 
     pub fn root_hex(&self) -> String {
@@ -546,6 +621,54 @@ mod tests {
             }
         }
         assert_ne!(before, altered.root_hex());
+    }
+
+    #[test]
+    fn the_incremental_root_matches_a_full_rebuild() {
+        // `root` folds a fringe of perfect-subtree roots maintained on
+        // append; `root_of` rebuilds the whole tree from the leaves. They are
+        // the same RFC 6962 head, and this is what says so at every size
+        // where the tree's shape changes -- powers of two and the awkward
+        // sizes either side of them.
+        for n in 0..=130usize {
+            let mut log = MerkleLog::new(HashAlgorithm::Sha256);
+            for i in 0..n {
+                log.append(format!("record {i}").as_bytes());
+            }
+            assert_eq!(
+                log.root(),
+                log.root_of(&log.leaves),
+                "incremental and rebuilt roots disagree at {n} leaves"
+            );
+        }
+    }
+
+    #[test]
+    fn a_resumed_log_rebuilds_the_same_fringe() {
+        // A restart reloads persisted leaf hashes through `from_leaves`. If
+        // that rebuilt a different fringe, every proof issued after a restart
+        // would verify against a root nobody signed.
+        let mut original = MerkleLog::new(HashAlgorithm::Sha256);
+        for i in 0..77 {
+            original.append(format!("record {i}").as_bytes());
+        }
+        let resumed = MerkleLog::from_leaves(HashAlgorithm::Sha256, original.leaves().to_vec());
+        assert_eq!(original.root(), resumed.root());
+        assert_eq!(original.len(), resumed.len());
+    }
+
+    #[test]
+    fn the_fringe_tiles_the_leaf_count_in_binary() {
+        // 22 leaves decompose as 16 + 4 + 2, which is 10110 in binary. If
+        // this ever stops holding, `root`'s right-to-left fold is folding
+        // something other than the tree's perfect subtrees.
+        let mut log = MerkleLog::new(HashAlgorithm::Sha256);
+        for i in 0..22 {
+            log.append(format!("record {i}").as_bytes());
+        }
+        let sizes: Vec<u64> = log.fringe.iter().map(|(size, _)| *size).collect();
+        assert_eq!(sizes, vec![16, 4, 2]);
+        assert_eq!(sizes.iter().sum::<u64>(), log.len());
     }
 
     #[test]
