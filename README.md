@@ -517,19 +517,19 @@ full method, and the three limits found by measuring, are in
 
 ## Requirement coverage
 
-| # | Requirement | Status | Evidence |
+| # | Requirement | Status | How to check it yourself |
 |---|---|---|---|
-| a | Preserve raw event data without loss | **Done** | Append-only zstd vault written before parsing; locator on every event; CRC validated |
-| b | Extract source-specific attributes | **Done** | 10 decoders composed into per-pack chains |
-| c | Normalize to a common taxonomy | **Done** | OCSF 1.9.0, schema vendored at `schema/ocsf` |
-| d | Trace normalized events to originals | **Done** | `unmapped.ulpf_raw_locator`, content fingerprint, `prev_event` link; RFC 6962 Merkle proofs prove one event without disclosing the others |
-| e | Plug-and-play onboarding | **Done** | Declarative YAML packs, validated, fixture-tested, hot-reloaded by a filesystem watcher |
-| f | Unified visibility | **Done** | Embedded console, event inspector, cluster browser |
-| g | SIEM / data-lake integration | **Done** | NDJSON default; Parquet, OpenSearch Bulk and Splunk HEC fan-out |
-| h | AI/ML-ready analytics | **Done** | Hive-partitioned Parquet feature table with a fixed, versioned column contract |
-| i | Reduce parser development effort | **Done** | Drain clustering plus two generators, scored against real fixtures, human-approved |
-| j | Air-gapped deployment | **Done** | Zero runtime network dependency; console fully self-contained |
-| k | Containerized deployment | **Done** | Two-stage `Dockerfile` onto distroless, `--locked` build, read-only rootfs, all capabilities dropped; `deploy/ulpf-compose.yaml`, and `deploy/ulpf-sharded-compose.yaml` for a three-collector deployment |
+| a | Preserve raw event data without loss | **Done** | `ulpf raw <locator>` returns the exact original bytes for any event, including one no pack claimed. Vault is append-only zstd, CRC-verified, written *before* parsing |
+| b | Extract source-specific attributes | **Done** | `ulpf decoders` lists the ten; each pack composes them into a chain. `ulpf test --packs packs` scores field-level accuracy against fixtures |
+| c | Normalize to a common taxonomy | **Done** | OCSF 1.9.0, schema vendored at `schema/ocsf`. `tools/audit_pack_enums.py` checks every `activity_id` against it |
+| d | Trace normalized events to originals | **Done** | `unmapped.ulpf_raw_locator` + content fingerprint + `prev_event`. `ulpf prove` emits an RFC 6962 inclusion proof; `ulpf verify-proof` checks it holding no other part of the log |
+| e | Plug-and-play onboarding | **Done** | Copy a YAML file into `packs/` while `serve` is running; `/readyz` reports the new count within a second. No restart, no rebuild |
+| f | Unified visibility | **Done** | The embedded console: live table naming which pack claimed each record, a source breakdown, cluster browser, event inspector |
+| g | SIEM / data-lake integration | **Done** | NDJSON default; `--parquet`, `--features`, `--opensearch`, `--splunk-hec`, and `--forward-udp` for a SIEM already listening on syslog |
+| h | AI/ML-ready analytics | **Done** | `--features` writes a Hive-partitioned Parquet table with a fixed 24-column contract, version stamped in the footer. Readable by pyarrow, DuckDB and Spark |
+| i | Reduce parser development effort | **Done** | `ulpf profile` then `ulpf draft` on an unseen device: 0% to 100% coverage over 40,000 records with no hand-written parser. Deterministic, no model required |
+| j | Air-gapped deployment — **shall** | **Done** | No runtime network dependency on any path; console assets compiled into the binary. CI runs every build and test step `--offline`, which fails outright if Cargo would reach the network |
+| k | Containerized deployment — *may* | **Done** | Two-stage build onto distroless, read-only rootfs, all capabilities dropped. `deploy/demo-compose.yaml` brings ULPF and a SIEM up together in one command |
 
 ---
 
