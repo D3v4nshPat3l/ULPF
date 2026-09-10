@@ -5,8 +5,7 @@
 //! crosses the network unencrypted and unauthenticated at the transport
 //! level. That is a reasonable default on `127.0.0.1` (loopback traffic never
 //! leaves the host), and a real gap the moment `--host 0.0.0.0` is used to let
-//! a real device or a second machine reach the console, which the demo plan
-//! and `docs/3-LAPTOP-DEMO.md` both do.
+//! a real device on the network point at this collector.
 //!
 //! Two ways to get a certificate: bring your own (`--tls-cert`/`--tls-key`),
 //! or let the collector generate and cache a self-signed one

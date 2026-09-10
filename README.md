@@ -313,8 +313,8 @@ first run and cached under `--integrity-dir` (the browser will warn once,
 since there is no public CA behind it — expected, not a fault). Bring a real
 certificate instead with `--tls-cert`/`--tls-key`. Plain HTTP remains the
 default on `127.0.0.1`, where the traffic never leaves the host; enable TLS
-whenever `--host 0.0.0.0` puts the console on a shared network, which the
-[3-laptop demo](docs/3-LAPTOP-DEMO.md) does.
+whenever `--host 0.0.0.0` puts the console on a shared network so a real
+device can reach it.
 
 **Encrypting the signing key.** Available on `run`, `serve` and `listen`:
 `--encrypt-key` wraps a *newly created* signing key in a ChaCha20-Poly1305
@@ -738,10 +738,6 @@ traffic, let the console draft a candidate for you and edit from there —
 | [SINKS.md](docs/SINKS.md) | Parquet, OpenSearch, Splunk HEC |
 | [TESTING.md](docs/TESTING.md) | Test strategy |
 | [PROBLEM-STATEMENT.md](docs/PROBLEM-STATEMENT.md) | PS 26156 read closely: what each clause demands, and how we resolved its ambiguities |
-| [3-LAPTOP-DEMO.md](docs/3-LAPTOP-DEMO.md) | Verified step-by-step multi-machine demonstration |
-| [DEMO-VIDEO-SCRIPT.md](docs/DEMO-VIDEO-SCRIPT.md) | Shot list and narration for the two-minute video |
-| [SLIDE-CONTENT.md](docs/SLIDE-CONTENT.md) | Content for the five-slide submission deck (deck itself pending) |
-| [COMPLETION_PLAN.md](docs/COMPLETION_PLAN.md) | What is left, the competitive landscape, and ideas worth building |
 
 ---
 

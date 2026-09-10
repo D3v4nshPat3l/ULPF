@@ -384,4 +384,4 @@ edit upstream is visible as a difference.
 
 *Our answer to this statement, requirement by requirement with evidence, is the
 requirement table in [README.md](../README.md). What remains unfinished is in
-[COMPLETION_PLAN.md](COMPLETION_PLAN.md).*
+the roadmap in [README.md](../README.md#what-is-next).*

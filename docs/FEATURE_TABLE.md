@@ -147,7 +147,7 @@ uncompressed pages with a standard Thrift footer; nothing vendor-specific.
   predecessor. Until a content hash is recorded, a training set is
   reproducible only as far as the pack files are unchanged. This is the next
   thing worth adding, and it is tracked in
-  [COMPLETION_PLAN.md](COMPLETION_PLAN.md).
+  the roadmap in [README.md](../README.md#what-is-next).
 
 ## Changing the contract
 
