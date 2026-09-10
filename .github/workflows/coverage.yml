@@ -56,6 +56,8 @@ jobs:
       with:
         path: realdata
         key: ulpf-corpora-v1-${{ hashFiles('tools/fetch_datasets.py') }}
+        restore-keys: |
+          ulpf-corpora-v1-
 
     - name: Fetch corpora
       if: steps.corpora.outputs.cache-hit != 'true'
