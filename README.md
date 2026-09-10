@@ -726,6 +726,7 @@ traffic, let the console draft a candidate for you and edit from there —
 
 | Document | Contents |
 |---|---|
+| [DEMO.md](docs/DEMO.md) | The single-laptop demonstration, start to finish |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Crate boundaries and data flow |
 | [DATASETS.md](docs/DATASETS.md) | Corpus provenance, coverage, named misses |
 | [THROUGHPUT.md](docs/THROUGHPUT.md) | Measured EPS, method, the limits found |
