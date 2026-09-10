@@ -11,6 +11,14 @@
   `res.ok` before it reports success.
 -->
 <title>ULPF Console</title>
+<script>
+  /* Runs before the stylesheet paints, so a stored dark choice never shows a
+     frame of light first. Wrapped: private-mode storage throws on read. */
+  try {
+    var t = localStorage.getItem("ulpf-theme");
+    if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+</script>
 <style>
   :root{
     --nav:#1D1E24; --nav-hover:#2B2D35; --nav-text:#98A2B3; --nav-active:#FFFFFF;
@@ -22,13 +30,77 @@
     --danger:#BD271E; --danger-soft:#F8E7E6;
     --shadow:0 1px 3px rgba(29,30,36,.08);
     --radius:4px;
+    /* Read back by the drawing code through getComputedStyle, so a chart and
+       its legend can never disagree about a colour. */
+    --chart-1:#3568B8; --chart-2:#168672; --chart-3:#8B65B1; --chart-4:#B67828;
+    --chart-5:#438E91; --chart-6:#A75476; --chart-7:#758B3D; --chart-8:#5B718E;
+    --grid:#E5E9F1; --tip-meta:#B9C1D0; --hairline:rgba(29,30,36,.06);
+    --row-hover:rgba(0,0,0,.035); --row-sel:rgba(37,99,235,.09);
+    --scrim:rgba(20,21,25,.45); --on-accent:#FFFFFF;
   }
 
-  /* Light only, deliberately: this is an operator console that has to look
-     the same on every machine in the room, and match the SIEM beside it.
-     color-scheme pins the native controls so a dark OS cannot repaint
-     inputs, selects and scrollbars underneath the palette. */
+  /* Dark is a full re-declaration of the tokens above, never an inversion.
+     Three rules, because a viewer has three states: no stamp at all (follow
+     the OS), an explicit light choice, an explicit dark choice. The bare
+     :root block above is the light palette; nothing below it may declare a
+     colour literal, or that colour would survive into the wrong theme.
+
+     Adjustments made deliberately for dark, not mechanically:
+       - the page lifts off pure black to a blue ink, so panels can sit
+         *above* it and still read as raised;
+       - the nav stays the darkest surface, preserving the light-mode
+         relationship rather than flipping it;
+       - every accent gains lightness and loses saturation. #006BB4 on white
+         is calm; the same blue on near-black vibrates, so it becomes a
+         lighter, greyer #4BA3DC;
+       - the -soft fills become deep tints of their own hue instead of pale
+         washes, so a badge still reads as "blue" without glowing.
+
+     color-scheme is set per theme so native controls, scrollbars and form
+     widgets are repainted by the browser to match, instead of staying light
+     underneath a dark palette. */
   :root{color-scheme:light}
+
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      color-scheme:dark;
+      --nav:#0C1015; --nav-hover:#1B222B; --nav-text:#93A0AD; --nav-active:#FFFFFF;
+      --page:#12161B; --panel:#1A2028; --sunken:#151A21; --border:#2B3641;
+      --text:#E2E8EE; --text-2:#A5B2BE; --text-3:#7C8996;
+      --primary:#4BA3DC; --primary-soft:#0E2635;
+      --success:#3FB39E; --success-soft:#0D2C28;
+      --warning:#D9A93F; --warning-soft:#332711;
+      --danger:#E4695C;  --danger-soft:#3A1A17;
+      --shadow:0 1px 3px rgba(0,0,0,.6);
+      --node-device:#5C90DB;  --node-device-soft:#16243A;
+      --node-meaning:#38B096; --node-meaning-soft:#0E2E28;
+      --node-unknown:#DE6A5D; --node-unknown-soft:#3A1C19;
+      --chart-1:#5B93D8; --chart-2:#35A78E; --chart-3:#A585CE; --chart-4:#CE9450;
+      --chart-5:#5FA8AB; --chart-6:#C77593; --chart-7:#96AD59; --chart-8:#7B93B4;
+      --grid:#232C36; --tip-meta:#9AA7B4; --hairline:rgba(255,255,255,.06);
+      --row-hover:rgba(255,255,255,.045); --row-sel:rgba(75,163,220,.14);
+      --scrim:rgba(0,0,0,.62); --on-accent:#12161B;
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --nav:#0C1015; --nav-hover:#1B222B; --nav-text:#93A0AD; --nav-active:#FFFFFF;
+    --page:#12161B; --panel:#1A2028; --sunken:#151A21; --border:#2B3641;
+    --text:#E2E8EE; --text-2:#A5B2BE; --text-3:#7C8996;
+    --primary:#4BA3DC; --primary-soft:#0E2635;
+    --success:#3FB39E; --success-soft:#0D2C28;
+    --warning:#D9A93F; --warning-soft:#332711;
+    --danger:#E4695C;  --danger-soft:#3A1A17;
+    --shadow:0 1px 3px rgba(0,0,0,.6);
+    --node-device:#5C90DB;  --node-device-soft:#16243A;
+    --node-meaning:#38B096; --node-meaning-soft:#0E2E28;
+    --node-unknown:#DE6A5D; --node-unknown-soft:#3A1C19;
+    --chart-1:#5B93D8; --chart-2:#35A78E; --chart-3:#A585CE; --chart-4:#CE9450;
+    --chart-5:#5FA8AB; --chart-6:#C77593; --chart-7:#96AD59; --chart-8:#7B93B4;
+    --grid:#232C36; --tip-meta:#9AA7B4; --hairline:rgba(255,255,255,.06);
+    --row-hover:rgba(255,255,255,.045); --row-sel:rgba(75,163,220,.14);
+    --scrim:rgba(0,0,0,.62); --on-accent:#12161B;
+  }
   *{box-sizing:border-box}
   html,body{height:100%}
   body{
@@ -108,6 +180,15 @@
   .panel-head .right{margin-left:auto;display:flex;gap:8px;align-items:center}
   .panel-body{padding:16px}
 
+  .themebtn{
+    display:flex;align-items:center;gap:8px;width:100%;margin-bottom:10px;
+    padding:7px 9px;border:1px solid transparent;border-radius:var(--radius);
+    background:none;color:var(--nav-text);font:inherit;font-size:12.5px;
+    cursor:pointer;text-align:left;
+  }
+  .themebtn:hover{background:var(--nav-hover);color:var(--nav-active)}
+  .themebtn:focus-visible{outline:2px solid var(--primary);outline-offset:1px}
+
   /* --------------------------------------------- live map (flow diagram) */
   /* Colours are declared once and read back by the drawing code through
      getComputedStyle, so a legend can never drift from what is on screen. */
@@ -136,7 +217,7 @@
   }
   .lede-steps li::before{
     content:counter(lede);position:absolute;left:0;top:0;
-    width:19px;height:19px;border-radius:50%;background:var(--primary);color:#fff;
+    width:19px;height:19px;border-radius:50%;background:var(--primary);color:var(--on-accent);
     font:650 11px/19px Inter,-apple-system,"Segoe UI",sans-serif;text-align:center;
   }
   .lede-steps b{display:block;color:var(--text);font-weight:650}
@@ -186,7 +267,7 @@
   .flowhead .rt{text-align:right}
   #flow-svg{display:block;width:100%;height:clamp(400px,64vh,720px)}
   #graph-svg{display:block;width:100%;height:clamp(380px,60vh,680px);background:
-    radial-gradient(circle at 50% 48%,rgba(59,111,196,.07),transparent 28%),
+    radial-gradient(circle at 50% 48%,color-mix(in srgb,var(--node-device) 9%,transparent),transparent 28%),
     linear-gradient(var(--panel),var(--panel))}
   #flow-svg text{font-family:Inter,-apple-system,"Segoe UI",Roboto,sans-serif}
   #graph-svg text{font-family:Inter,-apple-system,"Segoe UI",Roboto,sans-serif;pointer-events:none}
@@ -202,7 +283,7 @@
   #graph-svg .graph-meta{font-size:10px;fill:var(--text-3)}
   .view-switch{display:inline-flex;padding:2px;border:1px solid var(--border);border-radius:6px;background:var(--sunken)}
   .view-switch button{border:0;background:transparent;color:var(--text-2);padding:5px 10px;border-radius:4px;font:600 11.5px/1.2 inherit;cursor:pointer}
-  .view-switch button[aria-pressed="true"]{background:var(--panel);color:var(--text);box-shadow:0 1px 3px rgba(29,30,36,.12)}
+  .view-switch button[aria-pressed="true"]{background:var(--panel);color:var(--text);box-shadow:var(--shadow)}
 
   /* Presentation mode. A projector is the worst case this view has: a room
      reads it from six metres away. Fullscreen hands the drawing the whole
@@ -226,7 +307,7 @@
   }
   .maptip.on{opacity:1}
   .maptip b{display:block;font-size:13px;margin-bottom:2px}
-  .maptip .m{color:#B9C1D0;font-variant-numeric:tabular-nums}
+  .maptip .m{color:var(--tip-meta);font-variant-numeric:tabular-nums}
 
   .mapempty{
     position:absolute;inset:0;display:grid;place-content:center;justify-items:center;
@@ -244,7 +325,7 @@
   .maplegend .dot.device{background:var(--node-device)}
   /* Meanings no longer share one colour, so the swatch shows that rather
      than picking one of them and quietly misleading. */
-  .maplegend .dot.meaning{background:conic-gradient(#2E7D6B 0 33%,#4A5FA5 0 66%,#8A6BB0 0)}
+  .maplegend .dot.meaning{background:conic-gradient(var(--chart-2) 0 33%,var(--chart-1) 0 66%,var(--chart-3) 0)}
   .maplegend .dot.unknown{background:var(--node-unknown)}
   .maplegend b{display:block;font-weight:650}
   .maplegend span{color:var(--text-2)}
@@ -314,16 +395,16 @@
 
   /* ----------------------------------------------- source pulse workspace */
   .analytics-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
-  .akpi{background:#fff;border:1px solid var(--border);border-radius:7px;padding:14px 16px;box-shadow:var(--shadow)}
+  .akpi{background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:14px 16px;box-shadow:var(--shadow)}
   .akpi .k{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);font-weight:650}
   .akpi .v{font-size:25px;line-height:1.2;font-weight:700;margin-top:5px;font-variant-numeric:tabular-nums}.akpi .n{font-size:11px;color:var(--text-3);margin-top:3px}
   .pulse-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-left:auto}
   .pulse-toolbar input{width:min(250px,42vw)}.pulse-toolbar select{min-width:145px}
-  .pulse-summary{display:flex;align-items:center;gap:18px;padding:12px 18px;border-bottom:1px solid var(--border);background:#FBFCFE;color:var(--text-2);font-size:12px}
+  .pulse-summary{display:flex;align-items:center;gap:18px;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--sunken);color:var(--text-2);font-size:12px}
   .pulse-summary b{color:var(--text);font-size:16px;margin-right:4px;font-variant-numeric:tabular-nums}
   .source-pulses{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:18px}
-  .source-pulse{border:1px solid var(--border);border-radius:7px;padding:16px 17px 13px;background:#fff;min-height:275px;box-shadow:0 1px 2px rgba(29,30,36,.04);transition:border-color .15s,box-shadow .15s}
-  .source-pulse:hover{border-color:#AEBACB;box-shadow:0 5px 18px rgba(35,48,70,.08)}
+  .source-pulse{border:1px solid var(--border);border-radius:7px;padding:16px 17px 13px;background:var(--panel);min-height:275px;box-shadow:0 1px 2px rgba(29,30,36,.04);transition:border-color .15s,box-shadow .15s}
+  .source-pulse:hover{border-color:var(--text-3);box-shadow:0 5px 18px rgba(35,48,70,.08)}
   .source-pulse-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}
   .source-pulse-name{font-size:14px;font-weight:650;min-width:0}.source-pulse-name small{display:block;color:var(--text-3);font:400 10.5px/1.5 "JetBrains Mono",ui-monospace,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .source-pulse-total{text-align:right;font-size:19px;font-weight:700;font-variant-numeric:tabular-nums}.source-pulse-total small{display:block;color:var(--text-3);font-size:10px;font-weight:500}
@@ -347,7 +428,7 @@
   }
   .roscard .step{padding:8px 12px 4px;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-3);font-weight:650}
   .roscard .rawline{
-    margin:0 12px 10px;padding:9px 10px;background:var(--nav);color:#D6DBE4;border-radius:var(--radius);
+    margin:0 12px 10px;padding:9px 10px;background:var(--nav);color:var(--nav-text);border-radius:var(--radius);
     font-family:"JetBrains Mono",ui-monospace,Consolas,monospace;font-size:10.5px;line-height:1.55;
     word-break:break-all;max-height:96px;overflow:hidden;
   }
@@ -385,13 +466,13 @@
   }
   .btn:hover:not(:disabled){background:var(--sunken)}
   .btn:disabled{opacity:.5;cursor:not-allowed}
-  .btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+  .btn.primary{background:var(--primary);border-color:var(--primary);color:var(--on-accent)}
   /* The base hover rule is `.btn:hover:not(:disabled)` — specificity (0,3,0) —
      while `.btn.primary` is only (0,2,0), so hovering a primary button replaced
      its background with the light `--sunken` and left the text white on it.
      Restating the background here, at (0,4,0), keeps it. */
   .btn.primary:hover:not(:disabled){background:var(--primary);filter:brightness(1.08)}
-  .btn.danger{background:var(--danger);border-color:var(--danger);color:#fff}
+  .btn.danger{background:var(--danger);border-color:var(--danger);color:var(--on-accent)}
   .btn.danger:hover:not(:disabled){background:var(--danger);filter:brightness(1.08)}
   .btn.sm{padding:5px 9px;font-size:11.5px}
   .btn:focus-visible,.navitem:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{
@@ -448,7 +529,7 @@
   .rowline{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
 
   /* ------------------------------------------------- drawer */
-  .backdrop{position:fixed;inset:0;background:rgba(20,21,25,.45);display:none;z-index:40}
+  .backdrop{position:fixed;inset:0;background:var(--scrim);display:none;z-index:40}
   .backdrop.open{display:block}
   .drawer{
     position:fixed;top:0;right:0;height:100vh;width:min(680px,94vw);background:var(--panel);
@@ -491,7 +572,7 @@
 
   .headline{
     padding:13px 15px;border-radius:var(--radius);background:var(--primary-soft);
-    border:1px solid #bcd9ee;font-size:13.5px;line-height:1.55;color:var(--text)
+    border:1px solid color-mix(in srgb,var(--primary) 34%,transparent);font-size:13.5px;line-height:1.55;color:var(--text)
   }
   .headline b{font-weight:600}
 
@@ -511,14 +592,14 @@
   }
   .ask-log{display:flex;flex-direction:column;gap:9px;margin-top:12px}
   .ask-log:empty{display:none}
-  .ask-q{align-self:flex-end;max-width:88%;background:var(--primary);color:#fff;padding:8px 12px;border-radius:var(--radius);font-size:13px}
+  .ask-q{align-self:flex-end;max-width:88%;background:var(--primary);color:var(--on-accent);padding:8px 12px;border-radius:var(--radius);font-size:13px}
   .ask-a{align-self:flex-start;max-width:95%;background:var(--sunken);padding:10px 12px;border-radius:var(--radius);font-size:13px;line-height:1.55;white-space:pre-wrap}
   .chip-sm{display:inline-block;padding:1px 7px;border-radius:10px;font:600 10.5px/1.7 inherit;background:var(--sunken);color:var(--text-2)}
 
   /* ------------------------------------------------- chat */
   .chat{display:flex;flex-direction:column;gap:11px;min-height:300px;max-height:52vh;overflow:auto;padding:2px}
   .msg{max-width:82%;padding:10px 13px;border-radius:var(--radius);font-size:13.5px;white-space:pre-wrap;word-break:break-word}
-  .msg.user{align-self:flex-end;background:var(--primary);color:#fff}
+  .msg.user{align-self:flex-end;background:var(--primary);color:var(--on-accent)}
   .msg.bot{align-self:flex-start;background:var(--sunken);border:1px solid var(--border);color:var(--text-2)}
   .msg.err{align-self:flex-start;background:var(--danger-soft);border:1px solid var(--danger);color:var(--danger)}
 
@@ -538,8 +619,8 @@
     display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);
     background:none;padding:9px 14px;cursor:pointer;font:inherit;color:inherit
   }
-  .rawrow:hover{background:var(--nav-hover-light,rgba(0,0,0,.035))}
-  .rawrow[aria-current="true"]{background:var(--sel,rgba(37,99,235,.09));box-shadow:inset 3px 0 0 var(--primary)}
+  .rawrow:hover{background:var(--row-hover)}
+  .rawrow[aria-current="true"]{background:var(--row-sel);box-shadow:inset 3px 0 0 var(--primary)}
   .rawrow .rawtop{display:flex;gap:8px;align-items:baseline;font-size:11.5px;color:var(--text-3)}
   .rawrow .rawtop b{color:var(--text-2);font-weight:600}
   /* The log line itself: one line, clipped, never wrapped. A wrapped preview
@@ -625,6 +706,10 @@
     </div>
 
     <div class="foot">
+      <button class="themebtn" id="themebtn" type="button" aria-pressed="false">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3v18" fill="currentColor" stroke="none"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+        <span id="themebtn-label">Dark theme</span>
+      </button>
       <a href="/dev" style="color:var(--nav-text)">Traffic simulator &rarr;</a>
     </div>
   </nav>
@@ -2482,7 +2567,18 @@ $("chat-input").addEventListener("keydown", (e) => {
 
 /* ------------------------------------------------ source pulse analytics */
 const ANALYTICS={stats:null,packs:[],samples:[],packRates:new Map(),previousReceived:null,previousPacks:{},sampledAt:null};
-const ANALYTICS_COLOURS=["#3568B8","#168672","#8B65B1","#B67828","#438E91","#A75476","#758B3D","#5B718E"];
+/* Chart colours live in CSS, not here, so light and dark are declared in one
+   place and a legend can never disagree with the shape it labels. These are
+   re-read on every theme change rather than captured once at load. */
+function cssVar(name, fallback){
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
+function chartPalette(){
+  return [1,2,3,4,5,6,7,8].map(i => cssVar("--chart-" + i, "#3568B8"));
+}
+let ANALYTICS_COLOURS = chartPalette();
+let CHART_GRID = cssVar("--grid", "#E5E9F1");
 function analyticsSourceName(id){
   const pack=ANALYTICS.packs.find(p=>p.id===id);if(!pack)return id;
   const parts=[pack.vendor,pack.product].filter(x=>x&&x!=="Unknown");
@@ -2531,7 +2627,7 @@ function drawSourcePulses(){
     const metrics=el("div","source-pulse-metrics");
     [["Current",Math.round(row.rate).toLocaleString()+" EPS"],["Peak",Math.round(peak).toLocaleString()+" EPS"],["Traffic share",(row.total/parsed*100).toFixed(1)+"%"]].forEach(([label,value])=>{const box=el("div");box.append(el("b",null,value),el("span",null,label));metrics.append(box)});card.append(metrics);
     const w=560,h=145,d=pulsePath(row.values,w,h),svg=svgEl("svg",{viewBox:"0 0 "+w+" "+h,role:"img","aria-label":"Recent event rate for "+row.name});
-    [0,.5,1].forEach(q=>svg.append(svgEl("line",{x1:18,y1:18+(h-42)*q,x2:w-18,y2:18+(h-42)*q,stroke:"#E5E9F1","stroke-width":1,"stroke-dasharray":"3 6"})));
+    [0,.5,1].forEach(q=>svg.append(svgEl("line",{x1:18,y1:18+(h-42)*q,x2:w-18,y2:18+(h-42)*q,stroke:CHART_GRID,"stroke-width":1,"stroke-dasharray":"3 6"})));
     const area=d+" L"+(w-18)+","+(h-20)+" L18,"+(h-20)+" Z";svg.append(svgEl("path",{d:area,fill:colour,"fill-opacity":.09}),svgEl("path",{d,fill:"none",stroke:colour,"stroke-width":2.5,"stroke-linejoin":"round","stroke-linecap":"round"}));
     if(row.values.length){const lastX=row.values.length===1?18:w-18,lastY=h-20-(row.rate-Math.min(0,...row.values))/Math.max(1,Math.max(1,...row.values)-Math.min(0,...row.values))*(h-42);svg.append(svgEl("circle",{cx:lastX,cy:lastY,r:4,fill:colour,stroke:"#fff","stroke-width":2}));}
     card.append(svg);const foot=el("div","source-pulse-foot");foot.append(el("span",null,row.values.length+" measurements"),el("span",null,"average "+Math.round(average).toLocaleString()+" EPS"));card.append(foot);host.append(card);
@@ -2543,6 +2639,63 @@ window.analyticsDraw=analyticsDraw;
 /* --------------------------------------------------------------- polling */
 let lastReceived = 0;
 let lastAt = Date.now();
+
+/* ------------------------------------------------------------ theme
+   Three states, not two: an explicit choice is stamped on <html> and wins in
+   both directions, and no stamp at all means "follow the OS", which is what
+   most people are on. The stamp is applied before first paint by the inline
+   script in <head>, so the console never flashes light before going dark.
+
+   Everything visual reads its colour from a CSS token, with one exception:
+   the SVG charts are drawn by script and were handed literal hex. Those now
+   read the same tokens through getComputedStyle, so a theme change has to
+   re-read them and redraw -- otherwise the panels change and the charts do
+   not. */
+function themeCurrent() {
+  const stamped = document.documentElement.getAttribute("data-theme");
+  if (stamped) return stamped;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function themeSyncButton() {
+  const btn = document.getElementById("themebtn");
+  if (!btn) return;
+  const dark = themeCurrent() === "dark";
+  btn.setAttribute("aria-pressed", dark ? "true" : "false");
+  const label = document.getElementById("themebtn-label");
+  if (label) label.textContent = dark ? "Light theme" : "Dark theme";
+}
+
+function themeRepaint() {
+  // Re-read the palettes the drawing code captured, then redraw whatever is
+  // on screen. Wrapped because a view that is not mounted has no SVG to size,
+  // and a failed redraw must not take the poll loop down with it.
+  ANALYTICS_COLOURS = chartPalette();
+  FLOW_HUES = chartPalette();
+  CHART_GRID = cssVar("--grid", "#E5E9F1");
+  themeSyncButton();
+  try { if (typeof flowDraw === "function") flowDraw(); } catch (e) {}
+  try { if (typeof ringsDraw === "function") ringsDraw(); } catch (e) {}
+}
+
+function themeApply(next) {
+  document.documentElement.setAttribute("data-theme", next);
+  try { localStorage.setItem("ulpf-theme", next); } catch (e) {}
+  themeRepaint();
+}
+
+(function themeBind() {
+  const btn = document.getElementById("themebtn");
+  if (btn) {
+    btn.addEventListener("click", () =>
+      themeApply(themeCurrent() === "dark" ? "light" : "dark"));
+  }
+  // With no explicit stamp the OS is in charge, so follow it as it changes.
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (!document.documentElement.getAttribute("data-theme")) themeRepaint();
+  });
+  themeSyncButton();
+})();
 
 async function refresh() {
   try {
@@ -2660,10 +2813,7 @@ const FLOW = {
    Sorting by id keeps a meaning's colour fixed as volumes change and the
    columns reorder; a swatch that moved between refreshes would be worse than
    no colour at all. */
-const FLOW_HUES = [
-  "#2E7D6B", "#4A5FA5", "#8A6BB0", "#A8763A",
-  "#4E8C8A", "#7C8B45", "#9C5A7A", "#5B7390",
-];
+let FLOW_HUES = chartPalette();
 
 /* What each shared meaning actually means, in words a visitor has heard.
    "Detection Finding" and "Event Log Activity" are OCSF class names: exact,
@@ -3433,7 +3583,7 @@ function trendDraw() {
   const last = pts[pts.length - 1];
   svg.append(svgn("circle", {
     cx: sx(last.t), cy: sy(last.eps), r: 4.5,
-    fill: "var(--primary)", stroke: "#FFFFFF", "stroke-width": 2,
+    fill: "var(--primary)", stroke: "var(--panel)", "stroke-width": 2,
   }));
 
   const secondsAgo = Math.round((tMax - tMin) / 1000);
@@ -3453,7 +3603,7 @@ function trendDraw() {
     }));
     svg.append(svgn("circle", {
       cx: hx, cy: sy(TREND.hover.eps), r: 4,
-      fill: "var(--primary)", stroke: "#FFFFFF", "stroke-width": 2,
+      fill: "var(--primary)", stroke: "var(--panel)", "stroke-width": 2,
     }));
   }
 }
