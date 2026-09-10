@@ -1204,6 +1204,21 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
         };
         tracing::info!("ULPF UDP syslog receiver listening on {}", bind);
 
+        // A read timeout so the loop still turns when nothing is arriving.
+        //
+        // The checkpoint conditions below were only ever evaluated on the
+        // arrival of a datagram, so when a stream stopped, every event since
+        // the last checkpoint stayed unsealed indefinitely -- the console then
+        // showed "received" and "sealed this session" differing by some number
+        // under 500, permanently and with no explanation. The events were
+        // chained and safe; only the signed checkpoint lagged. But an
+        // unexplained gap between two counters on an integrity screen is worth
+        // less than nothing, because the whole claim is that the numbers
+        // reconcile.
+        if let Err(e) = socket.set_read_timeout(Some(IDLE_TICK)) {
+            tracing::warn!("could not set a receive timeout, idle checkpoints disabled: {e}");
+        }
+
         let mut buffer = vec![0u8; 65_535];
         // Same reasoning as `cmd_listen`: signing and fsyncing a checkpoint per
         // datagram costs an Ed25519 signature plus a synchronous write for every
@@ -1290,6 +1305,29 @@ fn cmd_serve(config: ServeConfig) -> anyhow::Result<()> {
                             }
                         }
                         st.recent.drain(..excess);
+                    }
+                }
+                // A timeout is the idle case, not a fault: seal whatever has
+                // arrived since the last checkpoint so the counters converge
+                // within CHECKPOINT_INTERVAL of the traffic stopping.
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    if since_checkpoint > 0 && last_checkpoint.elapsed() >= CHECKPOINT_INTERVAL {
+                        since_checkpoint = 0;
+                        last_checkpoint = std::time::Instant::now();
+                        let mut st = listener_state.lock().unwrap();
+                        if let Ok(Some(checkpoint)) = st.pipeline.checkpoint_now() {
+                            let path = st.checkpoint_path.clone();
+                            let leaves_path = st.merkle_leaves_path.clone();
+                            let leaves = st.pipeline.merkle_leaves().to_vec();
+                            let _ = integrity_state::persist_leaves(&leaves_path, &leaves);
+                            let _ = integrity_state::persist_checkpoint(&path, &checkpoint);
+                            st.latest_checkpoint = Some(checkpoint);
+                        }
                     }
                 }
                 Err(e) => tracing::error!("UDP receive error: {}", e),
@@ -1690,6 +1728,11 @@ fn verify_one_chain(
 /// documents. Shared by both receive paths so they cannot drift apart.
 const CHECKPOINT_EVERY: u64 = 500;
 const CHECKPOINT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+/// How often the UDP loop wakes when no datagram is arriving, so an idle
+/// stream still gets its final checkpoint. Short enough that the console's
+/// counters agree a second or so after traffic stops, long enough that an idle
+/// collector is not spinning.
+const IDLE_TICK: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// 8 MB is roughly 55,000 syslog datagrams of headroom: enough to absorb a
 /// multi-second burst while the pipeline drains, without reserving memory a
