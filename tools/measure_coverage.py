@@ -159,6 +159,16 @@ def main() -> None:
     parser.add_argument("--data", default="realdata")
     parser.add_argument("--packs", default="packs")
     parser.add_argument(
+        "--set",
+        choices=["all", "perimeter", "universal"],
+        default="all",
+        help=(
+            "which corpora to measure. 'perimeter' is the set the headline "
+            "figure answers and finishes in minutes; 'all' includes corpora "
+            "of hundreds of millions of records and takes hours"
+        ),
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="compare against the recorded baseline and exit non-zero on a drop",
@@ -199,7 +209,8 @@ def main() -> None:
     missing = []
     measured = {}
 
-    for category, candidates, label in CORPORA:
+    selected = {"all": CORPORA, "perimeter": PERIMETER, "universal": UNIVERSAL}[args.set]
+    for category, candidates, label in selected:
         corpus = next((data / name for name in candidates if (data / name).exists()), None)
         if corpus is None:
             missing.append(candidates[0])
@@ -247,6 +258,10 @@ def main() -> None:
     if args.write_baseline:
         write_baseline(pathlib.Path(args.baseline), measured, total_pct)
         return
+
+    if args.check and args.set != "all":
+        print("--check compares against a full-set baseline; drop --set", file=sys.stderr)
+        raise SystemExit(1)
 
     if args.check:
         # A partial run must not pass: a missing corpus is exactly how a broken
