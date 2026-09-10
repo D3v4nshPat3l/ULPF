@@ -3,9 +3,9 @@
 SIH 2026 · PS 26156 · NTRO · Universal Log Pre-processing Framework
 
 **Hard limit: 5 slides.** This is the content, not the design. Every number
-below is a placeholder marked `[MEASURED]` until it is filled from a run — see
-*Where every number comes from* at the end, and never paste a figure that has
-not been produced by one of those commands.
+below was produced by a command in *Where every number comes from* at the end.
+Re-run those before the deck is final and replace anything that moved — never
+paste a figure that has not come out of one of them.
 
 Design rules: no stock imagery, no gradient hero, no icon soup. Screenshots
 from the running console are the visuals. One idea per slide.
@@ -88,22 +88,24 @@ time for only one slide, it is this one.
 
 **Title:** Measured, on real capture data
 
-**Table — coverage** `[MEASURED]`
+**Table — coverage**
 
 | Category | Source | Origin | Records | Coverage |
 |---|---|---|---:|---:|
-| Firewall | iptables | Honeynet SotM34 | `[MEASURED]` | `[MEASURED]` |
-| IDS | Snort | Honeynet SotM34 | `[MEASURED]` | `[MEASURED]` |
-| Auth | OpenSSH | Loghub | `[MEASURED]` | `[MEASURED]` |
-| Proxy | Blue Coat ProxySG | Honeynet | `[MEASURED]` | `[MEASURED]` |
-| Network | Zeek conn.log | MACCDC 2012 | `[MEASURED]` | `[MEASURED]` |
-| **Perimeter total** | | | **`[MEASURED]`** | **`[MEASURED]`** |
+| Firewall | iptables | Honeynet SotM34 | 179,752 | 100.0000% |
+| IDS | Snort | Honeynet SotM34 | 69,039 | 99.9986% |
+| Auth | OpenSSH | Loghub, full | 655,147 | 100.0000% |
+| Proxy | Blue Coat ProxySG | Honeynet | 8,130,590 | 99.8033% |
+| Network | Zeek conn.log | MACCDC 2012, full | 22,694,356 | 99.9435% |
+| **Perimeter total** | | | **32,414,250** | **99.8834%** |
 
-**Table — throughput** `[MEASURED]`
+*Thirteen sources in total; five shown. The full table is in the README.*
+
+**Table — throughput**
 
 | Sustained lossless | Projected per day | 1B/day needs |
 |---:|---:|---:|
-| `[MEASURED]` EPS | `[MEASURED]` | 11,574 EPS |
+| 8,000 EPS | 691,200,000 | 11,574 EPS — two collectors |
 
 **Three lines that matter more than the numbers:**
 
@@ -118,7 +120,10 @@ time for only one slide, it is this one.
   rounded away.
 
 **Speaker note:** Volunteer the Proxifier and Apache-error gaps before anyone
-asks. A judge who finds an unstated gap stops believing the stated ones.
+asks. A judge who finds an unstated gap stops believing the stated ones. Note
+too that measuring the *full* corpora pushed several figures down — Apache
+error went from a clean 100% on a 2,000-line sample to 92.07% on 56,482
+records. That direction is the point.
 
 ---
 
@@ -145,10 +150,14 @@ that proves it:
 
 **Right column — stated limits:**
 
-- One collector does not reach one billion events per day. `[MEASURED]` EPS is
-  `[MEASURED]`% of the target; reaching it is a second collector, which the
-  architecture already allows because chains are per-collector.
-- Coverage is `[MEASURED]`, not 100%. The remainder is enumerated.
+- One collector does not reach one billion events per day. 8,000 EPS is 69% of
+  the target; reaching it is a second collector, which the architecture already
+  allows because chains are per-collector.
+- Coverage is 99.8834%, not 100%. The remainder is enumerated by name —
+  Proxifier's non-connection lines, and 4,478 Apache lines that carry no
+  timestamp at all.
+- Five Loghub corpora totalling 375 million records are held on disk and have
+  **not** been run. Stated, not hidden.
 - Some packs have no real-corpus evidence and are named as unproven.
 
 **Speaker note:** Ending on limits is deliberate. It is the strongest available
@@ -159,7 +168,8 @@ judge was going to ask anyway.
 
 ## Where every number comes from
 
-Fill the `[MEASURED]` placeholders from these, and from nothing else:
+The figures above were produced by these, and nothing else. Re-run them before
+the deck is final — the numbers move as packs and corpora change:
 
 ```bash
 cargo build --release --locked
