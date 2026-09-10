@@ -515,7 +515,7 @@ async fn generate(
     // failure mode.
     let mode = body.mode.as_deref().unwrap_or("auto");
     if mode == "heuristic" {
-        return heuristic_draft(&samples, "requested");
+        return heuristic_draft(&label, &samples, "requested");
     }
     if !matches!(mode, "auto" | "ai") {
         return Err(ApiError(
@@ -543,7 +543,7 @@ async fn generate(
             "LLM offline ({}). Falling back to deterministic heuristic generator.",
             error
         );
-        return heuristic_draft(&samples, "llm-offline");
+        return heuristic_draft(&label, &samples, "llm-offline");
     }
 
     let pack = client
@@ -580,12 +580,16 @@ async fn generate(
 /// Every sample is passed, not just the first: detector derivation needs more
 /// than one line to tell fixed structure from per-record values, and a pack
 /// with no detector loads but claims nothing.
-fn heuristic_draft(samples: &[String], reason: &str) -> Result<Json<Value>, ApiError> {
+fn heuristic_draft(
+    cluster_id: &str,
+    samples: &[String],
+    reason: &str,
+) -> Result<Json<Value>, ApiError> {
     let raw_log = samples.join(
         "
 ",
     );
-    let draft = ulpf_generator::heuristic::draft_pack(&raw_log)
+    let draft = ulpf_generator::heuristic::draft_pack(cluster_id, &raw_log)
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(json!({
@@ -959,6 +963,16 @@ async fn chat(
 #[derive(serde::Deserialize)]
 struct ApproveBody {
     yaml: String,
+    /// Deliberately replace a pack that already exists under this id.
+    ///
+    /// Absent or false, approving over an existing pack is refused. Approval
+    /// writes into the live packs directory and the watcher activates the
+    /// result, so an id collision silently replaced a working parser with a
+    /// draft — and the two most likely collisions are the worst ones: a second
+    /// unknown device overwriting the first, or a drafted id that happens to
+    /// match a reviewed pack that ships.
+    #[serde(default)]
+    replace: bool,
 }
 
 /// Reduce a pack id to a single safe filename stem.
@@ -1126,6 +1140,16 @@ async fn approve(
 
     let packs_dir = lock(&state).packs_dir.clone();
     let file_path = packs_dir.join(format!("{stem}.yaml"));
+
+    if file_path.exists() && !body.replace {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            format!(
+                "a pack named '{id}' already exists at {}. Rename this draft's identity.id, or approve again with replace to overwrite it deliberately.",
+                file_path.display()
+            ),
+        ));
+    }
 
     let yaml_out = serde_yaml::to_string(&pack)
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

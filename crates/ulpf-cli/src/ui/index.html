@@ -916,6 +916,7 @@
               <button class="btn sm" type="button" id="btn-revalidate" hidden>Validate</button>
               <button class="btn sm" type="button" id="btn-revert" hidden>Revert to draft</button>
               <button class="btn primary sm" type="button" id="btn-approve" hidden>Approve and deploy</button>
+              <button class="btn danger sm" type="button" id="btn-replace" hidden>Replace existing pack</button>
             </div>
           </div>
           <div class="panel-body" style="display:flex;flex-direction:column;gap:12px">
@@ -2122,6 +2123,8 @@ let draftYaml = null;
    the last thing that happened to validate. */
 let generatedYaml = null;
 let packEdited = false;
+/* Set only by the explicit Replace action, and cleared after every approve. */
+let replaceExisting = false;
 
 /* Render a validation outcome under the editor. Parse and compile failures are
    ordinary states halfway through an edit, so they are shown here rather than
@@ -2221,6 +2224,8 @@ async function generatePack(clusterId, mode, buttons) {
   $("btn-revert").hidden = true;
   $("rev-edited").hidden = true;
   $("rev-validation").hidden = true;
+  $("btn-replace").hidden = true;
+  replaceExisting = false;
   draftYaml = null;
   generatedYaml = null;
 
@@ -2290,7 +2295,7 @@ $("btn-approve").addEventListener("click", async () => {
   const btn = $("btn-approve");
   btn.disabled = true;
   try {
-    const out = await postJson("/api/approve", { yaml: yaml });
+    const out = await postJson("/api/approve", { yaml: yaml, replace: replaceExisting });
     $("review-sub").textContent = (packEdited ? "Operator-edited pack approved" : "Approved")
       + " and written to " + out.file + ". The pack watcher will load it.";
     btn.hidden = true;
@@ -2300,10 +2305,33 @@ $("btn-approve").addEventListener("click", async () => {
     showValidation({ ok: true, detail: out.fixtures_passed + "/" + out.fixtures + " fixtures passed. Pack is live." });
     refresh();
   } catch (e) {
-    $("review-sub").textContent = "Not approved: " + e.message;
+    // A name collision is a decision, not a failure. Approving over an
+    // existing pack replaces a parser that may be live and working, so the
+    // operator is asked rather than told - and renaming is offered first,
+    // because two different devices wanting one filename is the more common
+    // cause than genuinely wanting to supersede a pack.
+    if (/already exists/.test(e.message)) {
+      $("review-sub").textContent = "Not approved: that pack name is taken.";
+      showValidation({
+        ok: false,
+        detail: e.message + " Edit identity.id above and approve again, or replace the existing pack.",
+      });
+      $("btn-replace").hidden = false;
+    } else {
+      $("review-sub").textContent = "Not approved: " + e.message;
+    }
   } finally {
     btn.disabled = false;
+    replaceExisting = false;
   }
+});
+
+/* Explicit second action rather than a confirm(): the operator has to choose
+   the destructive path on purpose, and can still rename instead. */
+$("btn-replace").addEventListener("click", () => {
+  replaceExisting = true;
+  $("btn-replace").hidden = true;
+  $("btn-approve").click();
 });
 
 /* ------------------------------------------------------------- integrity */

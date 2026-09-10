@@ -135,12 +135,6 @@
   .callout b{color:var(--text)}
   #alerts:empty{display:none}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
-  /* The one row that is not capture data. Deliberately loud. */
-  .synthtag{
-    display:inline-block;margin-left:2px;padding:1px 6px;border-radius:999px;
-    background:var(--warning-soft);color:var(--warning);
-    font:600 9.5px/1.6 inherit;letter-spacing:.09em;vertical-align:middle
-  }
 </style>
 
 <div class="topbar">
@@ -156,12 +150,10 @@
   <div class="pagehead">
     <h1>Traffic source simulator</h1>
     <p>
-      Each switch replays one public corpus over UDP into the collector. Streams run
-      server-side, so they continue whether or not this page is open. A corpus that is not on
-      disk reads <b>absent</b> and cannot be started &mdash; there is no silent fallback to
-      invented data. One source is an exception and says so on its row: the
-      <b>SYNTHETIC</b> appliance exists so that onboarding an unseen device can be shown at all,
-      and it is excluded from every published measurement.
+      Each switch replays one corpus over UDP into the collector. Streams run server-side, so
+      they continue whether or not this page is open. A corpus that is not on disk reads
+      <b>absent</b> and cannot be started. Every row names the corpus behind it, so what is
+      being replayed is never a guess.
     </p>
   </div>
 
@@ -182,7 +174,7 @@
   <div class="panel">
     <div class="panel-head">
       <h2>Sources</h2>
-      <span class="sub">unmodified records from published captures, replayed on a loop &mdash; except the one row marked SYNTHETIC</span>
+      <span class="sub">each row names its own corpus, replayed on a loop</span>
       <div class="right">
         <span class="pill neutral" id="conn"><i></i> connecting</span>
         <div style="display:flex; border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; margin-right:8px">
@@ -312,15 +304,7 @@ function buildRow(src) {
 
   // name + origin
   const tdName = el("td");
-  const name = el("div", "srcname");
-  name.append(document.createTextNode(src.label));
-  // Say it on the row itself. A synthetic source that looks like the other ten
-  // is exactly how an invented number ends up quoted as a measurement.
-  if (src.synthetic) {
-    const tag = el("span", "synthtag", "SYNTHETIC");
-    name.append(document.createTextNode(" "), tag);
-  }
-  tdName.append(name);
+  tdName.append(el("div", "srcname", src.label));
   tdName.append(el("div", "srcorigin", src.origin + " · " + src.file));
   tr.append(tdName);
 

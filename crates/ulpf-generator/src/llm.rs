@@ -1062,6 +1062,62 @@ fn is_field_key(key: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
 }
 
+/// Propose a pack id from what the samples actually say about the device.
+///
+/// `draft-heuristic` was a placeholder, and a bad one: every unedited draft
+/// approved to the same filename, so onboarding a second unknown device
+/// silently overwrote the pack drafted for the first.
+///
+/// The replacement is evidence-based. A device tag sits early in the line in
+/// essentially every syslog-shaped format — `apx-ngfw`, `sshd`, `kernel` — so
+/// the first token that is a stable literal across *all* samples is the best
+/// available guess at what to call this source. Position matters and the
+/// detector list cannot supply it: `derive_detectors` sorts by class and
+/// length, which would name a firewall after its busiest message type rather
+/// than after the firewall.
+///
+/// This is a suggestion, not an identification. The operator is expected to
+/// correct it in the review pane before approving, and the vendor/product
+/// fields stay `Unknown` unless a signature genuinely supports one.
+pub fn suggest_pack_id(samples: &[String], wire_format: &str, cluster_id: &str) -> String {
+    let first = samples.first().map(String::as_str).unwrap_or_default();
+
+    let base = first
+        .split_whitespace()
+        .find(|token| {
+            // A `key=value` pair names a field, never the device.
+            if let Some((key, _)) = token.split_once('=') {
+                if is_field_key(key) {
+                    return false;
+                }
+            }
+            let cleaned = token.trim_matches(|c: char| !c.is_ascii_alphanumeric());
+            is_stable_literal(cleaned) && samples.iter().all(|sample| sample.contains(cleaned))
+        })
+        .map(slug)
+        .filter(|s| !s.is_empty());
+
+    match base {
+        Some(name) => format!("{name}-{}", slug(wire_format)),
+        // Nothing stable to name it after. Fall back to the cluster, which is
+        // at least unique, rather than to a constant that collides.
+        None => format!("unknown-{}-{}", slug(wire_format), slug(cluster_id)),
+    }
+}
+
+/// Reduce a token to a safe, readable filename stem.
+fn slug(raw: &str) -> String {
+    let mut out = String::new();
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
 /// Derive the `contains_all` literals that will claim this source.
 ///
 /// Two rules, both learned from drafts that scored well and then matched

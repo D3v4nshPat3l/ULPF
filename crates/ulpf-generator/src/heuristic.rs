@@ -23,7 +23,7 @@ pub struct DraftResult {
     pub source_profile: crate::profile::SourceProfile,
 }
 
-pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
+pub fn draft_pack(cluster_id: &str, raw_log: &str) -> anyhow::Result<DraftResult> {
     // Every non-empty line is a sample: with several, the detector and field
     // inference can tell fixed structure from per-record values.
     let samples: Vec<String> = raw_log
@@ -107,7 +107,10 @@ pub fn draft_pack(raw_log: &str) -> anyhow::Result<DraftResult> {
         .first()
         .filter(|h| h.confidence >= 0.90);
     let identity = ulpf_pack::Identity {
-        id: "draft-heuristic".to_string(),
+        // Named from the device tag the samples actually carry. A constant id
+        // meant every unedited draft was approved to the same filename, so
+        // onboarding a second unknown device silently overwrote the first.
+        id: crate::llm::suggest_pack_id(&samples, &source_profile.wire_format, cluster_id),
         vendor: identified
             .map(|h| h.vendor.clone())
             .unwrap_or_else(|| "Unknown".into()),
@@ -264,7 +267,7 @@ mod tests {
     );
 
     fn drafted_pack(raw: &str) -> Pack {
-        let draft = draft_pack(raw).expect("draft");
+        let draft = draft_pack("c0001", raw).expect("draft");
         serde_yaml::from_str(&draft.pack_yaml).expect("drafted YAML parses")
     }
 
