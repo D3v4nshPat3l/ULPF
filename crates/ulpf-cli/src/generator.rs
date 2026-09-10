@@ -58,7 +58,23 @@ pub fn draft(
     }
     let file = std::fs::File::open(input)
         .with_context(|| format!("opening dead-letter stream {}", input.display()))?;
-    let mut grouped: BTreeMap<String, Vec<DeadLetter>> = BTreeMap::new();
+    // Cluster with Drain, the same implementation the console and `ulpf
+    // profile` use.
+    //
+    // This grouped by `template()` instead, which masks key=value pairs, IPs,
+    // bare integers and long hex, and leaves every other token as a literal.
+    // For a key=value device that collapses correctly -- every token is a
+    // pair, so 2,500 records became one cluster. For a device that carries its
+    // values positionally it does not generalise at all: JSON, where the key
+    // and value are separate tokens, pipe-delimited layouts and fixed-column
+    // formats fragment into one cluster per distinct combination of values.
+    // Measured on the same 2,500 records: 1 cluster through Drain, 959 here.
+    //
+    // A "needs a pack" queue holding a thousand entries for one device is
+    // indistinguishable from noise, and it is the reason an operator sees
+    // either a single cluster or a wall of near-identical ones.
+    let mut drain = ulpf_generator::drain::Drain::new();
+    let mut by_cluster: BTreeMap<String, Vec<DeadLetter>> = BTreeMap::new();
     let mut records_read = 0usize;
     for line in BufReader::new(file).lines() {
         let line = line?;
@@ -68,12 +84,15 @@ pub fn draft(
         let record: DeadLetter = serde_json::from_str(&line)
             .with_context(|| format!("parsing dead-letter record {}", records_read + 1))?;
         records_read += 1;
-        grouped
-            .entry(template(&record.raw_text))
-            .or_default()
-            .push(record);
+        // Drain returns None once its own cap is reached and nothing matched;
+        // those records fall back to the old shape key so they are still
+        // reported rather than silently dropped.
+        let key = drain
+            .process(&record.raw_text)
+            .unwrap_or_else(|| template(&record.raw_text));
+        by_cluster.entry(key).or_default().push(record);
     }
-    let mut clusters: Vec<Cluster> = grouped
+    let mut clusters: Vec<Cluster> = by_cluster
         .into_iter()
         .map(|(key, records)| Cluster { key, records })
         .collect();

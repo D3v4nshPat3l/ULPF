@@ -77,7 +77,12 @@ UNIVERSAL = [
 # so the onboarding workflow can be demonstrated on an unseen device. It is
 # named here only to be excluded: measuring invented data would make every
 # figure below unfalsifiable, which is the opposite of the point.
-SYNTHETIC = {"apx-ngfw-synthetic.log"}
+SYNTHETIC = {
+    "apx-ngfw-synthetic.log",
+    "corvid-edge-synthetic.log",
+    "halyard-relay-synthetic.log",
+    "meridian-vaultgate-synthetic.log",
+}
 
 CORPORA = PERIMETER + UNIVERSAL
 assert not (SYNTHETIC & {f for _, files, _ in CORPORA for f in files}), (

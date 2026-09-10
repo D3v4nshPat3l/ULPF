@@ -139,6 +139,34 @@ pub const SOURCES: &[Source] = &[
         file: "apx-ngfw-synthetic.log",
         synthetic: true,
     },
+    // Three more unseen devices, in three different wire formats, so the
+    // onboarding queue shows an estate rather than one repeated shape. Each
+    // drafts a different decoder chain -- json, csv and keyvalue -- which is
+    // the part of the workflow a single device cannot demonstrate.
+    Source {
+        id: "corvid-synthetic",
+        label: "Corvid Edge Gateway",
+        category: "API gateway",
+        origin: "Reference corpus",
+        file: "corvid-edge-synthetic.log",
+        synthetic: true,
+    },
+    Source {
+        id: "vaultgate-synthetic",
+        label: "Meridian VaultGate",
+        category: "Secrets",
+        origin: "Reference corpus",
+        file: "meridian-vaultgate-synthetic.log",
+        synthetic: true,
+    },
+    Source {
+        id: "halyard-synthetic",
+        label: "Halyard SCADA Relay",
+        category: "OT / ICS",
+        origin: "Reference corpus",
+        file: "halyard-relay-synthetic.log",
+        synthetic: true,
+    },
 ];
 
 struct Stream {
