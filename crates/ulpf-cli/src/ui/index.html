@@ -11,6 +11,14 @@
   `res.ok` before it reports success.
 -->
 <title>ULPF Console</title>
+<script>
+  /* Runs before the stylesheet paints, so a stored dark choice never shows a
+     frame of light first. Wrapped: private-mode storage throws on read. */
+  try {
+    var t = localStorage.getItem("ulpf-theme");
+    if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+</script>
 <style>
   :root{
     --nav:#1D1E24; --nav-hover:#2B2D35; --nav-text:#98A2B3; --nav-active:#FFFFFF;
@@ -74,8 +82,57 @@
 
      color-scheme is set per theme so native controls, scrollbars and form
      widgets are repainted by the browser to match, instead of staying light
-     underneath a dark palette. */
+     underneath a dark palette.
+
+     This was removed once, on the reasoning that a palette which follows the
+     OS is a palette nobody tuned. The second palette here is tuned -- that is
+     what the list above is -- and the premise does not hold for this product:
+     a SOC runs 24/7 shifts, often in a deliberately dim room, and analysts
+     split on which theme they want. Forcing either one on the other half is
+     the choice that costs something. The projector case is served by the
+     explicit light stamp, which wins over a dark OS. */
   :root{color-scheme:light}
+
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      color-scheme:dark;
+      --nav:#0C1015; --nav-hover:#1B222B; --nav-text:#93A0AD; --nav-active:#FFFFFF;
+      --page:#12161B; --panel:#1A2028; --sunken:#151A21; --border:#2B3641;
+      --text:#E2E8EE; --text-2:#A5B2BE; --text-3:#7C8996;
+      --primary:#4BA3DC; --primary-soft:#0E2635;
+      --success:#3FB39E; --success-soft:#0D2C28;
+      --warning:#D9A93F; --warning-soft:#332711;
+      --danger:#E4695C;  --danger-soft:#3A1A17;
+      --shadow:0 1px 3px rgba(0,0,0,.6);
+      --node-device:#5C90DB;  --node-device-soft:#16243A;
+      --node-meaning:#38B096; --node-meaning-soft:#0E2E28;
+      --node-unknown:#DE6A5D; --node-unknown-soft:#3A1C19;
+      --chart-1:#5B93D8; --chart-2:#35A78E; --chart-3:#A585CE; --chart-4:#CE9450;
+      --chart-5:#5FA8AB; --chart-6:#C77593; --chart-7:#96AD59; --chart-8:#7B93B4;
+      --grid:#232C36; --tip-meta:#9AA7B4; --hairline:rgba(255,255,255,.06);
+      --row-hover:rgba(255,255,255,.045); --row-sel:rgba(75,163,220,.14);
+      --scrim:rgba(0,0,0,.62); --on-accent:#12161B;
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --nav:#0C1015; --nav-hover:#1B222B; --nav-text:#93A0AD; --nav-active:#FFFFFF;
+    --page:#12161B; --panel:#1A2028; --sunken:#151A21; --border:#2B3641;
+    --text:#E2E8EE; --text-2:#A5B2BE; --text-3:#7C8996;
+    --primary:#4BA3DC; --primary-soft:#0E2635;
+    --success:#3FB39E; --success-soft:#0D2C28;
+    --warning:#D9A93F; --warning-soft:#332711;
+    --danger:#E4695C;  --danger-soft:#3A1A17;
+    --shadow:0 1px 3px rgba(0,0,0,.6);
+    --node-device:#5C90DB;  --node-device-soft:#16243A;
+    --node-meaning:#38B096; --node-meaning-soft:#0E2E28;
+    --node-unknown:#DE6A5D; --node-unknown-soft:#3A1C19;
+    --chart-1:#5B93D8; --chart-2:#35A78E; --chart-3:#A585CE; --chart-4:#CE9450;
+    --chart-5:#5FA8AB; --chart-6:#C77593; --chart-7:#96AD59; --chart-8:#7B93B4;
+    --grid:#232C36; --tip-meta:#9AA7B4; --hairline:rgba(255,255,255,.06);
+    --row-hover:rgba(255,255,255,.045); --row-sel:rgba(75,163,220,.14);
+    --scrim:rgba(0,0,0,.62); --on-accent:#12161B;
+  }
 
   *{box-sizing:border-box}
   html,body{height:100%}
@@ -194,6 +251,15 @@
   .donut-empty{color:var(--text-3)}
   .donut-total{font:600 var(--t-stat)/1 var(--ui);fill:var(--text)}
   .donut-total-label{font:500 var(--t-micro)/1 var(--ui);fill:var(--text-3);letter-spacing:.08em}
+
+  .themebtn{
+    display:flex;align-items:center;gap:8px;width:100%;margin-bottom:10px;
+    padding:7px 9px;border:1px solid transparent;border-radius:var(--radius);
+    background:none;color:var(--nav-text);font:inherit;font-size:12.5px;
+    cursor:pointer;text-align:left;
+  }
+  .themebtn:hover{background:var(--nav-hover);color:var(--nav-active)}
+  .themebtn:focus-visible{outline:2px solid var(--primary);outline-offset:1px}
 
   /* --------------------------------------------- live map (flow diagram) */
   /* Colours are declared once and read back by the drawing code through
@@ -752,6 +818,10 @@
     </div>
 
     <div class="foot">
+      <button class="themebtn" id="themebtn" type="button" aria-pressed="false">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+        <span id="themebtn-label">Dark theme</span>
+      </button>
       <a href="/dev" style="color:var(--nav-text)">Traffic simulator &rarr;</a>
     </div>
   </nav>
@@ -2855,6 +2925,68 @@ let lastAt = Date.now();
    nobody tuned. The SVG charts read their colours from the same CSS tokens as
    everything else, so there is one place a colour is defined and one place it
    is changed. */
+
+/* ------------------------------------------------------------ theme
+   Three states, not two: an explicit choice is stamped on <html> and wins in
+   both directions, and no stamp at all means "follow the OS", which is what
+   most viewers are on. The stamp is applied before first paint by the inline
+   script in <head>, so the console never flashes light before going dark.
+
+   Everything visual reads its colour from a CSS token, with one exception:
+   the SVG charts are drawn by script and read those tokens through
+   getComputedStyle at draw time. A theme change therefore has to re-read them
+   and redraw, or the panels would change and the charts would not. */
+function themeCurrent() {
+  const stamped = document.documentElement.getAttribute("data-theme");
+  if (stamped) return stamped;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function themeSyncButton() {
+  const btn = document.getElementById("themebtn");
+  if (!btn) return;
+  const dark = themeCurrent() === "dark";
+  btn.setAttribute("aria-pressed", dark ? "true" : "false");
+  const label = document.getElementById("themebtn-label");
+  if (label) label.textContent = dark ? "Light theme" : "Dark theme";
+}
+
+function themeRepaint() {
+  ANALYTICS_COLOURS = chartPalette();
+  FLOW_HUES = chartPalette();
+  CHART_GRID = cssVar("--grid", "#E5E9F1");
+  themeSyncButton();
+  // Every script-drawn surface, so none of them keeps the other theme's
+  // colours. Wrapped because a view that is not mounted has nothing to size,
+  // and a failed redraw must not take the poll loop down with it.
+  try { if (typeof flowDraw === "function") flowDraw(); } catch (e) {}
+  // The ring is drawn from data passed in, unlike the other two, so it has to
+  // be handed the same counters the poll gives it. Called bare it renders an
+  // empty chart and the theme switch silently wipes the overview.
+  try {
+    if (typeof packDonutDraw === "function") packDonutDraw(window.__byPack || {});
+  } catch (e) {}
+  try { if (typeof trendDraw === "function") trendDraw(); } catch (e) {}
+}
+
+function themeApply(next) {
+  document.documentElement.setAttribute("data-theme", next);
+  try { localStorage.setItem("ulpf-theme", next); } catch (e) {}
+  themeRepaint();
+}
+
+(function themeBind() {
+  const btn = document.getElementById("themebtn");
+  if (btn) {
+    btn.addEventListener("click", () =>
+      themeApply(themeCurrent() === "dark" ? "light" : "dark"));
+  }
+  // With no explicit stamp the OS is in charge, so follow it as it changes.
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (!document.documentElement.getAttribute("data-theme")) themeRepaint();
+  });
+  themeSyncButton();
+})();
 
 async function refresh() {
   try {
