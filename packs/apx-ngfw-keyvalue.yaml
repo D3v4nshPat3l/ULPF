@@ -1,0 +1,133 @@
+identity:
+  id: apx-ngfw-keyvalue
+  vendor: Unknown
+  product: Unknown
+  version: null
+  log_format: keyvalue
+  detect:
+  - contains_all:
+    - sessionlog
+    - apx-ngfw
+    - verdict=
+    contains_any: []
+    contains_none: []
+    starts_with: null
+    syslog_tag: false
+    loghub_syslog_prefix: false
+  priority: 1000
+extract:
+- decoder: keyvalue
+  sep: null
+  delim: null
+  headers: []
+  patterns: []
+  optional: false
+map:
+  activity_id: 0
+  actor.user.name:
+    from: user
+    as: null
+    format: null
+    enum: null
+    default: null
+    observable: null
+  class_uid: 4001
+  connection_info.protocol_name:
+    from: proto
+    as: null
+    format: null
+    enum: null
+    default: null
+    observable: null
+  device.hostname:
+    from: host
+    as: null
+    format: null
+    enum: null
+    default: null
+    observable: null
+  dst_endpoint.ip:
+    from: dst
+    as: null
+    format: null
+    enum: null
+    default: null
+    observable: null
+  dst_endpoint.port:
+    from: dpt
+    as: int
+    format: null
+    enum: null
+    default: null
+    observable: null
+  message:
+    from: evt
+    as: null
+    format: null
+    enum: null
+    default: null
+    observable: null
+  severity_id: 1
+  src_endpoint.ip:
+    from: src
+    as: null
+    format: null
+    enum: null
+    default: null
+    observable: null
+  src_endpoint.port:
+    from: spt
+    as: int
+    format: null
+    enum: null
+    default: null
+    observable: null
+enums: {}
+fixtures:
+- raw: 2026-03-25T09:51:23.596Z apx-ngfw sessionlog evt=session_end verdict=deny proto=udp src=10.42.8.25 spt=57333 dst=192.0.2.52 dpt=53 sent=1438 rcvd=0 dur=71304 rule=RL-0012 szone=trust dzone=dmz user=asmith app=dns host=apx-edge-01 sev=4 sid=000000011
+  expect:
+    activity_id: 0
+    actor.user.name: asmith
+    class_uid: 4001
+    connection_info.protocol_name: udp
+    device.hostname: apx-edge-01
+    dst_endpoint.ip: 192.0.2.52
+    dst_endpoint.port: 53
+    message: session_end
+    severity_id: 1
+    src_endpoint.ip: 10.42.8.25
+    src_endpoint.port: 57333
+  note: Representative sample; confirm mappings before approval.
+- raw: 2026-03-22T13:43:18.306Z apx-ngfw sessionlog evt=session_end verdict=allow proto=tcp src=192.168.24.186 spt=60218 dst=192.0.2.77 dpt=443 sent=45248 rcvd=81493 dur=1038 rule=RL-0172 szone=trust dzone=untrust user=rpatel app=https host=apx-core-01 sev=1 sid=000000008
+  expect:
+    activity_id: 0
+    actor.user.name: rpatel
+    class_uid: 4001
+    connection_info.protocol_name: tcp
+    device.hostname: apx-core-01
+    dst_endpoint.ip: 192.0.2.77
+    dst_endpoint.port: 443
+    message: session_end
+    severity_id: 1
+    src_endpoint.ip: 192.168.24.186
+    src_endpoint.port: 60218
+  note: Representative sample; confirm mappings before approval.
+- raw: 2026-03-18T09:22:44.451Z apx-ngfw sessionlog evt=session_reset verdict=reset proto=tcp src=192.168.24.177 spt=51594 dst=198.51.100.189 dpt=3389 sent=743 rcvd=0 dur=24229 rule=RL-0327 szone=dmz dzone=untrust user=- app=rdp host=apx-core-01 sev=3 sid=000000016
+  expect:
+    activity_id: 0
+    class_uid: 4001
+    connection_info.protocol_name: tcp
+    device.hostname: apx-core-01
+    dst_endpoint.ip: 198.51.100.189
+    dst_endpoint.port: 3389
+    message: session_reset
+    severity_id: 1
+    src_endpoint.ip: 192.168.24.177
+    src_endpoint.port: 51594
+  note: Representative sample; confirm mappings before approval.
+provenance:
+  author: generated
+  created: '1789031447126235600'
+  cluster_id: null
+  approved_by: console operator
+  model: heuristic-v1
