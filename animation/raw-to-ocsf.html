@@ -262,9 +262,10 @@
     opacity: .82;
   }
 
-  /* The without-ULPF tint: same active/done mechanics, red instead of
-     violet, so a card visibly reads as "this one failed" without needing
-     its own separate state machine. */
+  /* The without-ULPF tints: red for total failure, amber for "read but not
+     understood" -- reusing the existing amber tokens from the flying-text
+     era rather than inventing a third colour, so a viewer only ever has to
+     learn violet/amber/red for the whole page, not a fourth meaning. */
   .raw-card.active.failing {
     border-color: rgba(248, 113, 113, .45);
     box-shadow: 0 0 0 1px rgba(248, 113, 113, .3), 0 10px 26px rgba(220, 60, 60, .12);
@@ -272,6 +273,26 @@
 
   .raw-card.failing .raw-card-state {
     color: #f87171;
+  }
+
+  .raw-card.active.warning {
+    border-color: var(--raw-dim);
+    box-shadow: 0 0 0 1px rgba(255, 180, 84, .3), 0 10px 26px rgba(200, 140, 50, .12);
+  }
+
+  .raw-card.warning .raw-card-state {
+    color: var(--raw);
+  }
+
+  /* The line under a partial/full generic read, explaining what the reader
+     above does not say for itself: that legible is not the same as understood. */
+  .fail-note {
+    padding: 10px 18px 16px;
+    font-size: 11.5px;
+    line-height: 1.55;
+    color: var(--ink-faint);
+    border-top: 1px solid var(--line);
+    margin-top: 4px;
   }
 
   .raw-card-head {
@@ -839,8 +860,10 @@
           </table>
         </div>
         <div class="siem-foot-note">
-          Every value in this table flew across from the parsed OCSF panel —
-          it is a rendering of ULPF's own output, not a live SIEM capture.
+          Every value in this table is read straight from the parsed OCSF
+          panel — not a live Wazuh capture. Wazuh itself receives this same
+          raw traffic independently, using its own decoders, for the
+          before/after comparison in <code>docs/demo-machine-c.md</code>.
         </div>
       </section>
     </div>
@@ -882,6 +905,26 @@
         siem: {
           time: "10:23:45", device: "FGT-DEL-01", sig: "Traffic — accepted", cls: "Network Activity (4001)",
           level: "info", levelLabel: "Informational", net: "10.2.4.7:52341 → 8.8.8.8:443"
+        },
+        // Without a pack, a generic key=value scanner still catches the
+        // fields that happen to look like plain key=value pairs -- the two
+        // dotted-quad addresses. It has no reason to know that a 19-digit
+        // number under `eventtime` is a nanosecond timestamp rather than
+        // meaningless noise, so it does not even try that field, the way
+        // this project's own pack once got it wrong the other way (see the
+        // `time:` comment above) before that exact bug was found and fixed.
+        withoutUlpf: {
+          tier: "partial",
+          shown: [
+            { key: "hostname", label: "devname" },
+            { key: "srcip", label: "srcip" },
+            { key: "dstip", label: "dstip" }
+          ],
+          siem: {
+            time: "—", device: "Unknown", sig: "Partial fields only",
+            cls: "action, ports and byte counts missing — no OCSF class",
+            level: "info", levelLabel: "Unclassified", net: "10.2.4.7 → 8.8.8.8"
+          }
         }
       },
       {
@@ -908,7 +951,12 @@
         siem: {
           time: "10:40:00", device: "Squid Proxy", sig: "GET example.com/page (200)", cls: "HTTP Activity (4002)",
           level: "info", levelLabel: "Informational", net: "10.0.0.50 → example.com/page"
-        }
+        },
+        // Squid's format has no field names in it at all -- just positional
+        // columns. JSON is self-describing and key=value is at least
+        // regular; a fixed column order is neither, so there is nothing
+        // generic to latch onto without already knowing this exact layout.
+        withoutUlpf: { tier: "none" }
       },
       {
         key: "suricata",
@@ -935,6 +983,30 @@
         siem: {
           time: "16:25:54", device: "Suricata (OISF)", sig: "ET EXPLOIT_KIT Evil Redirector Leading to EK Mon Dec 21 2015 5", cls: "Detection Finding (2004)",
           level: "critical", levelLabel: "Critical", net: "113.20.11.49:80 → 192.168.122.145:49314"
+        },
+        // JSON is the one format any generic reader can walk without help --
+        // every key below genuinely comes through. The sting is what doesn't:
+        // nothing here computes a severity, so the exact same real exploit-kit
+        // alert that ULPF flags Critical shows up as one more unremarkable
+        // line. The data was there. The one conclusion that mattered wasn't.
+        withoutUlpf: {
+          tier: "full",
+          shown: [
+            { key: "time", label: "timestamp" },
+            { key: "srcip", label: "src_ip" },
+            { key: "srcport", label: "src_port" },
+            { key: "dstip", label: "dest_ip" },
+            { key: "dstport", label: "dest_port" },
+            { key: "proto", label: "proto" },
+            { key: "sigid", label: "signature_id" },
+            { key: "sig", label: "signature" }
+          ],
+          siem: {
+            time: "16:25:54", device: "Unknown (JSON source)",
+            sig: "ET EXPLOIT_KIT Evil Redirector Leading to EK Mon Dec 21 2015 5",
+            cls: "no OCSF class — severity not computed",
+            level: "info", levelLabel: "Unclassified", net: "113.20.11.49:80 → 192.168.122.145:49314"
+          }
         }
       }
     ];
@@ -1047,6 +1119,45 @@
       siemBackdrop.classList.remove("show");
     }
 
+    // The spotlight's minimum time on screen, but not its maximum -- a
+    // presenter lingering on a row to talk about it should not have it
+    // vanish under them. `minMs` still guarantees unattended playback
+    // (nobody touching the mouse) paces exactly as it did before; hovering
+    // only ever extends that, never shortens it. Clicking the backdrop is
+    // still an immediate manual dismiss, hover state or not.
+    function holdSpotlight(minMs) {
+      return new Promise(function (resolve) {
+        var minElapsed = false;
+        var hovering = false;
+        var done = false;
+
+        function finish() {
+          if (done) return;
+          done = true;
+          siemColEl.removeEventListener("mouseenter", onEnter);
+          siemColEl.removeEventListener("mouseleave", onLeave);
+          siemBackdrop.removeEventListener("click", finish);
+          resolve();
+        }
+
+        function tryFinish() {
+          if (minElapsed && !hovering) finish();
+        }
+
+        function onEnter() { hovering = true; }
+        function onLeave() { hovering = false; tryFinish(); }
+
+        siemColEl.addEventListener("mouseenter", onEnter);
+        siemColEl.addEventListener("mouseleave", onLeave);
+        siemBackdrop.addEventListener("click", finish);
+
+        setTimeout(function () {
+          minElapsed = true;
+          tryFinish();
+        }, minMs);
+      });
+    }
+
     function closingLine(d) {
       return "“" + d.tabLabel + "” parsed — " + d.fields.length + " fields lifted straight from the line, 2 more resolved through the pack.";
     }
@@ -1107,11 +1218,12 @@
     DEVICES.forEach(function (d) { ensureSiemRow(d.key); });
 
     // ---------------------------------------------------------------- play
-    // The without-ULPF path for one device: the raw card is exactly the
-    // same, and that sameness is the point -- the only difference is that
-    // nothing ever reads it. No fields activate on the card, because
-    // nothing here is being extracted from it.
-    async function playOneWithoutUlpf(d, card) {
+    // The without-ULPF path for one device. Three outcomes, not one --
+    // a real generic reader without any pack does not fail identically on
+    // every format, because the formats are not equally opaque to begin
+    // with. See the `withoutUlpf` comment on each device for why that
+    // specific one lands where it does.
+    async function failCompletely(d, card) {
       rowsEl.style.opacity = "0";
       await wait(reduceMotion ? 0 : 220);
       packTag.textContent = "no pack matched";
@@ -1143,9 +1255,77 @@
 
       if (!reduceMotion) {
         maximizeSiem();
-        await wait(1300);
+        await holdSpotlight(1300);
         restoreSiem();
         await wait(400);
+      }
+    }
+
+    // Some fields ARE legible without a pack -- a generic reader that
+    // understands JSON or plain key=value gets those, verbatim, in the
+    // device's own vocabulary. What it can never do without a pack is know
+    // what any of it means: no OCSF class, no severity, nothing that lines
+    // up with what a *different* device's reader would produce.
+    async function readGenerically(d, card, w) {
+      packTag.textContent = w.tier === "full" ? "read as generic JSON" : "read as generic key=value";
+      packTag.classList.add("fail");
+
+      rowsEl.style.opacity = "0";
+      await wait(reduceMotion ? 0 : 220);
+      var note = w.tier === "full"
+        ? "Every field above came through — but none of it means anything without a pack. No class, no severity, nothing to compare against a different vendor's fields."
+        : "Only the fields that happened to look like key=value pairs came through. Action, ports and byte counts did not.";
+      rowsEl.innerHTML = w.shown.map(function (f) {
+        return '<div class="row" data-row="' + f.key + '"><span class="k">' + f.label + '</span><span class="v" id="v-' + f.key + '">—</span></div>';
+      }).join("") + '<div class="fail-note">' + note + '</div>';
+      rowsEl.style.opacity = "1";
+
+      await wait(reduceMotion ? 0 : 250);
+      w.shown.forEach(function (f) {
+        var el = frag(card, f.key);
+        if (el) el.classList.add("active");
+      });
+
+      await wait(reduceMotion ? 0 : 220);
+      async function revealRaw(f) {
+        await wait(reduceMotion ? 0 : 260);
+        var src = frag(card, f.key);
+        var rawVal = src ? src.querySelector(".val") : null;
+        var v = valEl(f.key);
+        if (v && rawVal) { v.textContent = rawVal.textContent; v.classList.add("set"); }
+        var row = rowEl(f.key);
+        if (row) row.classList.add("pulse");
+        await wait(reduceMotion ? 0 : 220);
+        if (src) { src.classList.remove("active"); src.classList.add("done"); }
+        if (row) row.classList.remove("pulse");
+      }
+      await Promise.all(w.shown.map(revealRaw));
+
+      await wait(reduceMotion ? 0 : 250);
+      closing.textContent = "“" + d.tabLabel + "” — " +
+        (w.tier === "full" ? "read, but not understood." : "partially read.") +
+        " No shared schema, no severity.";
+      closing.classList.add("show");
+
+      await wait(reduceMotion ? 0 : 250);
+      fillSiemRow(d.key, w.siem);
+      setCardState(card, "done");
+      card.classList.add("warning");
+
+      if (!reduceMotion) {
+        maximizeSiem();
+        await holdSpotlight(1700);
+        restoreSiem();
+        await wait(500);
+      }
+    }
+
+    async function playOneWithoutUlpf(d, card) {
+      var w = d.withoutUlpf;
+      if (w.tier === "none") {
+        await failCompletely(d, card);
+      } else {
+        await readGenerically(d, card, w);
       }
     }
 
@@ -1157,7 +1337,6 @@
       playing = true;
       var card = cardFor(d.key);
       setCardState(card, "active");
-      card.classList.toggle("failing", currentMode === "without");
       closing.classList.remove("show");
 
       // The minimum scroll needed to bring this device's whole card into
@@ -1245,7 +1424,7 @@
       // the next device's collector cards are what the viewer sees -- the same
       // round trip, once per device, for as many devices as there are.
       maximizeSiem();
-      await wait(1700);
+      await holdSpotlight(1700);
       restoreSiem();
       await wait(500);
 
@@ -1258,7 +1437,7 @@
       DEVICES.forEach(function (d) {
         var c = cardFor(d.key);
         setCardState(c, "waiting");
-        c.classList.remove("failing");
+        c.classList.remove("failing", "warning");
         // A fragment's `.active`/`.done` class outlives the run that set it --
         // nothing removes it after the fact, only the next run's own reveal
         // step re-adds "active" on top. That left a highlighted, underlined
