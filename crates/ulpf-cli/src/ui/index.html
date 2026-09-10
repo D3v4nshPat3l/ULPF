@@ -904,7 +904,7 @@
           <div class="maplegend">
             <div class="row"><span class="dot device"></span><span><b>A kind of device</b><span>A product whose logs ULPF already knows how to read.</span></span></div>
             <div class="row"><span class="dot meaning"></span><span><b>A shared meaning</b><span>The common language every device is rewritten into. Each one has its own colour, and the band leading into it matches.</span></span></div>
-            <div class="row"><span class="dot unknown"></span><span><b>Not understood yet</b><span>Logs kept safely, waiting for someone to teach ULPF this device.</span></span></div>
+            <div class="row"><span class="dot unknown"></span><span><b>Not understood yet</b><span>Read, timestamped and stored in full, and searchable by address or user. What is missing is a Source Pack naming this product's fields &mdash; a cluster here is a device queued for onboarding, not a record lost.</span></span></div>
           </div>
           <div class="mapnote" id="map-note"></div>
         </div>
@@ -1062,7 +1062,7 @@
         <div class="pagehead">
           <div>
             <h1>Records needing a pack</h1>
-            <p>Unparsed records grouped into templates, highest volume first. Every one is still vaulted, fingerprinted and emitted as valid OCSF &mdash; "needs a pack" is a routing state, never data loss.</p>
+            <p>Unparsed records grouped into templates, highest volume first. Open <strong>Samples</strong> on a cluster to trace the individual events represented by it. Every record is still vaulted, fingerprinted and emitted as valid OCSF &mdash; "needs a pack" is a routing state, never data loss.</p>
           </div>
         </div>
 
@@ -1433,6 +1433,8 @@ function postJson(path, payload) {
 let latestEvents = [];
 
 function classLabel(row) {
+  const d = String(row.disposition || "");
+  if (d.startsWith("unidentified")) return "Awaiting pack";
   const c = row.class_uid, a = row.activity_id;
   if (c === null || c === undefined) return "—";
   return c + (a === null || a === undefined ? "" : "/" + a);
@@ -1468,7 +1470,10 @@ function renderEvents(rows) {
   rows.slice(0, 200).forEach((row, index) => {
     const tr = el("tr", "clickable");
     tr.append(el("td", "mono", fmtTime(row.time) || "—"));
-    const vendor = [row.vendor, row.product].filter(Boolean).join(" ");
+    const unidentified = String(row.disposition || "").startsWith("unidentified");
+    const vendor = unidentified
+      ? "Unidentified source"
+      : [row.vendor, row.product].filter(Boolean).join(" ");
     tr.append(el("td", null, vendor || "—"));
     tr.append(el("td", "mono", classLabel(row)));
     tr.append(el("td", "mono", row.src_ip ? row.src_ip + (row.src_port ? ":" + row.src_port : "") : "—"));
@@ -1742,7 +1747,14 @@ function fmtTime(nanos) {
 }
 
 /* One plain sentence, built only from fields this event actually has. */
+function isUnidentifiedEvent(ev) {
+  return get(ev, "unmapped.ulpf_disposition") === "unidentified";
+}
+
 function headlineFor(ev) {
+  if (isUnidentifiedEvent(ev)) {
+    return "Unidentified source sent a log that no Source Pack recognizes yet — preserved and queued for onboarding.";
+  }
   const cls = ev.class_uid;
   const className = label(CLASS_NAME, cls) || ("class " + cls);
   const act = ACTIVITY[cls] ? label(ACTIVITY[cls], ev.activity_id) : null;
@@ -1819,9 +1831,10 @@ function fillSummary(ev) {
 function fillSource(ev) {
   const dl = $("d-source");
   dl.replaceChildren();
-  row(dl, "Vendor", get(ev, "metadata.product.vendor_name"));
-  row(dl, "Product", get(ev, "metadata.product.name"));
-  row(dl, "Source pack", get(ev, "metadata.log_provider"), "the parser that claimed it");
+  const unidentified = isUnidentifiedEvent(ev);
+  row(dl, "Vendor", unidentified ? "Not identified yet" : get(ev, "metadata.product.vendor_name"));
+  row(dl, "Product", unidentified ? "Not identified yet" : get(ev, "metadata.product.name"));
+  row(dl, "Source pack", unidentified ? "None — awaiting onboarding" : get(ev, "metadata.log_provider"), "the parser that claimed it");
   row(dl, "Log format", get(ev, "metadata.log_format"));
   row(dl, "OCSF version", get(ev, "metadata.version"));
   row(dl, "Event id", get(ev, "metadata.uid"));
@@ -1912,9 +1925,17 @@ function fillExplain(ev) {
   const pack = get(ev, "metadata.log_provider");
   const fmt = get(ev, "metadata.log_format");
 
-  add("This device sent a line of text in its own format. ULPF stored those exact bytes, worked out "
-    + "which device it came from, translated the fields into one shared vocabulary called <b>OCSF</b>, "
-    + "and attached a tamper-evident seal. The panels above are that result.");
+  const unidentified = isUnidentifiedEvent(ev);
+  if (unidentified) {
+    add("This is <b>not an extra event and not a successful translation</b>. It is the lossless fallback record "
+      + "for the original log shown above. No Source Pack recognized the format, so ULPF preserved the exact "
+      + "bytes, marked the record <code>unidentified</code>, queued its template under <b>Needs a pack</b>, "
+      + "and attached integrity evidence without inventing field meanings.");
+  } else {
+    add("This device sent a line of text in its own format. ULPF stored those exact bytes, worked out "
+      + "which device it came from, translated the fields into one shared vocabulary called <b>OCSF</b>, "
+      + "and attached a tamper-evident seal. The panels above are that result.");
+  }
 
   if (pack) {
     add("<b>Which parser claimed it.</b> The <code>" + esc(pack) + "</code> source pack recognised the line"
@@ -1938,10 +1959,17 @@ function fillExplain(ev) {
   }
 
   if (sev) {
-    add("<b>How serious.</b> <code>severity_id " + ev.severity_id + "</code> is <b>" + esc(sev)
-      + "</b> on the OCSF scale: 0 Unknown, 1 Informational, 2 Low, 3 Medium, 4 High, 5 Critical, 6 Fatal. "
-      + "It is derived from what the device itself reported, mapped onto that scale by the source pack "
-      + "— ULPF does not invent a severity of its own.");
+    if (unidentified) {
+      add("<b>Severity is not known yet.</b> Because no Source Pack interpreted this line, "
+        + "<code>severity_id " + ev.severity_id + "</code> is the fallback record's neutral <b>" + esc(sev)
+        + "</b> value. It is not a claim that the device reported this severity. The eventual Source Pack must "
+        + "map <code>SEV1</code> using verified vendor semantics.");
+    } else {
+      add("<b>How serious.</b> <code>severity_id " + ev.severity_id + "</code> is <b>" + esc(sev)
+        + "</b> on the OCSF scale: 0 Unknown, 1 Informational, 2 Low, 3 Medium, 4 High, 5 Critical, 6 Fatal. "
+        + "It is derived from what the device itself reported, mapped onto that scale by the source pack "
+        + "— ULPF does not invent a severity of its own.");
+    }
   }
 
   const um = ev.unmapped || {};
@@ -2275,6 +2303,38 @@ function renderPacks(list) {
 }
 
 /* ------------------------------------------------------------- clusters */
+let openClusterSamples = null;
+
+function appendClusterSamples(body, cluster) {
+  const detail = el("tr");
+  const cell = el("td");
+  cell.colSpan = 5;
+  cell.style.background = "var(--sunken)";
+  cell.style.padding = "14px 16px";
+  const heading = el("div", null, "Representative events in " + cluster.id);
+  heading.style.fontWeight = "650";
+  heading.style.marginBottom = "8px";
+  cell.append(heading);
+  const note = el("div", "sub",
+    "Showing " + (cluster.samples || []).length.toLocaleString() +
+    " retained examples from " + cluster.count.toLocaleString() +
+    " matching events. These are individual raw records, not generated summaries.");
+  note.style.marginBottom = "10px";
+  cell.append(note);
+  const records = el("div", "codebox");
+  records.style.maxHeight = "320px";
+  records.style.overflow = "auto";
+  (cluster.samples || []).forEach((sample, index) => {
+    const line = el("div", "mono", (index + 1) + ". " + sample);
+    line.style.padding = "5px 0";
+    line.style.borderBottom = "1px solid var(--border)";
+    records.append(line);
+  });
+  cell.append(records);
+  detail.append(cell);
+  body.append(detail);
+}
+
 function renderClusters(list, overflow) {
   const body = $("clusters-body");
   body.replaceChildren();
@@ -2335,13 +2395,19 @@ function renderClusters(list, overflow) {
     const actions = el("td");
     const ai = el("button", "btn sm", "AI Copilot");
     const heur = el("button", "btn sm", "Heuristic");
+    const samples = el("button", "btn sm", openClusterSamples === c.id ? "Hide samples" : "Samples");
     ai.addEventListener("click", () => generatePack(c.id, "ai", [ai, heur]));
     heur.addEventListener("click", () => generatePack(c.id, "heuristic", [ai, heur]));
-    const wrap = el("div"); wrap.style.display = "flex"; wrap.style.gap = "6px";
-    wrap.append(ai, heur);
+    samples.addEventListener("click", () => {
+      openClusterSamples = openClusterSamples === c.id ? null : c.id;
+      renderClusters(list, overflow);
+    });
+    const wrap = el("div"); wrap.style.display = "flex"; wrap.style.gap = "6px"; wrap.style.flexWrap = "wrap";
+    wrap.append(samples, ai, heur);
     actions.append(wrap);
     tr.append(actions);
     body.append(tr);
+    if (openClusterSamples === c.id) appendClusterSamples(body, c);
   });
 }
 
@@ -2967,6 +3033,8 @@ async function refresh() {
    rules out a CDN, and a two-column flow needs no general solver -- the whole
    layout is the two stacking passes in flowLayout below. */
 
+const PENDING = "pending";
+
 const FLOW = {
   rows: [],          // left column: one per pack, plus the unrecognised band
   cols: [],          // right column: one per shared meaning, plus "not understood"
@@ -3018,7 +3086,17 @@ function plainMeaning(classUid) {
 const SVG_NS = "http://www.w3.org/2000/svg";
 const FLOW_PAD = { top: 16, bottom: 14, left: 20, right: 20 };
 const FLOW_BAR = 11;          // width of a column's solid bar
-const FLOW_LABEL = 190;       // room reserved for a label beside its bar
+const FLOW_LABEL = 190;       // minimum room reserved for a label beside its bar
+
+/* How much room a column's labels get, for a panel of this width.
+   A fixed 190 was the whole gutter at any size, so going full screen widened
+   the bands and left the text truncated exactly as before -- the one place a
+   reader has room to spare was the one place it made no difference. A share of
+   the width, floored at the old value and capped so the bands never become a
+   thin ribbon between two walls of text. */
+function labelReserve(width) {
+  return Math.max(FLOW_LABEL, Math.min(340, Math.round(width * 0.23)));
+}
 const FLOW_GAP = 13;          // vertical gap between stacked entries
 const FLOW_MIN = 3;           // a path with any traffic must stay visible
 
@@ -3097,10 +3175,23 @@ function flowUpdate(stats, events, packs, clusters) {
   for (const packId of Object.keys(byPack)) {
     const count = byPack[packId];
     if (!count) continue;
-    const share = FLOW.shares.get(packId);
-    if (!share) continue;               // counted, but not yet seen in the window
     rows.push({ id: "p:" + packId, kind: "device", label: packName[packId] || packId,
                 sub: packId, value: count });
+    const share = FLOW.shares.get(packId);
+    if (!share) {
+      // Counted by the collector but not present in the sampled window, so
+      // which OCSF class its records became is not known yet.
+      //
+      // This used to `continue`, dropping the source from the picture
+      // entirely. Feed one burst per product and the window holds only the
+      // last of them, so the diagram drew a single band and the counter above
+      // it read "0 products sending logs" while the panel beside it reported
+      // thousands of records normalised by eight packs. A picture that
+      // silently omits its subject is worse than an empty one.
+      colTotals[PENDING] = (colTotals[PENDING] || 0) + count;
+      links.push({ from: "p:" + packId, to: "c:" + PENDING, value: count });
+      continue;
+    }
     for (const cls of Object.keys(share)) {
       const value = count * share[cls];
       colTotals[cls] = (colTotals[cls] || 0) + value;
@@ -3110,6 +3201,12 @@ function flowUpdate(stats, events, packs, clusters) {
 
   const cols = [];
   for (const cls of Object.keys(colTotals)) {
+    if (cls === PENDING) {
+      cols.push({ id: "c:" + PENDING, kind: "meaning", label: "Being classified",
+                  under: "counted exactly · class pending",
+                  sub: "awaiting a sampled record", value: colTotals[cls] });
+      continue;
+    }
     const ocsf = CLASS_NAME[cls] || ("Class " + cls);
     const plain = plainMeaning(cls);
     cols.push({
@@ -3128,13 +3225,23 @@ function flowUpdate(stats, events, packs, clusters) {
   if (unknown > 0) {
     const shapes = (clusters || []).length;
     rows.push({ id: "u:in", kind: "unknown", value: unknown,
-                label: shapes ? shapes + (shapes === 1 ? " shape we cannot read yet"
-                                                      : " shapes we cannot read yet")
-                              : "Not recognised",
-                sub: "no pack detector matched" });
+                // "cannot read" is too strong for a record that was parsed
+                // far enough to be timestamped, fingerprinted and indexed.
+                // What is unrecognised is the product, not the text.
+                label: shapes ? shapes + (shapes === 1 ? " device without a pack"
+                                                      : " devices without a pack")
+                              : "No pack yet",
+                sub: "no Source Pack claims this shape" });
     cols.push({ id: "u:out", kind: "unknown", label: "Not understood yet",
-                under: "waiting for someone to teach ULPF this device",
-                sub: "kept in the vault, waiting for a pack", value: unknown });
+                // Not "waiting for someone to teach ULPF this device". That
+                // reads as an apology, and it is not what happened: the
+                // records were read, timestamped, fingerprinted, vaulted and
+                // emitted as valid OCSF. The only thing missing is the vendor
+                // mapping. Say what is true of them, in the same breath as
+                // what is missing, because this band is the one a sceptical
+                // reader looks at hardest.
+                under: "kept in full and searchable · no pack yet",
+                sub: "stored in full, queued for onboarding", value: unknown });
     links.push({ from: "u:in", to: "u:out", value: unknown });
   }
 
@@ -3294,8 +3401,9 @@ function flowLayout(width, height) {
   place(FLOW.rows);
   place(FLOW.cols);
 
-  const leftX = FLOW_PAD.left + FLOW_LABEL;
-  const rightX = width - FLOW_PAD.right - FLOW_LABEL - FLOW_BAR;
+  const reserve = labelReserve(width);
+  const leftX = FLOW_PAD.left + reserve;
+  const rightX = width - FLOW_PAD.right - reserve - FLOW_BAR;
   for (const r of FLOW.rows) { r.x = leftX; r.cursor = r.y; }
   for (const c of FLOW.cols) { c.x = rightX; c.cursor = c.y; }
   return { leftX, rightX };
@@ -3400,13 +3508,17 @@ function flowDraw() {
       "text-anchor": anchorEnd ? "end" : "start", "dominant-baseline": "middle",
     });
     amount.textContent = Math.round(n.value).toLocaleString() + " logs";
+    amount.dataset.full = amount.textContent;
     // The OCSF name, small and grey, under the plain one. A jury reads the
     // line above it; a technical judge sees the standard is really there.
     const under = n.under ? svgEl("text", {
       x: tx, y: n.y + n.h / 2 + 25, class: "ocsf",
       "text-anchor": anchorEnd ? "end" : "start", "dominant-baseline": "middle",
     }) : null;
-    if (under) under.textContent = n.under;
+    if (under) {
+      under.textContent = n.under;
+      under.dataset.full = n.under;
+    }
     // Only label a band tall enough to hold the text; a sliver would print its
     // name straight through its neighbour's.
     if (n.h >= 34 && under) { g.append(label); g.append(amount); g.append(under); }
@@ -3427,8 +3539,13 @@ function flowDraw() {
   // reserved for it. "Apache HTTP Server (NCSA combined)" used to run off the
   // left edge of the panel because the old limit counted characters while the
   // reserve is in pixels.
-  for (const node of gNodes.querySelectorAll("text.lbl")) {
-    fitLabel(node, node.dataset.full || node.textContent, FLOW_LABEL - 14);
+  // Every line, not only the main label. The count and the OCSF caption were
+  // never measured, so a long caption -- the unrecognised band's especially --
+  // ran past the gutter and off the edge of the panel. They share the label's
+  // reserve because they sit in the same column.
+  const reserve = labelReserve(svg.clientWidth || width) - 14;
+  for (const node of gNodes.querySelectorAll("text.lbl, text.amt, text.ocsf")) {
+    fitLabel(node, node.dataset.full || node.textContent, reserve);
   }
 }
 
