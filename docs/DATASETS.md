@@ -44,11 +44,18 @@ non-perimeter source move the headline number.
 | Web | `apache-access.log` | Honeynet SotM34 | 3,554 | 99.9719% |
 | Web | `Apache_2k.log` | Loghub | 2,000 | 100.0000% |
 | Auth | `OpenSSH_2k.log` | Loghub | 2,000 | 100.0000% |
-| Host | `linux-messages.log` | Honeynet SotM34 | 1,166 | 99.1424% |
+| Host | `linux-messages.log` | Honeynet SotM34 | 1,166 | 99.8285% |
 | Host | `Linux_2k.log` | Loghub | 2,000 | 99.9500% |
-| Mail | `sendmail.log` | Honeynet SotM34 | 1,172 | 99.3174% |
-| Proxy | `Proxifier_2k.log` | Loghub | 2,000 | 81.1000% |
-| **Total** | | | **11,094,677** | **99.8485%** |
+| Mail | `sendmail.log` | Honeynet SotM34 | 1,172 | 100.0000% |
+| Proxy | `Proxifier_2k.log` | Loghub | 2,000 | 100.0000% |
+| **Total** | | | **11,094,677** | **re-measure pending** |
+
+The per-corpus figures above are each measured. The aggregate is not restated
+here because the Proxifier fix changed one of its inputs and the full sweep has
+not been re-run since — Blue Coat alone exceeds the 30-minute cap. It was
+99.8485% before that fix and can only have risen; quoting a number we have not
+measured, in a table whose whole purpose is that every number was measured,
+would be the wrong trade.
 
 `zeek-conn.log` is counted in the total above — it has been fetched and
 measured, unlike Blue Coat, which has not (see note). Both are `OPTIONAL_CORPORA`
@@ -188,12 +195,22 @@ because Thunderbird needs most of an afternoon.
 
 They are named rather than rounded away.
 
-- **Proxifier, 18.9%** — the corpus contains many non-connection lines
-  (lifetime summaries, DNS resolution notices, program start banners) that are
-  not network events. The pack claims connection records only.
-- **Loghub Linux, 3.6%** and **Honeynet syslog, 5.7%** — a long tail of daemon
-  messages from programs with no pack. Each is still vaulted, fingerprinted and
-  emitted as a schema-valid record.
+- **Proxifier — was 18.9%, now none.** This entry used to explain the shortfall
+  as non-connection lines the pack deliberately ignored. That explanation was
+  wrong, and worth recording as wrong: the 378 missing records were connection
+  closes, which the pack was always meant to claim and whose extraction
+  patterns already handled them correctly. The detector was matching the
+  literal `.exe - `, and Proxifier writes `chrome.exe *64 - host:443 close`
+  when the process carries an architecture suffix, so that run of text never
+  occurs and every such line was handed to the unknown-log path. Widening the
+  detector to the shape of the line takes the corpus from 81.1000% to
+  100.0000%. A design decision and an unnoticed bug read identically from the
+  outside, which is why the shortfall survived this long.
+- **Loghub Linux, 1 record of 2,000** and **Honeynet syslog, 2 of 1,166** — a
+  long tail of daemon messages from programs with no pack. Each is still
+  vaulted, fingerprinted and emitted as a schema-valid record. (The 3.6% and
+  5.7% quoted here previously predated the syslog-tag detector and the
+  repeated-message pack, and were never re-measured after either landed.)
 - **Snort, 1 record of 69,039** — a genuinely corrupt line in the source data:
   `213.158.110.22.-> 11.11.79.73`, a stray dot where a space belongs.
 - **Apache access, 1 record of 3,554** — a truncated request line.

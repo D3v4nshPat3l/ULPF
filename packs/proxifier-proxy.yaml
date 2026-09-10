@@ -9,8 +9,21 @@ identity:
   log_format: proxifier
   priority: 45
   detect:
+    # The open line names the proxy explicitly and is unambiguous on its own.
     - contains_all: [" open through proxy "]
-    - contains_all: [".exe - "]
+    # Everything else Proxifier writes -- close, error, timeout -- is matched
+    # on the shape of the line instead: a bracketed "[MM.DD HH:MM:SS] " stamp
+    # followed by the process that opened the connection.
+    #
+    # This clause used to be the literal ".exe - ", which silently excluded
+    # every process carrying an architecture suffix. Proxifier writes those as
+    # "chrome.exe *64 - host:443 close, ...", so the run of text the detector
+    # was looking for does not occur in them and the whole record was handed to
+    # the unknown-log path -- while the extract patterns below had handled the
+    # suffix correctly all along. On the Loghub corpus that one missing case is
+    # the majority of the file.
+    - contains_all: [".exe"]
+      contains_any: [" - ", " *"]
 
 extract:
   - decoder: regex
@@ -51,3 +64,29 @@ fixtures:
       dst_endpoint.port: 5070
       actor.process.name: chrome.exe
       connection_info.protocol_name: HTTPS
+
+  # The close line, with the architecture suffix that the old detector could
+  # not see. Real Loghub lines, one per size shape, because the humanised
+  # "(6.56 KB)" is optional on each side independently and the lifetime is
+  # written either as a clock or as "<1 sec".
+  - note: Close line, humanised sizes on both sides.
+    raw: '[07.26 13:30:39] chrome.exe *64 - www.baidu.com:80 close, 6719 bytes (6.56 KB) sent, 644545 bytes (629 KB) received, lifetime 00:05'
+    expect:
+      class_uid: 4001
+      dst_endpoint.hostname: www.baidu.com
+      dst_endpoint.port: 80
+      actor.process.name: chrome.exe
+  - note: Close line, humanised size on one side only.
+    raw: '[07.26 13:31:21] chrome.exe *64 - www.googletagservices.com:443 close, 1257 bytes (1.22 KB) sent, 540 bytes received, lifetime 04:00'
+    expect:
+      class_uid: 4001
+      dst_endpoint.hostname: www.googletagservices.com
+      dst_endpoint.port: 443
+      actor.process.name: chrome.exe
+  - note: Close line, no humanised sizes, sub-second lifetime.
+    raw: '[07.26 13:30:45] chrome.exe *64 - ss.bdimg.com:80 close, 0 bytes sent, 0 bytes received, lifetime 00:11'
+    expect:
+      class_uid: 4001
+      dst_endpoint.hostname: ss.bdimg.com
+      dst_endpoint.port: 80
+      actor.process.name: chrome.exe

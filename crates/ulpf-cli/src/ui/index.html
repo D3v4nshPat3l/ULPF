@@ -1594,10 +1594,44 @@ async function refreshRawFeed() {
 }
 
 window.refreshRawFeed = refreshRawFeed;
-$("btn-raw-refresh").addEventListener("click", refreshRawFeed);
+
+/* Refresh was wired correctly and still read as broken. With "Follow live" on,
+   the two-second poll already refreshes this list, so a click landed on a list
+   about to change anyway; with it off, the fetch happened silently. Say what
+   happened instead. */
+const rawRefreshBtn = $("btn-raw-refresh");
+const rawRefreshLabel = rawRefreshBtn.textContent;
+let rawRefreshTimer = 0;
+
+function syncRawRefreshButton() {
+  if (rawRefreshTimer) return;   // mid-confirmation, leave the message up
+  const following = $("raw-follow").checked;
+  rawRefreshBtn.disabled = following;
+  rawRefreshBtn.textContent = following ? "Following live" : rawRefreshLabel;
+  rawRefreshBtn.title = following
+    ? "This list already updates every two seconds. Turn off Follow live to refresh it by hand."
+    : "Fetch the newest records now";
+}
+
+rawRefreshBtn.addEventListener("click", async () => {
+  const before = rawRecords.length ? rawRecords[0].locator : null;
+  rawRefreshBtn.disabled = true;
+  rawRefreshBtn.textContent = "Refreshing…";
+  await refreshRawFeed();
+  const after = rawRecords.length ? rawRecords[0].locator : null;
+  rawRefreshBtn.textContent = after && after !== before ? "Updated" : "No new records";
+  window.clearTimeout(rawRefreshTimer);
+  rawRefreshTimer = window.setTimeout(() => {
+    rawRefreshTimer = 0;
+    syncRawRefreshButton();
+  }, 1400);
+});
+
 $("raw-follow").addEventListener("change", () => {
+  syncRawRefreshButton();
   if ($("raw-follow").checked) refreshRawFeed();
 });
+syncRawRefreshButton();
 
 /* --------------------------------------------------------------- drawer */
 /* Enum captions below are taken from the OCSF 1.9.0 schema vendored in
@@ -3779,15 +3813,27 @@ function trendDraw() {
     tip.classList.remove("on");
   });
 
-  const full = $("trend-full");
-  full.addEventListener("click", () => {
-    if (document.fullscreenElement) document.exitFullscreen();
-    else if ($("trend-panel").requestFullscreen) {
-      $("trend-panel").requestFullscreen().catch(() => {
-        full.textContent = "Full screen unavailable"; full.disabled = true;
-      });
+  /* Full screen, for both panels. `flow-full` sat in the markup from the start
+     with nothing listening to it -- a button that looked live and did nothing
+     on every click. Binding is shared now so the two cannot drift apart. */
+  function bindFullScreen(buttonId, panelId) {
+    const button = $(buttonId), panel = $(panelId);
+    if (!button || !panel) return;
+    if (!panel.requestFullscreen) {
+      button.textContent = "Full screen unavailable";
+      button.disabled = true;
+      return;
     }
-  });
+    button.addEventListener("click", () => {
+      if (document.fullscreenElement) { document.exitFullscreen(); return; }
+      panel.requestFullscreen().catch(() => {
+        button.textContent = "Full screen unavailable";
+        button.disabled = true;
+      });
+    });
+  }
+  bindFullScreen("trend-full", "trend-panel");
+  bindFullScreen("flow-full", "flow-panel");
   document.addEventListener("fullscreenchange", () => {
     requestAnimationFrame(() => { trendDraw(); mapDraw(); });
   });

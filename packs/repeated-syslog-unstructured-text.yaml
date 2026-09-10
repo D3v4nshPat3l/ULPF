@@ -1,0 +1,62 @@
+identity:
+  id: repeated-syslog-unstructured-text
+  vendor: Unknown
+  product: Unknown
+  version: null
+  log_format: syslog-unstructured-text
+  detect:
+  # Generated as the bare word "repeated", which would claim any line anywhere
+  # containing it. The syslog notice this pack exists for has a fixed phrase,
+  # so match that instead.
+  - contains_all:
+    - 'last message repeated'
+    contains_any: []
+    contains_none: []
+    starts_with: null
+    syslog_tag: false
+    loghub_syslog_prefix: false
+  priority: 1000
+extract:
+- decoder: syslog
+  sep: null
+  delim: null
+  headers: []
+  patterns: []
+  optional: false
+map:
+  # Generated as 4001, Network Activity. This record is a syslog housekeeping
+  # notice -- the logging service reporting that it suppressed duplicates --
+  # and nothing about it is network traffic. Left as 4001 it would inject
+  # phantom connections into precisely the queries an analyst runs to find
+  # real ones. 1008, Event Log Activity, is "actions pertaining to the
+  # system's event logging service", which is what this is, and is what
+  # linux-syslog-host already emits for the same host's other lines.
+  activity_id: 0
+  class_uid: 1008
+  severity_id: 1
+enums: {}
+fixtures:
+- raw: Mar  6 16:14:48 combo last message repeated 4 times
+  expect:
+    activity_id: 0
+    class_uid: 1008
+    severity_id: 1
+  note: Real Loghub Linux syslog line.
+- raw: Feb 24 09:02:28 combo last message repeated 3 times
+  expect:
+    activity_id: 0
+    class_uid: 1008
+    severity_id: 1
+  note: Real Loghub Linux syslog line.
+- raw: Mar  7 11:59:00 combo last message repeated 3 times
+  expect:
+    activity_id: 0
+    class_uid: 1008
+    severity_id: 1
+  note: Real Loghub Linux syslog line.
+provenance:
+  author: generated
+  created: '1789049420941870000'
+  cluster_id: null
+  approved_by: console operator
+  model: heuristic-v1
