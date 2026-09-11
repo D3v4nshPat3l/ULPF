@@ -13,7 +13,7 @@ record it has seen.
 It is written in Rust, runs from a single binary, and needs no network at
 runtime: no CDN, no web font, no telemetry, no model API.
 
-![The operator console normalizing seven live corpora](docs/screenshots/console-overview.png)
+![The operator console normalizing eight products in one vocabulary](docs/screenshots/console-overview.png)
 
 Every number in that screenshot came from replaying real public capture data —
 Honeynet Project, Loghub and the MACCDC 2012 capture — over UDP into the
@@ -131,6 +131,26 @@ chain sequence — over a live table showing which pack claimed each record. The
 IP addresses are real: `11.11.79.x` is the Honeynet subnet, and the external
 addresses are genuine scan and attack traffic from the capture.
 
+### The Live Map — every source, and what its records became
+
+![Live Map](docs/screenshots/console-livemap.png)
+
+The project's whole claim in one picture: each product on the left, the shared
+OCSF meaning its records became on the right, and a band whose width is how
+many took that path. Eight products becoming six meanings, with the OCSF class
+named under each so a technical reader can check the mapping rather than take
+it on trust.
+
+The red band matters as much as the rest. Records no Source Pack recognised are
+part of the same flow, not a footnote — a picture showing only the successes
+would be claiming something this project has not earned. They are read,
+timestamped, fingerprinted, vaulted and emitted as valid OCSF; what is missing
+is the vendor's field mapping, not the ability to read them.
+
+A device's total is exact, from the collector's own counters. Where a product
+emits more than one OCSF class, the split between them is read from the live
+window and the diagram says so rather than presenting an estimate as a count.
+
 ### The traffic simulator (`/dev`)
 
 ![Traffic simulator](docs/screenshots/simulator.png)
@@ -168,12 +188,60 @@ device. The candidate is scored against fixtures built from the actual samples
 before anyone is asked to approve it, and the review pane names which generator
 produced it. **Nothing activates without human approval.**
 
+A draft is always something an operator can edit. Where no single token
+identifies a source, the generator falls back to the longest phrase every
+sample shares, and then to the strongest phrase a majority share — drafting for
+the dominant format and leaving the rest unclaimed, because a cluster is not
+always one source. Fixtures are drawn from the samples the detector actually
+claims, so a generated pack cannot fail its own fixtures.
+
+#### Ten devices ULPF has never seen
+
+Onboarding cannot be demonstrated on a machine where every real corpus already
+has a pack, so ten fictional devices exist to be unknown:
+
+```bash
+python tools/make_demo_source.py          # -> realdata/, all ten
+```
+
+They differ in **wire format**, not just in field values — `key=value`, JSON, a
+vendor pipe layout, fixed columns, a bracketed syslog tag with a pid,
+tab-delimited columns, angle-bracket attributes, bracketed sections with a
+sentence, semicolon `key:value`, and a second JSON vocabulary that has to be
+told from the first by its keys rather than its syntax. Each drafts a different
+decoder chain, which is the point.
+
+Every one is fictional, addressed only in RFC 5737 documentation ranges, and
+listed in the `SYNTHETIC` set that `tools/measure_coverage.py` asserts on — so
+**no coverage or throughput figure in this project can include them**. The
+simulator labels them `Synthetic` in `/dev` for the same reason.
+
 ### Installed Source Packs
 
 ![Source packs](docs/screenshots/console-packs.png)
 
 Every loaded pack with its decoder chain and its own fixture score. A pack that
 cannot parse its own fixtures does not reach this list.
+
+### The original bytes, retrieved from the vault
+
+![Raw logs](docs/screenshots/console-rawlogs.png)
+
+Normalization is where most pipelines lose the evidence: the parsed fields are
+kept and the line that produced them is gone. Every line in this view was read
+back **out of the vault by its locator** — it is not a copy the console kept,
+it is the same retrieval an investigator would run months later — and checked
+against the SHA-256 recorded when the bytes first arrived. Select a record to
+see its original text beside the fingerprint taken at ingest.
+
+### Analytics — per-source rate and coverage
+
+![Analytics](docs/screenshots/console-analytics.png)
+
+One card per source: its share of traffic, its own arrival rate, and the
+coverage its pack is achieving. A source whose coverage drops is a vendor that
+changed its format, and this is where that shows up before anyone notices a
+detection has gone quiet.
 
 ### Integrity verification
 
@@ -191,6 +259,18 @@ original bytes stay retrievable and provably different from the altered
 record. Verification immediately reports
 `fingerprint mismatch: event content has been altered`. This is the core claim
 of the project, and it is a live test, not a slide.
+
+### Light and dark
+
+The console ships both, and follows the operating system unless told otherwise;
+the toggle in the sidebar stamps an explicit choice that wins in either
+direction and survives a reload. A SOC runs around the clock, often in a
+deliberately dim room, and analysts split on which they want — while a
+projector in a bright hall wants the light one. Dark is a tuned second palette
+rather than an inversion: the page lifts off pure black so panels still read as
+raised, the navigation stays the darkest surface, and every accent gains
+lightness while losing saturation, because a blue that is calm on white
+vibrates on near-black.
 
 ### Assistant
 
@@ -504,14 +584,27 @@ a *different* 307,524-record capture (SotM30) and never tuned on SotM34.
 | 16,000 EPS | 240,000 | 195,000 | 18.8% |
 | 25,000 EPS | 375,000 | 203,000 | 45.9% |
 
-**8,000 EPS sustained, lossless, per collector**, with every accepted record
-durable before it is emitted. That projects to 691 million events/day.
+Two rates are measured, and they answer different questions. Quoting one for
+the other is the easiest way to overstate this project, so both are given.
 
-One billion per day needs 11,574 EPS, so a single node on this hardware does
-not reach it — it needs two collectors. Chains are per-collector and verify
-independently, so that is a deployment decision rather than a code change. The
-full method, and the three limits found by measuring, are in
-[docs/THROUGHPUT.md](docs/THROUGHPUT.md).
+**File ingest — 13,290 events/sec.** How fast the pipeline processes records it
+already has: the Blue Coat capture, 8,130,590 real records, end to end and
+vaulted, parsed, normalized, fingerprinted and chained. Multiplied out, that is
+1,148,256,000 events per day per collector. It is arithmetic on a measured
+rate, not a claim to have ingested a billion records, and the distinction is
+kept in [docs/THROUGHPUT.md](docs/THROUGHPUT.md) as well as here.
+
+**UDP ingest — 8,000 EPS lossless**, per the table above: how fast a collector
+can be *sent* records over a socket before the kernel discards them. That
+ceiling is the socket, not the pipeline. The table was also measured on a
+different machine and before a quadratic Merkle-root recomputation was removed
+— a change worth roughly 5× on long runs — so it is a floor rather than a
+current figure.
+
+That quadratic is also why this corpus is quotable at all. Blue Coat used to
+exceed a thirty-minute cap and was excluded from every published figure; with
+the recomputation gone it completes, and it is now the corpus the file-ingest
+rate is measured on precisely because it is the largest.
 
 ---
 
@@ -586,7 +679,8 @@ Ordered by what would most change the system's standing, not by ease.
 
 ### 1. Second collector and horizontal scale
 
-One node sustains 8,000 EPS; the 1B/day target needs 11,574. Chains are
+One node sustains 13,290 events/sec on file ingest and 8,000 EPS over UDP;
+the 1B/day target needs 11,574. Chains are
 already per-collector and verify independently, so what is missing is the
 deployment story: a documented two-node configuration and a verifier that
 consumes several chains at once.
@@ -640,9 +734,12 @@ Stated plainly, because a reviewer will find them anyway.
   which pack produced a row, but a pack edited without a version bump looks
   identical to its predecessor, so a training set is reproducible only as far
   as the pack files are unchanged.
-- **One collector does not reach 1B/day.** 8,000 EPS lossless is 69% of the
-  target. Claiming otherwise would require the 12,000 EPS figure, which drops
-  5.0% of records.
+- **1B/day is arithmetic, not a sustained run.** File ingest measures 13,290
+  events/sec over 8,130,590 real records, and 13,290 x 86,400 is 1.148 billion.
+  Multiplying a measured rate out to a day is not the same as having run for a
+  day, and this project does not claim it has. Over UDP the lossless ceiling is
+  8,000 EPS, below the 11,574 the target needs, because that path is bounded by
+  the socket rather than the pipeline.
 - **Coverage is 99.8834%, not 100%.** The remainder is enumerated in
   `docs/DATASETS.md`. Unparsed records are still vaulted, fingerprinted and
   emitted.
