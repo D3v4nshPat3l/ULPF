@@ -47,7 +47,7 @@ addresses, is never measured, and never appears in a published number.
 
 ## The problem
 
-A security team receives logs from dozens of vendors in mutually incompatible
+Security teams receives logs from dozens of vendors in mutually incompatible
 formats. Each new device usually means a hand-written parser. Worse, most
 normalization pipelines are lossy: they extract the fields someone thought of
 in advance and throw the rest away, severing the link between the tidy record
