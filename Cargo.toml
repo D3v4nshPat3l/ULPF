@@ -39,7 +39,7 @@ anyhow = "1"
 # Crypto
 blake3 = "1"
 sha2 = "0.10"
-ed25519-dalek = { version = "2", features = ["rand_core", "pkcs8", "pem"] }
+ed25519-dalek = { version = "3", features = ["rand_core", "pkcs8", "pem"] }
 rand = "0.8"
 hex = "0.4"
 
