@@ -17,7 +17,7 @@ rand = { workspace = true }
 # use. Same choice ulpf-cli makes for the signing key — kept as a separate
 # declaration here rather than a shared dependency on ulpf-cli, since the
 # vault must not depend on the binary crate that depends on it.
-chacha20poly1305 = "0.10"
+chacha20poly1305 = "0.11"
 argon2 = "0.5"
 
 [dev-dependencies]
