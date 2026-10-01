@@ -67,7 +67,7 @@ jobs:
     # one downloads.
     - name: Cache public corpora
       id: corpora
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: realdata
         key: ulpf-corpora-set2-${{ runner.os }}
